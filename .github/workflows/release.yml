@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      id-token: write # required for NuGet Trusted Publishing's OIDC token exchange
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Verify tag matches Directory.Build.props version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PROPS_VERSION="$(grep -oPm1 '(?<=<Version>)[^<]+' Directory.Build.props)"
+          if [ "$TAG" != "$PROPS_VERSION" ]; then
+            echo "::error::Release tag ($TAG) does not match Directory.Build.props <Version> ($PROPS_VERSION)"
+            exit 1
+          fi
+
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - run: dotnet test -c Release --no-build
+      # No project/solution argument: dotnet pack only accepts ONE project|solution path.
+      # Packing the whole repo relies on IsPackable (true only for src/QueryFarm.Vgi — see the
+      # per-folder Directory.Build.props files) to select exactly the one publishable package.
+      - run: dotnet pack -c Release --no-build -o ./artifacts/nupkg
+
+      # Trusted Publishing (https://learn.microsoft.com/nuget/nuget-org/trusted-publishing):
+      # exchanges this job's short-lived GitHub OIDC token (id-token: write above) for a NuGet API
+      # key that's valid for 1 hour and single-use — nothing long-lived to store or rotate.
+      # Requires a Trusted Publishing policy configured on nuget.org for this exact repo owner
+      # (Query-farm) + repository (vgi-csharp) + workflow file (release.yml) + environment
+      # (nuget, matching this job's `environment:` above). See CLAUDE.md/README.md or ask for the
+      # step-by-step nuget.org setup — mirrors vgi-rpc-csharp's already-live policy exactly.
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: NuGet push
+        run: >
+          dotnet nuget push ./artifacts/nupkg/*.nupkg
+          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
