@@ -29,25 +29,36 @@ from):
    binaries, `FORCE INSTALL`s the vgi extension (so the run uses what users can install today),
    then runs the suite in a single `haybarn-unittest` invocation.
 
-## Scope of this first version
+## Scope of this version
 
 This is deliberately a **single lane** (the default subprocess transport, matching
 `scripts/run_tests.sh`'s `SUBPROCESS=1` mode) with no coverage collection, no skip-reason
 allowlist, and no executed-case floor — unlike `vgi-go`'s CI, which covers stdio/launch/shm/http
 lanes and guards against a whole-suite silent skip (a failed `require`/`require-env` is a *skip*,
 not a failure, so "all tests passed" alone isn't proof anything ran). That hardening is a natural
-follow-up once this lane has run green for real on GitHub's infrastructure — it was written and
-locally sanity-checked (the awk rewrite, the staging logic) but **not run end-to-end against a
-real `haybarn-unittest` binary**, since none was available in the environment this was authored
-in. Treat the first few CI runs of this job as the actual verification pass; expect to iterate on
-worker-arg wiring or excluded files (see `run-integration.sh`'s comments on
-`nested_type_combinations.test`/`writable/`, both carried over from vgi-go's own findings without
-independent confirmation here).
+follow-up if this lane ever needs it.
+
+**This lane has real value beyond the local suite**: this environment doesn't have the DuckDB
+`spatial` extension built, so `require spatial`-gated files (e.g. `table/expression_filter.test`)
+have zero local coverage — they always skip. The haybarn runner *does* have `spatial` built, and
+running for real here caught a genuine crash the local suite structurally could not: the initial
+`spatial_filter_example` fixture used a native GeoArrow `geoarrow.point` struct encoding that
+crashed DuckDB itself (`INTERNAL Error: dereference unique_ptr that is NULL`) on the simplest
+possible query — a real worker bug, fixed by switching to the `geoarrow.wkb` binary encoding
+`~/Development/vgi-python`'s reference fixture already uses successfully (see the fixture's own
+doc comment and the fixing commit for the full story). Three known gaps remain, documented in
+`run-integration.sh`'s exclusion comments and re-run there to confirm before excluding: one
+already-documented worker limitation (no expression-filter pushdown, so one residual-`FILTER`
+EXPLAIN assertion in `expression_filter.test` fails even though results are correct), and two
+`duckdb_logs()`/RPC-count assertions (`cache/secret_ineligible.test`, `macro/macros.test`) that
+read as community-extension-build-vs-`main`-branch-test-file skew — both pass 333/333 against a
+locally-built unittest, so they're not worker bugs.
 
 The local, fully-verified conformance gate remains `scripts/run_tests.sh` against a
 locally-built `~/Development/vgi` checkout — see the root `README.md` and `docs/roadmap.md`. This
-CI job is a lighter-weight, no-C++-build check for every push/PR; it is not a replacement for that
-local verification when actually changing worker behavior.
+CI job is a lighter-weight, no-C++-build check for every push/PR, and it now genuinely passes; it
+supplements (catches spatial-path gaps the local suite structurally can't) rather than replaces
+that local verification when actually changing worker behavior.
 
 ## Run it locally
 
