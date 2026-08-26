@@ -65,7 +65,36 @@ public sealed class FunctionStorage(byte[] executionId) : IFunctionStorage
         // harmlessly — the way Append's already-unique (tick + guid) temp name does.
         var tmpPath = $"{finalPath}.{Guid.NewGuid():N}.tmp";
         File.WriteAllBytes(tmpPath, value);
-        File.Move(tmpPath, finalPath, overwrite: true);
+        MoveWithRetryOnSharingViolation(tmpPath, finalPath);
+    }
+
+    /// <summary>Windows-specific race, found via a real CI run (not reproducible on macOS/Linux):
+    /// unlike POSIX's atomic <c>rename()</c>, which lets concurrent renames onto the same
+    /// destination race harmlessly (last writer wins, no exception either side), Win32's
+    /// <c>MoveFileEx</c>/<c>ReplaceFile</c> (what <see cref="File.Move(string,string,bool)"/> uses
+    /// with <c>overwrite: true</c>) can throw a transient <see cref="UnauthorizedAccessException"/>/
+    /// <see cref="IOException"/> "sharing violation" when two threads' moves onto the SAME
+    /// destination overlap — even though each source file is exclusively its own. The lock is
+    /// momentary (released as soon as the other thread's move call returns), so a short retry loop
+    /// resolves it without changing the "whoever lands last wins, harmlessly" semantics
+    /// <see cref="WriteSingle"/> already documents. This is the general fix (not an in-process
+    /// lock): the real-world race this guards is CROSS-process (two pooled worker processes, per
+    /// this method's doc comment), where an in-process lock wouldn't help at all.</summary>
+    private static void MoveWithRetryOnSharingViolation(string tmpPath, string finalPath)
+    {
+        const int maxAttempts = 20;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(tmpPath, finalPath, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (attempt < maxAttempts && (ex is UnauthorizedAccessException or IOException))
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(5 * attempt));
+            }
+        }
     }
 
     public byte[]? ReadSingle(string ns, string key)
