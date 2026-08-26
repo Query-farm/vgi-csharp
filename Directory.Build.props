@@ -1,0 +1,53 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!-- Single version for every package in this repo. -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Query Farm LLC</Authors>
+    <Company>Query Farm LLC</Company>
+    <Copyright>Copyright © Query Farm LLC</Copyright>
+    <!-- VGI itself (unlike the generic vgi-rpc-csharp transport layer, which is Apache-2.0) is
+         Query Farm's own source-available technology — same license text as vgi-python/vgi-go's
+         LICENSE, not an SPDX-recognized identifier, hence PackageLicenseFile not
+         PackageLicenseExpression. -->
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <RepositoryUrl>https://github.com/Query-farm/vgi-csharp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <!-- Repo-root LICENSE path, resolved once here so per-folder Directory.Build.props files
+       (which set IsPackable AFTER importing this one, so can't test it here) can reference it. -->
+  <PropertyGroup>
+    <VgiCSharpLicenseFile>$(MSBuildThisFileDirectory)LICENSE</VgiCSharpLicenseFile>
+  </PropertyGroup>
+
+  <!--
+    Sibling-repo composite reference: when a `vgi-rpc-csharp` checkout sits next to this repo
+    (the expected local-dev layout, mirroring vgi-java's VGI_RPC_JAVA_DIR composite-build
+    pattern), QueryFarm.Vgi.csproj references its QueryFarm.VgiRpc source project directly
+    instead of the published NuGet package — see docs in that csproj.
+  -->
+  <PropertyGroup>
+    <VgiRpcCSharpRoot Condition="'$(VgiRpcCSharpRoot)' == ''">$(MSBuildThisFileDirectory)../vgi-rpc-csharp</VgiRpcCSharpRoot>
+    <VgiRpcCSharpUseSource Condition="Exists('$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc/QueryFarm.VgiRpc.csproj')">true</VgiRpcCSharpUseSource>
+  </PropertyGroup>
+
+</Project>

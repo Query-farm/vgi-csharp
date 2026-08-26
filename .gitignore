@@ -1,0 +1,36 @@
+# .NET
+bin/
+obj/
+out/
+artifacts/
+*.user
+*.suo
+.vs/
+.vscode/*
+!.vscode/extensions.json
+
+# Test results / coverage
+test-results/
+TestResults/
+*.trx
+coverage/
+*.coverage
+*.coveragexml
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+
+# sqllogictest run artifacts (scripts/run_tests.sh output, DuckDB's own scratch dir)
+duckdb_unittest_tempdir/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Rider
+.idea/
+
+# Claude Code local session state
+.claude/

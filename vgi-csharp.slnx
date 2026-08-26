@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/examples/">
+    <Project Path="examples/01-minimal-scalar-worker/Worker.csproj" />
+  </Folder>
+  <Folder Name="/fixtures/">
+    <Project Path="fixtures/QueryFarm.Vgi.ExampleWorker/QueryFarm.Vgi.ExampleWorker.csproj" />
+    <Project Path="fixtures/QueryFarm.Vgi.SimpleWritableWorker/QueryFarm.Vgi.SimpleWritableWorker.csproj" />
+    <Project Path="fixtures/QueryFarm.Vgi.BadProtocolWorker/QueryFarm.Vgi.BadProtocolWorker.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/QueryFarm.Vgi.Tests/QueryFarm.Vgi.Tests.csproj" />
+  </Folder>
+</Solution>

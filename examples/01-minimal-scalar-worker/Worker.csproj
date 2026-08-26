@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>QueryFarm.Vgi.Examples.MinimalScalarWorker</RootNamespace>
+    <Description>M1's minimal deliverable: a one-function (upper_case) VGI worker served over stdio.</Description>
+    <AssemblyName>vgi-minimal-scalar-worker</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </ItemGroup>
+
+</Project>

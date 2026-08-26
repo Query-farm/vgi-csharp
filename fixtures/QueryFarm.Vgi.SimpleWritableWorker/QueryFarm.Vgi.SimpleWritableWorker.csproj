@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>QueryFarm.Vgi.SimpleWritableWorker</RootNamespace>
+    <Description>M6's simple in-memory writable-catalog fixture worker — drives ~/Development/vgi's test/sql/integration/simple_writable/**.</Description>
+    <AssemblyName>vgi-simple-writable-worker</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </ItemGroup>
+
+</Project>

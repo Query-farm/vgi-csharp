@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>QueryFarm.Vgi.ExampleWorker</RootNamespace>
+    <Description>M2's large fixture worker — drives the ~/Development/vgi sqllogictest suite under test/sql/integration/scalar/**, mirroring vgi-java's vgi-example-worker module.</Description>
+    <AssemblyName>vgi-example-worker</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </ItemGroup>
+
+</Project>

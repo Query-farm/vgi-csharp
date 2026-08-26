@@ -1,0 +1,30 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only used when the vgi-rpc-csharp sibling checkout isn't present (see
+         Directory.Build.props); when it is, Apache.Arrow comes transitively from its vendored
+         ProjectReference and this pinned version is irrelevant.
+         MUST be >= 0.4.0: versions before that declared a broken transitive dependency on the
+         real, unpatched, years-old official Apache.Arrow 1.0.0 instead of the patched
+         QueryFarm.Arrow fork QueryFarm.Vgi actually needs — confirmed via a clean-restore
+         reproduction against 0.3.0 (CS0246 on Decimal128Type/IntegerType/Decimal128Array, CS1503
+         on IArrowArray/Array), fixed in vgi-rpc-csharp 0.4.0 (see that repo's
+         third_party/apache-arrow-dotnet/README.md's "Published as QueryFarm.Arrow" section). This
+         package's own NuGet publish must not happen before 0.4.0 is live on nuget.org. -->
+    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.4.0" />
+
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
+
+    <!-- Testing -->
+    <PackageVersion Include="xunit.v3" Version="1.1.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+  </ItemGroup>
+
+</Project>

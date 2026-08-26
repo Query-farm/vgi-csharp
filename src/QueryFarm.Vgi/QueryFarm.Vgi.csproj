@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>QueryFarm.Vgi</RootNamespace>
+    <Description>A C# port of VGI (Vector Gateway Interface), Query.Farm's application protocol for DuckDB worker processes, built on QueryFarm.VgiRpc.</Description>
+  </PropertyGroup>
+
+  <!-- Sibling-repo composite reference during local dev (see Directory.Build.props); falls
+       back to the published NuGet package when the vgi-rpc-csharp checkout isn't present. -->
+  <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' == 'true'">
+    <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc/QueryFarm.VgiRpc.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' != 'true'">
+    <PackageReference Include="QueryFarm.VgiRpc" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+  </ItemGroup>
+
+</Project>

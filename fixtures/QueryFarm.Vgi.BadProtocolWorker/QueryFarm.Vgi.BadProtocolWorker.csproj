@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>QueryFarm.Vgi.BadProtocolWorker</RootNamespace>
+    <Description>Deliberately-incompatible-protocol-version fixture worker — drives ~/Development/vgi's test/sql/integration/protocol_version/**. Mirrors vgi-python's _test_fixtures/bad_protocol.py.</Description>
+    <AssemblyName>vgi-bad-protocol-worker</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </ItemGroup>
+
+</Project>
