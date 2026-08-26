@@ -8,32 +8,42 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// <summary>
 /// <c>spatial_filter_example(count)</c> — one of <c>table/function_registration.test</c>'s 162-name
 /// roster fixtures; its real behavioral coverage lives in <c>table/expression_filter.test</c>'s
-/// spatial half, which is gated behind a file-level <c>require spatial</c> this environment doesn't
-/// satisfy (see <see cref="ExpressionFilterTestFunction"/>'s doc comment for the same gate on that
-/// file's non-spatial half — the whole file, spatial and non-spatial sections alike, is skipped
-/// here, unexercised). A 10x10 grid of points in <c>[0,1)x[0,1)</c> for <c>count=100</c>: point
+/// spatial half, which is gated behind a file-level <c>require spatial</c> this local environment
+/// doesn't satisfy (no spatial extension built here — see
+/// <see cref="ExpressionFilterTestFunction"/>'s doc comment for the same gate on that file's
+/// non-spatial half). A 10x10 grid of points in <c>[0,1)x[0,1)</c> for <c>count=100</c>: point
 /// <c>i</c> has <c>x=(i%10)/10</c>, <c>y=(i/10)/10</c>, so <c>x,y ∈ {0.0, 0.1, ..., 0.9}</c>.
-/// <c>geom</c> reuses <see cref="GeoPointsTable"/>'s Arrow-native-GeoArrow-point struct
-/// representation (<c>STRUCT(x DOUBLE, y DOUBLE)</c> with <c>ARROW:extension:name =
-/// "geoarrow.point"</c> field metadata, which the C++ side resolves to DuckDB's GEOMETRY type). No
-/// <see cref="ITableFunction.FilterPushdown"/> — see <see cref="ExpressionFilterTestFunction"/>'s
-/// doc comment for why genuine (spatial or list-function) expression-filter pushdown is out of
-/// scope for this port; results are correct either way (DuckDB applies WHERE locally), only the
-/// unreachable "no residual FILTER node" EXPLAIN assertions would be affected.
+///
+/// <para><b>Encoding, corrected after a real CI crash</b> (haybarn CI, which DOES have the spatial
+/// extension built, unlike this local environment): the first version used the native GeoArrow
+/// <c>geoarrow.point</c> extension type — an Arrow <c>STRUCT(x DOUBLE, y DOUBLE)</c> field, which
+/// <c>~/Development/vgi/src/vgi_extension.cpp</c> registers a
+/// <c>CastFunctionSet::GetCastFunction(STRUCT, GEOMETRY)</c>-based conversion path for. That path
+/// crashed DuckDB itself (`INTERNAL Error: Attempted to dereference unique_ptr that is NULL!`,
+/// inside <c>vgi.duckdb_extension</c>, on the simplest possible
+/// <c>SELECT COUNT(*) FROM spatial_filter_example(100)</c> — no filter involved) — i.e. the cast
+/// this path depends on doesn't resolve for a worker-declared <c>geoarrow.point</c> struct field on
+/// the published extension build. Checking <c>~/Development/vgi-python</c>'s equivalent fixture
+/// (<c>vgi/_test_fixtures/table/filters.py</c>'s <c>SpatialFilterExampleFunction</c>) confirmed the
+/// canonical reference doesn't use this path at all: it encodes <c>geom</c> as
+/// <c>geoarrow.wkb</c> — a plain Arrow <c>binary</c> column of raw WKB (Well-Known Binary) point
+/// bytes, the well-established GeoArrow encoding every other port already uses successfully. This
+/// fixture now matches that exactly (same WKB byte layout: 1-byte little-endian marker, 4-byte
+/// LE geometry-type=1 (Point), 8-byte LE x, 8-byte LE y) rather than debugging the untested native-
+/// struct cast path further — no other language port exercises it, so there's no working reference
+/// to diff against, and the WKB path is proven.</para>
 /// </summary>
 public sealed class SpatialFilterExampleFunction : ITableFunction
 {
-    private static readonly StructType PointStruct = new(
-    [
-        new Field("x", DoubleType.Default, nullable: false),
-        new Field("y", DoubleType.Default, nullable: false),
-    ]);
-
     private static readonly Field GeomField = new(
         "geom",
-        PointStruct,
+        BinaryType.Default,
         nullable: false,
-        metadata: new Dictionary<string, string> { ["ARROW:extension:name"] = "geoarrow.point" });
+        metadata: new Dictionary<string, string>
+        {
+            ["ARROW:extension:name"] = "geoarrow.wkb",
+            ["ARROW:extension:metadata"] = "{}",
+        });
 
     public string Name => "spatial_filter_example";
 
@@ -56,6 +66,19 @@ public sealed class SpatialFilterExampleFunction : ITableFunction
         return new Producer(count, initParams.OutputSchema);
     }
 
+    /// <summary>Little-endian WKB point: byte_order(1)=1, geometry_type(u32)=1 (Point), x(f64), y(f64)
+    /// — matches vgi-python's <c>_make_wkb_point</c> exactly (<c>struct.pack("&lt;bI", 1, 1) +
+    /// struct.pack("&lt;dd", x, y)</c>).</summary>
+    private static byte[] MakeWkbPoint(double x, double y)
+    {
+        var bytes = new byte[21];
+        bytes[0] = 1; // byte order: little-endian
+        BitConverter.TryWriteBytes(bytes.AsSpan(1, 4), 1u); // geometry type: Point
+        BitConverter.TryWriteBytes(bytes.AsSpan(5, 8), x);
+        BitConverter.TryWriteBytes(bytes.AsSpan(13, 8), y);
+        return bytes;
+    }
+
     private sealed class Producer(long count, Schema outputSchema) : ITableFunctionProducer
     {
         private bool _emitted;
@@ -73,8 +96,7 @@ public sealed class SpatialFilterExampleFunction : ITableFunction
             var n = new Int64Array.Builder();
             var x = new DoubleArray.Builder();
             var y = new DoubleArray.Builder();
-            var geomX = new DoubleArray.Builder();
-            var geomY = new DoubleArray.Builder();
+            var geom = new BinaryArray.Builder();
 
             for (var i = 0L; i < count; i++)
             {
@@ -83,13 +105,10 @@ public sealed class SpatialFilterExampleFunction : ITableFunction
                 n.Append(i);
                 x.Append(px);
                 y.Append(py);
-                geomX.Append(px);
-                geomY.Append(py);
+                geom.Append(MakeWkbPoint(px, py));
             }
 
-            var geom = new StructArray(PointStruct, (int)count, [geomX.Build(), geomY.Build()], ArrowBuffer.Empty, nullCount: 0);
-
-            output.Emit(new RecordBatch(outputSchema, [n.Build(), x.Build(), y.Build(), geom], (int)count));
+            output.Emit(new RecordBatch(outputSchema, [n.Build(), x.Build(), y.Build(), geom.Build()], (int)count));
             output.Finish();
         }
     }
