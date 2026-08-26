@@ -13,7 +13,7 @@
 #   VGI_SRC           path to a Query-farm/vgi checkout (contains test/sql/integration)
 #   HAYBARN_UNITTEST  path to the haybarn-unittest binary
 # Optional:
-#   BIN_DIR           dir holding the built worker binaries (default: repo root)
+#   CONFIGURATION     build configuration the worker binaries were built in (default: Release)
 #   STAGE             scratch dir for the preprocessed test tree (default: mktemp)
 set -euo pipefail
 
@@ -22,16 +22,19 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-BIN_DIR="${BIN_DIR:-$REPO}"
 STAGE="${STAGE:-$(mktemp -d)}"
+CONFIGURATION="${CONFIGURATION:-Release}"
 INTEGRATION="$VGI_SRC/test/sql/integration"
 [ -d "$INTEGRATION" ] || { echo "::error::no test/sql/integration under VGI_SRC=$VGI_SRC"; exit 1; }
 
-WORKER="$BIN_DIR/vgi-example-worker"
-SIMPLE_WRITABLE="$BIN_DIR/vgi-simple-writable-worker"
-BAD_PROTOCOL="$BIN_DIR/vgi-bad-protocol-worker"
+# Unlike vgi-go's single shared BIN_DIR (its `make build` places every worker binary in one
+# place), each fixture here is its own .csproj with .NET's standard per-project bin/ layout —
+# find each worker binary in its own project's output directory.
+WORKER="$REPO/fixtures/QueryFarm.Vgi.ExampleWorker/bin/$CONFIGURATION/net10.0/vgi-example-worker"
+SIMPLE_WRITABLE="$REPO/fixtures/QueryFarm.Vgi.SimpleWritableWorker/bin/$CONFIGURATION/net10.0/vgi-simple-writable-worker"
+BAD_PROTOCOL="$REPO/fixtures/QueryFarm.Vgi.BadProtocolWorker/bin/$CONFIGURATION/net10.0/vgi-bad-protocol-worker"
 for b in "$WORKER" "$SIMPLE_WRITABLE" "$BAD_PROTOCOL"; do
-  [ -x "$b" ] || { echo "::error::missing worker binary $b (run: dotnet build -c Release)"; exit 1; }
+  [ -x "$b" ] || { echo "::error::missing worker binary $b (run: dotnet build -c $CONFIGURATION)"; exit 1; }
 done
 
 # ---------------------------------------------------------------------------

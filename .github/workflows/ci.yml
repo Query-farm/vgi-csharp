@@ -82,10 +82,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Locate built worker binaries
-        run: |
-          echo "BIN_DIR=$(dirname "$(find . -name vgi-example-worker -path '*/bin/Release/*' -type f | head -1)")" >> "$GITHUB_ENV"
-
       - name: Run integration suite
         run: ci/run-integration.sh
         env:
