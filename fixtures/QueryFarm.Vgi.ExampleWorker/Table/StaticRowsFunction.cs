@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -13,6 +14,8 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// </summary>
 public sealed class StaticRowsFunction(string name, string schemaName, RecordBatch data, long? cardinality = null) : ITableFunction
 {
+    private readonly byte[] _serializedData = RecordBatchIpc.Write(data);
+
     public string Name => name;
 
     public string SchemaName => schemaName;
@@ -27,9 +30,9 @@ public sealed class StaticRowsFunction(string name, string schemaName, RecordBat
     /// "legacy path" for a caller that does).</summary>
     public long? Cardinality(TableBindParams bindParams) => cardinality;
 
-    public ITableFunctionProducer CreateProducer(TableInitParams initParams) => new Producer(data);
+    public ITableFunctionProducer CreateProducer(TableInitParams initParams) => new Producer(_serializedData);
 
-    private sealed class Producer(RecordBatch data) : ITableFunctionProducer
+    private sealed class Producer(byte[] serializedData) : ITableFunctionProducer
     {
         private bool _emitted;
 
@@ -38,7 +41,9 @@ public sealed class StaticRowsFunction(string name, string schemaName, RecordBat
             if (!_emitted)
             {
                 _emitted = true;
-                output.Emit(data);
+                // OutputCollector.Emit transfers ownership to vgi-rpc. Materialize a fresh batch
+                // for every scan so disposing one response cannot invalidate this reusable table.
+                output.Emit(RecordBatchIpc.Read(serializedData));
             }
 
             output.Finish();
