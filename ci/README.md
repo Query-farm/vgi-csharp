@@ -46,10 +46,12 @@ running for real here caught a genuine crash the local suite structurally could 
 crashed DuckDB itself (`INTERNAL Error: dereference unique_ptr that is NULL`) on the simplest
 possible query — a real worker bug, fixed by switching to the `geoarrow.wkb` binary encoding
 `~/Development/vgi-python`'s reference fixture already uses successfully (see the fixture's own
-doc comment and the fixing commit for the full story). Three known gaps remain, documented in
-`run-integration.sh`'s exclusion comments and re-run there to confirm before excluding: one
-already-documented worker limitation (no expression-filter pushdown, so one residual-`FILTER`
-EXPLAIN assertion in `expression_filter.test` fails even though results are correct), and two
+doc comment and the fixing commit for the full story). It also stayed this lane's only real
+coverage for genuine expression-filter (function-call/spatial) pushdown until that was implemented
+(see `Internal/ExpressionFilterEvaluator.cs`'s doc comment) — `table/expression_filter.test` now
+passes 32/32 assertions here, verified against a real `haybarn-unittest` + `spatial` extension
+before removing its exclusion from `run-integration.sh`. Two known gaps remain, documented in
+`run-integration.sh`'s exclusion comments and re-run there to confirm before excluding:
 `duckdb_logs()`/RPC-count assertions (`cache/secret_ineligible.test`, `macro/macros.test`) that
 read as community-extension-build-vs-`main`-branch-test-file skew — both pass 333/333 against a
 locally-built unittest, so they're not worker bugs.

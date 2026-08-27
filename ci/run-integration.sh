@@ -43,30 +43,21 @@ done
 # (which links none of these extensions) can run them.
 #
 # Excluded (properties of the prebuilt standalone runner / community-published
-# extension build, or an already-documented worker limitation — not gaps in
-# the C# worker's own 333/333 local suite, verified against a locally-built
-# unittest; see docs/roadmap.md for how that number was reached):
+# extension build — not gaps in the C# worker's own 333/333 local suite, verified
+# against a locally-built unittest; see docs/roadmap.md for how that number was
+# reached). table/expression_filter.test USED to be excluded here too (this port's
+# expression-filter pushdown was genuinely unimplemented — see
+# Internal/ExpressionFilterEvaluator.cs's doc comment for the fix and
+# SpatialFilterExampleFunction's/ExpressionFilterTestFunction's doc comments for how
+# it's wired in); it's no longer excluded — verified 32/32 assertions passing against
+# a real haybarn-unittest + spatial extension (this environment has no local spatial
+# build, so this lane is this file's ONLY real coverage — see ci/README.md):
 #   writable/                    — opt-in generic writable catalog
 #                                   (VGI_WORKER_ENABLE_WRITABLE), no fixture wired here.
 #   nested_type_combinations.test — segfaults the prebuilt standalone runner in
 #                                   vgi-go's CI too (a property of that C++ build,
 #                                   not the worker); unverified here yet — keep
 #                                   this exclusion until proven otherwise.
-#   table/expression_filter.test — its spatial half's ONE failing assertion is an
-#                                   already-documented, accepted gap: this port doesn't
-#                                   implement genuine spatial/expression-filter
-#                                   pushdown (see SpatialFilterExampleFunction's doc
-#                                   comment), so DuckDB correctly leaves a residual
-#                                   FILTER node in the plan, failing the file's "no
-#                                   residual FILTER" EXPLAIN assertion. Results are
-#                                   still correct (verified: DuckDB applies the
-#                                   predicate locally) — only that one EXPLAIN check
-#                                   fails. This file is gated behind `require spatial`,
-#                                   which this environment doesn't have, so it was
-#                                   NEVER locally testable before the haybarn lane —
-#                                   found and root-caused via a real CI crash (see git
-#                                   history), this residual-EXPLAIN gap is the one
-#                                   remaining known limitation after that fix.
 #   cache/secret_ineligible.test,
 #   macro/macros.test            — both assert exact counts of specific
 #                                   duckdb_logs()/catalog-RPC events; both pass 333/333
@@ -86,7 +77,6 @@ mkdir -p "$STAGE/test/sql/integration"
   find . -name '*.test' \
        -not -path './writable/*' \
        -not -name 'nested_type_combinations.test' \
-       -not -path './table/expression_filter.test' \
        -not -path './cache/secret_ineligible.test' \
        -not -path './macro/macros.test' | while read -r f; do
     mkdir -p "$STAGE/test/sql/integration/$(dirname "$f")"

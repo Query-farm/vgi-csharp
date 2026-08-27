@@ -50,4 +50,18 @@
     <VgiRpcCSharpUseSource Condition="Exists('$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc/QueryFarm.VgiRpc.csproj')">true</VgiRpcCSharpUseSource>
   </PropertyGroup>
 
+  <!-- Every project in this repo transitively depends on QueryFarm.Vgi, which depends on
+       DuckDB.NET.Data.Full (Internal/ExpressionFilterEvaluator.cs), which depends on the OFFICIAL
+       Apache.Arrow NuGet package — colliding at compile time with this repo's patched
+       QueryFarm.Arrow fork (same AssemblyName "Apache.Arrow", different strong-name key; see
+       QueryFarm.Vgi.csproj's own comment on this). Suppressing it in QueryFarm.Vgi.csproj alone
+       isn't enough: NuGet's transitive-dependency resolution re-pulls the official package
+       independently into every DOWNSTREAM project that references QueryFarm.Vgi (test/fixtures/
+       examples), so the exclusion must apply repo-wide. Safe everywhere — nothing in this repo
+       calls DuckDB.NET's Arrow-streaming API that would need Apache.Arrow.dll loadable at runtime. -->
+  <ItemGroup>
+    <PackageReference Include="Apache.Arrow" ExcludeAssets="all" />
+    <PackageReference Include="Apache.Arrow.Scalars" ExcludeAssets="all" />
+  </ItemGroup>
+
 </Project>

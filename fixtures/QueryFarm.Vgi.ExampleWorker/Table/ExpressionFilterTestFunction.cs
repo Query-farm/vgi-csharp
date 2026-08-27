@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -12,22 +13,16 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// <c>"item_&lt;id&gt;"</c>, <c>tags</c> = <c>[tag_(id%5), tag_((id+1)%5)]</c>, <c>score</c> =
 /// <c>id*1.1</c>.
 ///
-/// <para><b>Known limitation — no expression (function-call) filter pushdown.</b>
-/// <c>table/expression_filter.test</c> is gated behind a file-level <c>require spatial</c> (it
-/// shares one file with <see cref="SpatialFilterExampleFunction"/>'s coverage), which this
-/// environment doesn't have installed, so the WHOLE file — including this function's own
-/// non-spatial <c>list_contains</c>/<c>starts_with</c>/<c>contains</c> pushdown assertions — is
-/// skipped here, never exercised. This worker only implements the existing
-/// column-comparison-shaped <see cref="Internal.PushdownFilterCodec"/>/
-/// <see cref="Internal.PushdownFilterEvaluator"/> pushdown machinery (see <c>FilterEchoFunction</c>),
-/// which has no representation for a function-call predicate like <c>list_contains(tags, 'x')</c>;
-/// genuine expression-filter pushdown (recognizing <c>list_contains</c>/<c>starts_with</c>/
-/// <c>contains</c> specifically and proving no residual FILTER node remains, per the test's EXPLAIN
-/// assertions) would need new wire-protocol/codec support this port doesn't have yet. Results are
-/// still fully CORRECT without it (DuckDB applies the predicate locally after receiving every row) —
-/// only the "no FILTER node in the plan" EXPLAIN assertions would fail if this file's <c>require
-/// spatial</c> gate were ever satisfied. Registered as a no-<see cref="ITableFunction.FilterPushdown"/>
-/// generator accordingly.</para></summary>
+/// <para><b>Genuine expression-filter pushdown.</b> Declares <see cref="SupportedExpressionFilters"/>
+/// for <c>list_contains</c>, <c>starts_with</c>, and <c>contains</c> — matching the test file's
+/// non-spatial half exactly, including its "unsupported function ⇒ residual FILTER stays" negative
+/// assertion (<c>length(name) &gt; 7</c> is deliberately NOT declared, so DuckDB correctly leaves a
+/// residual FILTER for it). Pushed predicates are decoded by <see cref="Internal.PushdownFilterCodec"/>
+/// and evaluated by <see cref="Internal.ExpressionFilterEvaluator"/> — an embedded DuckDB connection,
+/// not hand-written C# reimplementations of these functions (see that class's doc comment for why).
+/// This file is gated behind a file-level <c>require spatial</c> (it shares one file with
+/// <see cref="SpatialFilterExampleFunction"/>'s spatial half), so exercising even this non-spatial
+/// half locally needs a <c>spatial</c>-capable DuckDB build — see <c>ci/README.md</c>.</para></summary>
 public sealed class ExpressionFilterTestFunction : ITableFunction
 {
     public string Name => "expression_filter_test";
@@ -45,13 +40,20 @@ public sealed class ExpressionFilterTestFunction : ITableFunction
         ],
         metadata: null);
 
+    public bool? FilterPushdown => true;
+
+    public bool FiltersExactlyApplied => true;
+
+    public IReadOnlyList<string> SupportedExpressionFilters => ["list_contains", "starts_with", "contains"];
+
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        return new Producer(count, initParams.OutputSchema);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        return new Producer(count, initParams.OutputSchema, decoded);
     }
 
-    private sealed class Producer(long count, Schema outputSchema) : ITableFunctionProducer
+    private sealed class Producer(long count, Schema outputSchema, DecodedFilters? decoded) : ITableFunctionProducer
     {
         private bool _emitted;
 
@@ -81,7 +83,9 @@ public sealed class ExpressionFilterTestFunction : ITableFunction
                 tagValues.Append($"tag_{(i + 1) % 5}");
             }
 
-            output.Emit(new RecordBatch(outputSchema, [id.Build(), name.Build(), tagsBuilder.Build(), score.Build()], (int)count));
+            var batch = new RecordBatch(outputSchema, [id.Build(), name.Build(), tagsBuilder.Build(), score.Build()], (int)count);
+            var mask = ExpressionFilterEvaluator.EvaluateMask(decoded, batch, outputSchema);
+            output.Emit(ExpressionFilterEvaluator.ApplyMask(batch, mask));
             output.Finish();
         }
     }

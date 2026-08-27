@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -32,6 +33,17 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// LE geometry-type=1 (Point), 8-byte LE x, 8-byte LE y) rather than debugging the untested native-
 /// struct cast path further — no other language port exercises it, so there's no working reference
 /// to diff against, and the WKB path is proven.</para>
+///
+/// <para><b>Genuine expression-filter pushdown.</b> Declares <see cref="SupportedExpressionFilters"/>
+/// for <c>&amp;&amp;</c> (the spatial-extension bbox-intersection operator) and
+/// <c>st_intersects_extent</c>, matching vgi-python's reference fixture. The DuckDB optimizer then
+/// pushes a bound <c>geom &amp;&amp; ST_MakeEnvelope(...)</c>/<c>st_intersects_extent(geom, ...)</c>
+/// predicate down as an <c>"expression"</c> pushdown-filter node (see
+/// <see cref="Internal.ExpressionFilterEvaluator"/>'s doc comment for how it's evaluated — an
+/// embedded DuckDB connection with the <c>spatial</c> extension loaded, not hand-written C#
+/// geometry math), and — because pushdown is genuinely applied — DuckDB leaves no residual
+/// <c>FILTER</c> node in the physical plan (<c>table/expression_filter.test</c>'s EXPLAIN
+/// assertions).</para>
 /// </summary>
 public sealed class SpatialFilterExampleFunction : ITableFunction
 {
@@ -60,10 +72,17 @@ public sealed class SpatialFilterExampleFunction : ITableFunction
         ],
         metadata: null);
 
+    public bool? FilterPushdown => true;
+
+    public bool FiltersExactlyApplied => true;
+
+    public IReadOnlyList<string> SupportedExpressionFilters => ["&&", "st_intersects_extent"];
+
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        return new Producer(count, initParams.OutputSchema);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        return new Producer(count, initParams.OutputSchema, decoded);
     }
 
     /// <summary>Little-endian WKB point: byte_order(1)=1, geometry_type(u32)=1 (Point), x(f64), y(f64)
@@ -79,7 +98,7 @@ public sealed class SpatialFilterExampleFunction : ITableFunction
         return bytes;
     }
 
-    private sealed class Producer(long count, Schema outputSchema) : ITableFunctionProducer
+    private sealed class Producer(long count, Schema outputSchema, DecodedFilters? decoded) : ITableFunctionProducer
     {
         private bool _emitted;
 
@@ -108,7 +127,9 @@ public sealed class SpatialFilterExampleFunction : ITableFunction
                 geom.Append(MakeWkbPoint(px, py));
             }
 
-            output.Emit(new RecordBatch(outputSchema, [n.Build(), x.Build(), y.Build(), geom.Build()], (int)count));
+            var batch = new RecordBatch(outputSchema, [n.Build(), x.Build(), y.Build(), geom.Build()], (int)count);
+            var mask = ExpressionFilterEvaluator.EvaluateMask(decoded, batch, outputSchema);
+            output.Emit(ExpressionFilterEvaluator.ApplyMask(batch, mask));
             output.Finish();
         }
     }

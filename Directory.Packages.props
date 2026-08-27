@@ -20,6 +20,34 @@
 
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
 
+    <!-- Embedded-DuckDB engine used by Internal/ExpressionFilterEvaluator.cs to evaluate genuine
+         expression-filter (function-call/spatial) pushdown — the same architecture vgi-python's
+         table_filter_pushdown.py and vgi-go's expression_filter.go use (render the pushed bound
+         expression tree to SQL text, execute it against an embedded engine with the candidate
+         column loaded), rather than hand-writing per-function C# evaluation logic.
+         MUST be >= 1.5.5, not older: empirically, both 1.4.1 and 1.5.3 fail to correctly bind a
+         List<byte[]> parameter through UNNEST($1) (1.4.1: infers $1 as VARCHAR and throws a Binder
+         Error; 1.5.3: throws "Cannot map type System.Byte[] to DuckDBType" outright) — needed for
+         WKB/geometry columns (see SpatialFilterExampleFunction). 1.5.5 is the first version
+         confirmed (by direct empirical testing, not changelog-reading) to bind it correctly.
+         1.5.5 also declares a hard dependency on the OFFICIAL, unpatched `Apache.Arrow` NuGet
+         package (added for its own optional Apache Arrow result-streaming feature,
+         DuckDBCommand.ExecuteArrowStream/ExecuteArrowBatchesAsync, which this evaluator never
+         uses — plain ADO.NET DbDataReader + UNNEST($1) list parameters instead) — that would
+         collide at compile time with this repo's patched `QueryFarm.Arrow` fork (same AssemblyName
+         "Apache.Arrow", different strong-name key: CS0433 "ambiguous between ...
+         PublicKeyToken=204f54e5a45c07df ... PublicKeyToken=null"). QueryFarm.Vgi.csproj's explicit
+         `<PackageReference Include="Apache.Arrow" ExcludeAssets="all" />` suppresses that
+         transitive pull entirely — safe because nothing in this codebase calls the Arrow-streaming
+         API that would need Apache.Arrow.dll loadable at runtime. -->
+    <PackageVersion Include="DuckDB.NET.Data.Full" Version="1.5.5" />
+    <!-- Both excluded repo-wide (root Directory.Build.props) — Apache.Arrow (official) is what
+         DuckDB.NET.Data.Full 1.5.5 directly depends on, and Apache.Arrow (official) in turn
+         depends on Apache.Arrow.Scalars (official), which collides with the patched
+         QueryFarm.Arrow.Scalars fork the same way. -->
+    <PackageVersion Include="Apache.Arrow" Version="23.0.0" />
+    <PackageVersion Include="Apache.Arrow.Scalars" Version="23.0.0" />
+
     <!-- Testing -->
     <PackageVersion Include="xunit.v3" Version="1.1.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />

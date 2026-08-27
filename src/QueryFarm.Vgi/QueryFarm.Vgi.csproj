@@ -16,6 +16,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+    <!-- See Internal/ExpressionFilterEvaluator.cs's doc comment for why this is a real (not
+         private/dev-only) dependency of the core package. Its transitive Apache.Arrow dependency
+         is suppressed repo-wide by the root Directory.Build.props (see that file's comment). -->
+    <PackageReference Include="DuckDB.NET.Data.Full" />
   </ItemGroup>
 
 </Project>
