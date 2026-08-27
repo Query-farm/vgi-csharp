@@ -1,22 +1,19 @@
-# VGI (Vector Gateway Interface) — C#
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Query-farm/vgi-csharp/main/docs/vgi-logo.png?v=2" alt="Vector Gateway Interface logo" width="320">
+</p>
 
-[![CI](https://github.com/Query-farm/vgi-csharp/actions/workflows/ci.yml/badge.svg)](https://github.com/Query-farm/vgi-csharp/actions/workflows/ci.yml)
-[![NuGet](https://img.shields.io/nuget/v/QueryFarm.Vgi.svg)](https://www.nuget.org/packages/QueryFarm.Vgi)
+<h1 align="center">VGI for .NET</h1>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Query-farm/vgi-csharp/main/docs/vgi-logo.png" alt="VGI Logo" width="480">
+  Add your own functions and tables to DuckDB with C# and Apache Arrow.<br>
+  Built by <a href="https://query.farm">🚜 Query.Farm</a>
 </p>
 
 <p align="center">
-  <strong>Add your own functions and tables to DuckDB — written in C#, shipped as one worker process.<br/>
-  No C++ extension to compile, no linking against DuckDB, no version coupling.</strong>
+  <a href="https://github.com/Query-farm/vgi-csharp/actions/workflows/ci.yml"><img src="https://github.com/Query-farm/vgi-csharp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.nuget.org/packages/QueryFarm.Vgi"><img src="https://img.shields.io/nuget/v/QueryFarm.Vgi" alt="NuGet"></a>
+  <a href="https://www.nuget.org/packages/QueryFarm.Vgi"><img src="https://img.shields.io/nuget/dt/QueryFarm.Vgi" alt="NuGet downloads"></a>
 </p>
-
-<p align="center">
-  Created by <a href="https://query.farm">Query.Farm</a>
-</p>
-
----
 
 A **VGI worker** is a small .NET program that DuckDB talks to over Apache Arrow IPC. It can expose
 scalar / table / table-in-out / table-buffering / aggregate functions and whole catalogs (schemas,
