@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Catalog;
+using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -318,6 +320,9 @@ public static class RequiredFiltersTables
     /// <c>VgiTableEntry::GetScanFunctionImpl</c>'s schema-fallback comment).</summary>
     private sealed class RffRowidScanFunction(Schema fullSchema, RecordBatch data) : ITableFunction
     {
+        private readonly byte[] _serializedData = RecordBatchIpc.Write(data);
+        private readonly ConcurrentDictionary<string, byte[]> _serializedProjections = new();
+
         public string Name => "rff_rowid_scan";
 
         public string SchemaName => "main";
@@ -332,10 +337,22 @@ public static class RequiredFiltersTables
         {
             var indices = initParams.ProjectionIds
                 ?? Enumerable.Range(0, fullSchema.FieldsList.Count).Select(i => (long)i).ToList();
-            return new Producer(initParams.ProjectedSchema, indices, data);
+            var projectionKey = string.Join(',', indices);
+            var serializedProjection = _serializedProjections.GetOrAdd(
+                projectionKey,
+                _ => SerializeProjection(initParams.ProjectedSchema, indices));
+            return new Producer(serializedProjection);
         }
 
-        private sealed class Producer(Schema projectedSchema, IReadOnlyList<long> indices, RecordBatch data) : ITableFunctionProducer
+        private byte[] SerializeProjection(Schema projectedSchema, IReadOnlyList<long> indices)
+        {
+            using var fullData = RecordBatchIpc.Read(_serializedData);
+            var columns = indices.Select(i => fullData.Column((int)i)).ToList();
+            var projectedData = new RecordBatch(projectedSchema, columns, fullData.Length);
+            return RecordBatchIpc.Write(projectedData);
+        }
+
+        private sealed class Producer(byte[] serializedProjection) : ITableFunctionProducer
         {
             private bool _emitted;
 
@@ -344,8 +361,9 @@ public static class RequiredFiltersTables
                 if (!_emitted)
                 {
                     _emitted = true;
-                    var columns = indices.Select(i => data.Column((int)i)).ToList();
-                    output.Emit(new RecordBatch(projectedSchema, columns, data.Length));
+                    // OutputCollector.Emit transfers ownership to vgi-rpc. Each scan therefore
+                    // needs its own batch even when another scan uses the same projection.
+                    output.Emit(RecordBatchIpc.Read(serializedProjection));
                 }
 
                 output.Finish();
