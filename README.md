@@ -1,35 +1,60 @@
-<!-- markdownlint-disable MD041 -->
-# vgi-csharp
+# VGI (Vector Gateway Interface) — C#
 
 [![CI](https://github.com/Query-farm/vgi-csharp/actions/workflows/ci.yml/badge.svg)](https://github.com/Query-farm/vgi-csharp/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/QueryFarm.Vgi.svg)](https://www.nuget.org/packages/QueryFarm.Vgi)
 
-C# SDK for **VGI** ("Vector Gateway Interface"), Query.Farm's application-level protocol for
-DuckDB worker processes. VGI lets DuckDB `ATTACH` a worker — a plain executable, in any language —
-that serves catalogs, schemas, and scalar/table/table-in-out/table-buffering/aggregate functions
-over an Arrow-IPC-streaming wire protocol, with no IDL/codegen step. This is the fifth port,
-alongside the canonical Python implementation and the Go/Rust/Java/TypeScript ports.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Query-farm/vgi-csharp/main/docs/vgi-logo.png" alt="VGI Logo" width="480">
+</p>
 
-- Sibling reference port (Python): [`vgi-python`](https://github.com/Query-farm/vgi-python)
-- DuckDB extension: [`vgi`](https://github.com/Query-farm/vgi)
-- Lower-level RPC framework this is built on: [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp)
+<p align="center">
+  <strong>Add your own functions and tables to DuckDB — written in C#, shipped as one worker process.<br/>
+  No C++ extension to compile, no linking against DuckDB, no version coupling.</strong>
+</p>
+
+<p align="center">
+  Created by <a href="https://query.farm">Query.Farm</a>
+</p>
+
+---
+
+A **VGI worker** is a small .NET program that DuckDB talks to over Apache Arrow IPC. It can expose
+scalar / table / table-in-out / table-buffering / aggregate functions and whole catalogs (schemas,
+tables, views, macros) that behave like native DuckDB objects. DuckDB launches your worker for you
+when a query needs it — you never run a server by hand.
+
+This repo is the **C#** worker SDK ([`QueryFarm.Vgi`](https://www.nuget.org/packages/QueryFarm.Vgi)).
+It is wire-compatible with the canonical [Python](https://github.com/Query-farm/vgi-python) SDK and
+the Go/Rust/Java/TypeScript ports, so a C# worker drops in behind the same `ATTACH ... (TYPE vgi)`.
+Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targets **.NET 10**.
 
 > **Status: full parity.** All 333 sqllogictests in the canonical
 > `~/Development/vgi/test/sql/integration/**` suite pass — the same unmodified suite the
 > Python/Go/Rust/Java ports are graded against. See [`docs/roadmap.md`](docs/roadmap.md) for the
 > milestone history.
 
-## Install
+## Why a worker instead of a C++ extension?
+
+| Traditional DuckDB extension | VGI worker |
+|------------------------------|------------|
+| Written in C/C++, compiled and linked against DuckDB | Written in C#, one standalone worker process |
+| Must be rebuilt for each DuckDB version | Version independent |
+| Complex build / signing / release cycle | `dotnet build`, ship the executable |
+| Runs in-process | Process isolation |
+
+**Reach for it when you want to:** call REST APIs or external services from SQL, run ML inference
+(ML.NET, ONNX Runtime, etc.), expose an external database/API/filesystem as a queryable catalog, or
+ship domain-specific functions to your team as one binary.
+
+## Your first worker
+
+**1. Add the package:**
 
 ```bash
 dotnet add package QueryFarm.Vgi
 ```
 
-Requires the .NET 10 SDK.
-
-## Quickstart
-
-A minimal worker — one scalar function, served over stdio:
+**2. Write a function and serve it:**
 
 ```csharp
 using Apache.Arrow;
@@ -61,8 +86,12 @@ public sealed class UpperCaseFunction : ScalarFn
 ```
 
 `ScalarFn` reflects `Compute`'s parameters once per subclass and dispatches per batch — no manual
-Arrow-schema bookkeeping needed for the common case. Build it (`dotnet build -c Release`), then
-point DuckDB at the compiled executable:
+Arrow-schema bookkeeping needed for the common case.
+
+**3. Build it (`dotnet build -c Release`), then call it from a DuckDB engine that has the `vgi`
+extension.** The `vgi` extension currently ships with Query Farm's
+[Haybarn](https://github.com/Query-farm-haybarn/haybarn) DuckDB distribution, which starts with no
+install via `uvx haybarn-cli`. Stock `duckdb` works too via `INSTALL vgi FROM community`.
 
 ```sql
 INSTALL vgi FROM community;
@@ -75,9 +104,14 @@ ATTACH 'example' AS example (TYPE vgi, LOCATION './my-worker');
 SELECT example.upper_case('hello'); -- => 'HELLO'
 ```
 
-`LOCATION` also accepts `http://…`/`https://…` for an HTTP worker, or a `launch:<argv>` prefix for
-the pooled AF_UNIX launcher transport (a worker process reused across every DuckDB connection that
-shares the same `(argv, cwd, VGI_RPC_*-env)` identity, rather than cold-spawned per `ATTACH`).
+### Troubleshooting
+
+- **`ATTACH` can't find the worker** — `LOCATION` is resolved relative to DuckDB's working
+  directory, not your project. Use an absolute path if in doubt.
+- **`Catalog Error: ... does not exist`** — qualify with the attach alias
+  (`example.upper_case`) or run `USE example;`.
+- **Runtime / type errors** — exceptions thrown from `Bind`/`Compute` (and bind-time type-bound
+  checks) surface directly in DuckDB's error message.
 
 ## Function shapes
 
@@ -92,28 +126,40 @@ shares the same `(argv, cwd, VGI_RPC_*-env)` identity, rather than cold-spawned 
 Each raw interface is a small, direct implementation surface (see any fixture under
 `fixtures/QueryFarm.Vgi.ExampleWorker/` for real examples); `ScalarFn` is the one convenience base
 class with attribute-driven parameter binding (`[Param]`, `[ConstParam]`, `[Setting]`,
-`[OutputLength]` — see the Quickstart above).
+`[OutputLength]` — see "Your first worker" above). Projection/filter pushdown (including genuine
+expression/spatial-predicate pushdown, evaluated via an embedded DuckDB engine — see
+`Internal/ExpressionFilterEvaluator.cs`), ORDER BY/TABLESAMPLE hints, settings, secrets, splits, and
+cross-process state storage are all handled by the framework, not something each function
+reimplements.
 
-### Catalogs, schemas, and registration
+## Beyond functions: full catalogs
 
-A worker declares its own catalog name (`CatalogName`) and can register catalog tables/views/
-macros, settings, secret types, and copy-from/to formats alongside functions:
+A worker can expose more than bare functions — a complete catalog of schemas, function-backed
+**tables**, **views**, and **macros** that behave like native DuckDB objects:
 
 ```csharp
 var worker = new Worker()
     .CatalogName("example")
     .DefaultSchema("main")
     .RegisterScalar(new UpperCaseFunction())      // ScalarFn, as above
-    .RegisterTable(new MyGeneratorFunction())     // ITableFunction — see Function shapes below
+    .RegisterTable(new MyGeneratorFunction())     // ITableFunction — see Function shapes above
     .RegisterSchema("data", comment: "Reference tables")
     .RegisterCatalogTable(myTable, identity: "data");
 ```
 
-`identity` scopes a registration to a specific catalog identity when a worker serves more than
-one logical catalog from the same process (see `Worker.RegisterCatalog`); most workers only need
-the default.
+```sql
+ATTACH 'external_db' (TYPE vgi, LOCATION './my-catalog-worker');
 
-### Transports
+SELECT * FROM external_db.data.users;            -- a catalog table
+SELECT * FROM external_db.main.upper_case(name)  -- a function
+FROM (VALUES ('alice')) t(name);
+```
+
+`identity` scopes a registration to a specific catalog identity when a worker serves more than one
+logical catalog from the same process (see `Worker.RegisterCatalog`); most workers only need the
+default.
+
+## Transports
 
 ```csharp
 await worker.RunStdioAsync();                          // default — DuckDB's plain LOCATION
@@ -121,9 +167,34 @@ await worker.RunUnixSocketAsync("/tmp/my-worker.sock"); // AF_UNIX, for the laun
 await worker.RunFromArgsAsync(args);                    // parses --unix/--idle-timeout/etc. from argv
 ```
 
+`LOCATION` also accepts `http://…`/`https://…` for an HTTP worker, or a `launch:<argv>` prefix for
+the pooled AF_UNIX launcher transport (a worker process reused across every DuckDB connection that
+shares the same `(argv, cwd, VGI_RPC_*-env)` identity, rather than cold-spawned per `ATTACH`).
+
 **Critical rule**: stdout is the wire channel for stdio-transport workers. Every diagnostic/log
 line must go to `Console.Error`, never plain `Console.WriteLine` — a stray stdout write corrupts
 the Arrow IPC stream.
+
+## Protocol overview
+
+VGI uses `vgi_rpc`, an Apache Arrow IPC-based RPC framework, for all client-worker communication —
+you don't write to this directly (`Worker`/`ScalarFn`/the function-kind interfaces handle it), but
+here's what happens per query:
+
+```
+DuckDB (client)                      VGI worker
+  │──── bind(request) ─────────────▶ │  function name, args, input schema
+  │◀─── BindResponse ───────────────  │  output schema (your Bind/ResolveOutputSchema)
+  │──── init(request) ─────────────▶ │  start the processing stream
+  │◀─── stream header ──────────────  │  execution_id, max_workers
+  │──── exchange/tick(batch) ──────▶ │
+  │◀─── output batch ───────────────  │  your Compute/Produce
+  │──── [stream close] ────────────▶ │
+```
+
+See [`docs/roadmap.md`](docs/roadmap.md) and inline doc comments in `Internal/VgiServiceImpl.cs`
+for the full RPC surface (catalog DDL, transactions, splits, secrets, etc.) beyond this per-query
+happy path.
 
 ## Repo layout
 
@@ -139,11 +210,21 @@ src/QueryFarm.Vgi/                    the published package
 fixtures/QueryFarm.Vgi.ExampleWorker/ the ~170-function conformance-driving fixture worker
 fixtures/QueryFarm.Vgi.SimpleWritableWorker/  writable-catalog write-path fixture
 fixtures/QueryFarm.Vgi.BadProtocolWorker/     malformed-protocol negative-test fixture
-examples/01-minimal-scalar-worker/    the Quickstart above, as a buildable project
+examples/01-minimal-scalar-worker/    "Your first worker" above, as a buildable project
 test/QueryFarm.Vgi.Tests/             xUnit unit tests
 scripts/run_tests.sh                  fast local sqllogictest runner (see CLAUDE.md)
 ci/                                   GitHub Actions integration-test harness
 ```
+
+Read `fixtures/QueryFarm.Vgi.ExampleWorker/` for a working example of every function kind and
+catalog feature — it's the fixture the full sqllogictest suite is graded against.
+
+## Testing your own worker
+
+The fastest check is to call your function from a DuckDB session (see "Your first worker" above).
+For automated tests, drive the worker directly with `QueryFarm.VgiRpc`'s client, or shell out to a
+DuckDB session from your test harness. `test/QueryFarm.Vgi.Tests/` shows the former pattern for
+this SDK's own unit tests (schema derivation, dispatch, codecs, storage).
 
 ## Build & test
 
