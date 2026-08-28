@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/examples/">
     <Project Path="examples/01-minimal-scalar-worker/Worker.csproj" />
+    <Project Path="examples/docs/QueryFarm.Vgi.DocsExamples.csproj" />
   </Folder>
   <Folder Name="/fixtures/">
     <Project Path="fixtures/QueryFarm.Vgi.ExampleWorker/QueryFarm.Vgi.ExampleWorker.csproj" />
