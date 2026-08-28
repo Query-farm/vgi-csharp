@@ -1,0 +1,62 @@
+# name: test/sql/examples.test
+# description: C# documentation examples remain executable against DuckDB/VGI
+
+statement ok
+INSTALL vgi FROM community;
+
+statement ok
+LOAD vgi;
+
+statement ok
+ATTACH '__VGI_WORKER__' AS demo (TYPE vgi);
+
+query T
+SELECT demo.upper_case('hello');
+----
+HELLO
+
+query IIII
+SELECT count(*), min(n), max(n), sum(n) FROM demo.numbers(5);
+----
+5	0	4	10
+
+query I rowsort
+SELECT * FROM demo.echo((SELECT * FROM range(3)));
+----
+0
+1
+2
+
+query II rowsort
+SELECT key, demo.sum_int64(value)
+FROM (VALUES ('a', 1), ('a', 2), ('b', 5)) input(key, value)
+GROUP BY key;
+----
+a	3
+b	5
+
+query I
+SELECT * FROM demo.collect_sum((SELECT * FROM range(4)));
+----
+6
+
+query I rowsort
+SELECT * FROM demo.catalog.first_five;
+----
+0
+1
+2
+3
+4
+
+query I rowsort
+SELECT * FROM demo.catalog.evens;
+----
+0
+2
+4
+
+query I
+SELECT demo.catalog.triple(7);
+----
+21

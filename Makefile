@@ -8,9 +8,10 @@ OWN_PROJECTS := src/QueryFarm.Vgi/QueryFarm.Vgi.csproj \
 	fixtures/QueryFarm.Vgi.SimpleWritableWorker/QueryFarm.Vgi.SimpleWritableWorker.csproj \
 	fixtures/QueryFarm.Vgi.BadProtocolWorker/QueryFarm.Vgi.BadProtocolWorker.csproj \
 	test/QueryFarm.Vgi.Tests/QueryFarm.Vgi.Tests.csproj \
-	examples/01-minimal-scalar-worker/Worker.csproj
+	examples/01-minimal-scalar-worker/Worker.csproj \
+	examples/docs/QueryFarm.Vgi.DocsExamples.csproj
 
-.PHONY: build test smoke test_integration test_integration_subprocess format format_check
+.PHONY: build test smoke docs_examples test_docs_examples test_integration test_integration_subprocess format format_check
 
 build:
 	$(DOTNET) build vgi-csharp.slnx
@@ -20,6 +21,12 @@ test:
 
 smoke: build
 	$(DOTNET) build examples/01-minimal-scalar-worker
+
+docs_examples:
+	$(DOTNET) build examples/docs/QueryFarm.Vgi.DocsExamples.csproj --configuration Release
+
+test_docs_examples:
+	examples/docs/verify.sh
 
 format:
 	@for p in $(OWN_PROJECTS); do $(DOTNET) format $$p || exit 1; done

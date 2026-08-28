@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>vgi-csharp-docs</AssemblyName>
+    <RootNamespace>QueryFarm.Vgi.DocsExamples</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </ItemGroup>
+</Project>
