@@ -25,4 +25,15 @@
     <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
   </ItemGroup>
 
+  <!-- WorkerUnixSocketTests.cs drives Worker.RunUnixSocketAsync with a real client — needs
+       QueryFarm.VgiRpc.Client directly, not just the QueryFarm.Vgi surface QueryFarm.Vgi.csproj
+       already pulls in. Same sibling-source-vs-NuGet split as that project (see root
+       Directory.Build.props). -->
+  <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' == 'true'">
+    <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Client/QueryFarm.VgiRpc.Client.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' != 'true'">
+    <PackageReference Include="QueryFarm.VgiRpc.Client" />
+  </ItemGroup>
+
 </Project>

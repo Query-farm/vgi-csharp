@@ -65,6 +65,13 @@ public sealed class Worker
         return this;
     }
 
+    /// <summary>See <see cref="CatalogRegistry.MarkIdentityExclusive"/>.</summary>
+    public Worker MarkIdentityExclusive(string identity)
+    {
+        _catalog.MarkIdentityExclusive(identity);
+        return this;
+    }
+
     public Worker CatalogName(string name)
     {
         _catalog.CatalogName = name;
@@ -203,6 +210,28 @@ public sealed class Worker
     public Worker RegisterSetting(string name, string description, Apache.Arrow.Types.IArrowType type, Apache.Arrow.IArrowArray? defaultValue = null)
     {
         _catalog.RegisterSetting(Internal.SettingSpecBuilder.Build(name, description, type, defaultValue));
+        return this;
+    }
+
+    /// <summary>Registers a <c>catalog_attach</c> hook — called once per ATTACH, before
+    /// <c>VgiServiceImpl.CatalogAttachAsync</c> builds its result, with the raw
+    /// <see cref="Protocol.CatalogAttachRequest"/> (caller-supplied options, requested
+    /// <c>data_version_spec</c>/<c>implementation_version</c>). A worker serving several catalog
+    /// names (via <see cref="RegisterCatalog"/>) switches on <c>request.Name</c> inside the handler
+    /// — this is a single global hook, not one per catalog name.
+    ///
+    /// Throw to reject the ATTACH: the exception's <c>Message</c> propagates verbatim to the
+    /// client as the ATTACH failure (the same generic unary-RPC-error path every other worker
+    /// exception already uses — no special handling needed). Return a non-null
+    /// <see cref="AttachContext"/> to validate-and-accept while customizing the result (a resolved
+    /// version, extra opaque payload, an overridden routing identity for
+    /// per-attach-differentiated catalogs — see that type's doc comment); return
+    /// <see langword="null"/> to accept with today's default behavior unchanged. Leaving no
+    /// handler registered at all is exactly the same as one that always returns
+    /// <see langword="null"/>.</summary>
+    public Worker OnAttach(Func<Protocol.CatalogAttachRequest, Protocol.AttachContext?> handler)
+    {
+        _catalog.OnAttach = handler;
         return this;
     }
 

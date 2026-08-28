@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>QueryFarm.Vgi.VersionedTablesWorker</RootNamespace>
+    <Description>ATTACH-time data_version_spec-shaped table-set fixture worker — drives ~/Development/vgi's test/sql/integration/attach/versioned_tables*.test. A dedicated single-catalog worker (not a catalog inside ExampleWorker): those tests' vgi_catalogs() discovery query is unfiltered and expects exactly one row, which a shared multi-catalog worker process can't satisfy.</Description>
+    <AssemblyName>vgi-versioned-tables-worker</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </ItemGroup>
+
+</Project>

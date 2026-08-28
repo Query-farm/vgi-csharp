@@ -97,6 +97,18 @@ public sealed class CatalogRegistry
         }
     }
 
+    /// <summary>Marks an identity bucket exclusive (see <see cref="RegisterCatalog"/>'s
+    /// <c>exclusive</c> parameter for what that means) WITHOUT adding a corresponding
+    /// pre-attach-discoverable <see cref="Protocol.CatalogInfo"/> — for an identity that is never
+    /// itself an ATTACH-able catalog name, e.g. a composite <c>"&lt;name&gt;@&lt;resolved-version&gt;"</c>
+    /// bucket a worker's own <see cref="Protocol.AttachContext.Identity"/> routes to internally (one
+    /// real catalog name fanning out into several isolated table sets keyed by a value resolved at
+    /// attach time — see <c>ExampleWorker.Versioned.VersionedTablesSetup</c>). Calling
+    /// <see cref="RegisterCatalog"/> for such an identity instead would leak it into
+    /// <c>vgi_catalogs()</c> discovery as a spurious extra catalog, which is exactly what this
+    /// avoids.</summary>
+    public void MarkIdentityExclusive(string identity) => _exclusiveIdentities.Add(identity);
+
     public IReadOnlyList<Protocol.CatalogInfo> Catalogs => _catalogs;
 
     private bool FallsBackToDefault(string identity) => identity != DefaultIdentity && !_exclusiveIdentities.Contains(identity);
@@ -128,6 +140,13 @@ public sealed class CatalogRegistry
     /// <see cref="Protocol.SecretTypeSpec"/>. Order is registration order (also the order advertised
     /// on <c>CatalogAttachResult.SecretTypes</c>).</summary>
     private readonly List<Protocol.SecretTypeSpec> _secretTypes = [];
+
+    /// <summary>The worker-wide <c>catalog_attach</c> validation/customization hook (<see
+    /// cref="Worker.OnAttach"/>), if any — consulted by <c>VgiServiceImpl.CatalogAttachAsync</c>
+    /// before building the result. A single global hook, not per-catalog-name: a fixture serving
+    /// several catalog names switches on <see cref="Protocol.CatalogAttachRequest.Name"/> inside
+    /// it, mirroring how a Python worker's own <c>catalog_attach</c> override dispatches.</summary>
+    public Func<Protocol.CatalogAttachRequest, Protocol.AttachContext?>? OnAttach { get; set; }
 
     public void RegisterScalar(IScalarFunction function, string identity = DefaultIdentity) =>
         Add(_scalarFunctions, identity, function.SchemaName, function.Name, function);

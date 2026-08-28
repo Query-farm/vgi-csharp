@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>QueryFarm.Vgi.BadEnumWorker</RootNamespace>
+    <Description>Deliberately-unrecognized-wire-enum-value fixture worker — drives ~/Development/vgi's test/sql/integration/bad_enum.test. Advertises an out-of-vocabulary null_handling ("WEIRD") for its `double` scalar, to prove the C++ catalog-metadata parser rejects it loudly rather than silently defaulting. Bypasses Worker's hosting for exactly the one discovery response it needs to corrupt — see Program.cs's doc comment.</Description>
+    <AssemblyName>vgi-bad-enum-worker</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -13,6 +13,7 @@ using Apache.Arrow.Types;
 using QueryFarm.Vgi;
 using QueryFarm.Vgi.Catalog;
 using QueryFarm.Vgi.ExampleWorker.Accumulate;
+using QueryFarm.Vgi.ExampleWorker.AttachOptions;
 using QueryFarm.Vgi.ExampleWorker.Aggregate;
 using QueryFarm.Vgi.ExampleWorker.Buffering;
 using QueryFarm.Vgi.ExampleWorker.Cache;
@@ -60,6 +61,10 @@ var worker = new Worker()
     .RegisterCatalog(new CatalogInfo { Name = "accumulate", DataVersionSpec = "2.0.0" }, exclusive: true)
     .RegisterCatalog(new CatalogInfo { Name = "narrow_bind" }, exclusive: true)
     .RegisterCatalog(new CatalogInfo { Name = "projection_repro" }, exclusive: true)
+    // attach/attach_options_echo.test + attach/attach_options_required.test — see
+    // AttachOptions/*.cs. OnAttach hook wired further below.
+    .RegisterCatalog(AttachOptionsSetup.Info, exclusive: true)
+    .RegisterCatalog(AttachOptionsSetup.RequiredInfo, exclusive: true)
     // Settings exposed via catalog_attach (test/sql/integration/settings/*.test) — mirrors
     // vgi-python's ExampleWorker.Settings.
     .RegisterSetting("vgi_verbose_mode", "Enable verbose output", BooleanType.Default, new BooleanArray.Builder().Append(false).Build())
@@ -355,7 +360,11 @@ var worker = new Worker()
     .RegisterTable(new SplitDynamicFilterFunction())
     .RegisterTable(new SplitFailAtFunction())
     .RegisterTable(new SplitPartitionedFunction())
-    .RegisterTable(new SplitEchoFiltersFunction());
+    .RegisterTable(new SplitEchoFiltersFunction())
+    .RegisterTable(new EchoAttachOptionsFunction(), identity: "attach_options")
+    // attach/attach_options_echo.test + attach/attach_options_required.test's catalog_attach
+    // validation/echo hook.
+    .OnAttach(request => AttachOptionsSetup.Handle(request));
 
 // table/function_registration.test — PASSES (exactly 162 table-type functions, matching the
 // vgi-python reference worker's roster count). Closed via a full class-hierarchy diff of every

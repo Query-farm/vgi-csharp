@@ -16,7 +16,12 @@
          on IArrowArray/Array), fixed in vgi-rpc-csharp 0.4.0 (see that repo's
          third_party/apache-arrow-dotnet/README.md's "Published as QueryFarm.Arrow" section). This
          package's own NuGet publish must not happen before 0.4.0 is live on nuget.org. -->
-    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.4.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.7.0" />
+
+    <!-- Same sibling-source-vs-NuGet split as QueryFarm.VgiRpc above; only used when the
+         vgi-rpc-csharp checkout isn't present. Kept at the same version for consistency — the two
+         packages are published from the same repo/release. -->
+    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.7.0" />
 
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
 

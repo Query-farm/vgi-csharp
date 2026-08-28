@@ -6,6 +6,9 @@
     <Project Path="fixtures/QueryFarm.Vgi.ExampleWorker/QueryFarm.Vgi.ExampleWorker.csproj" />
     <Project Path="fixtures/QueryFarm.Vgi.SimpleWritableWorker/QueryFarm.Vgi.SimpleWritableWorker.csproj" />
     <Project Path="fixtures/QueryFarm.Vgi.BadProtocolWorker/QueryFarm.Vgi.BadProtocolWorker.csproj" />
+    <Project Path="fixtures/QueryFarm.Vgi.VersionedWorker/QueryFarm.Vgi.VersionedWorker.csproj" />
+    <Project Path="fixtures/QueryFarm.Vgi.VersionedTablesWorker/QueryFarm.Vgi.VersionedTablesWorker.csproj" />
+    <Project Path="fixtures/QueryFarm.Vgi.BadEnumWorker/QueryFarm.Vgi.BadEnumWorker.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />

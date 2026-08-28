@@ -30,6 +30,15 @@ export PATH="$HOME/.dotnet:$PATH"
 EXAMPLE_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.ExampleWorker/bin/Debug/net10.0/vgi-example-worker"
 WRITABLE_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.SimpleWritableWorker/bin/Debug/net10.0/vgi-simple-writable-worker"
 BAD_PROTOCOL_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.BadProtocolWorker/bin/Debug/net10.0/vgi-bad-protocol-worker"
+# Dedicated single-catalog binaries — attach/versioning.test and attach/versioned_tables*.test's
+# vgi_catalogs() discovery queries are unfiltered and expect exactly one row, which a shared
+# multi-catalog worker (like EXAMPLE_BIN) can't satisfy. attach_options/attach_options_required
+# ARE catalogs inside EXAMPLE_BIN — their test files always filter `WHERE catalog = '...'`.
+VERSIONED_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.VersionedWorker/bin/Debug/net10.0/vgi-versioned-worker"
+VERSIONED_TABLES_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.VersionedTablesWorker/bin/Debug/net10.0/vgi-versioned-tables-worker"
+# bad_enum.test — bare path always (never launch:); a single deliberately-malformed catalog, no
+# pooling/launcher interaction needed.
+BAD_ENUM_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.BadEnumWorker/bin/Debug/net10.0/vgi-bad-enum-worker"
 
 CACHE="/tmp/vgi-csharp-test-cache"
 mkdir -p "$CACHE"
@@ -41,6 +50,8 @@ if [[ $BUILD == 1 ]]; then
   echo "[harness] building (Debug)..."
   ( cd "$VGI_CSHARP" && "$DOTNET" build vgi-csharp.slnx 2>&1 ) | tail -5
   if [[ ! -x "$EXAMPLE_BIN" ]]; then echo "[harness] build failed: $EXAMPLE_BIN missing"; exit 1; fi
+  if [[ ! -x "$VERSIONED_BIN" ]]; then echo "[harness] build failed: $VERSIONED_BIN missing"; exit 1; fi
+  if [[ ! -x "$VERSIONED_TABLES_BIN" ]]; then echo "[harness] build failed: $VERSIONED_TABLES_BIN missing"; exit 1; fi
 fi
 
 # Determine the filter set.
@@ -58,17 +69,34 @@ ENV_ARGS=()
 if [[ "${SUBPROCESS:-0}" == "1" ]]; then
   TEST_WORKER="$EXAMPLE_BIN"
   WRITABLE_WORKER="$WRITABLE_BIN"
+  VERSIONED_WORKER="$VERSIONED_BIN"
+  VERSIONED_TABLES_WORKER="$VERSIONED_TABLES_BIN"
 else
   TEST_WORKER="launch:$EXAMPLE_BIN"
   WRITABLE_WORKER="launch:$WRITABLE_BIN"
+  VERSIONED_WORKER="launch:$VERSIONED_BIN"
+  VERSIONED_TABLES_WORKER="launch:$VERSIONED_TABLES_BIN"
   # Only meaningful (and only asserted on) under the launcher transport — see
   # test/sql/integration/launcher/options_validation.test.
   ENV_ARGS+=(VGI_REQUIRE_LAUNCHER_TRANSPORT=1)
 fi
 
 ENV_ARGS+=(VGI_TEST_WORKER="$TEST_WORKER" VGI_SIMPLE_WRITABLE_WORKER="$WRITABLE_WORKER")
+# attach_options / attach_options_required are additional catalogs on the SAME example-worker
+# binary (see fixtures/QueryFarm.Vgi.ExampleWorker/AttachOptions/) — same $TEST_WORKER value,
+# just a different ATTACH catalog name per test file. versioned / versioned_tables are their own
+# dedicated binaries — see the VERSIONED_BIN/VERSIONED_TABLES_BIN comment above.
+ENV_ARGS+=(
+  VGI_VERSIONED_WORKER="$VERSIONED_WORKER"
+  VGI_VERSIONED_TABLES_WORKER="$VERSIONED_TABLES_WORKER"
+  VGI_ATTACH_OPTIONS_WORKER="$TEST_WORKER"
+  VGI_ATTACH_OPTIONS_REQUIRED_WORKER="$TEST_WORKER"
+)
 if [[ -x "$BAD_PROTOCOL_BIN" ]]; then
   ENV_ARGS+=(VGI_BAD_PROTOCOL_WORKER="$BAD_PROTOCOL_BIN")
+fi
+if [[ -x "$BAD_ENUM_BIN" ]]; then
+  ENV_ARGS+=(VGI_BAD_ENUM_WORKER="$BAD_ENUM_BIN")
 fi
 
 echo "[harness] running: ${ARGS[*]} (worker: $TEST_WORKER)"

@@ -1002,10 +1002,17 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// so reusing it keyed by <c>transaction_opaque_data</c> instead of an execution id needs no new
     /// storage machinery, just <see cref="FunctionStorage.DeleteAll"/> on commit/rollback to clear
     /// it. See <c>ExampleWorker.Table.TxCachedValueFunction</c> for the fixture this backs.</summary>
-    public Task<CatalogAttachResult> CatalogAttachAsync(CatalogAttachRequest request, ICallContext? ctx = null) =>
-        Task.FromResult(new CatalogAttachResult
+    public Task<CatalogAttachResult> CatalogAttachAsync(CatalogAttachRequest request, ICallContext? ctx = null)
+    {
+        // See Worker.OnAttach's doc comment: a registered handler may throw (propagates as the
+        // ATTACH failure, unchanged by anything below) or return an AttachContext customizing the
+        // result — a null handler, or one that returns null, keeps every field below at today's
+        // defaults.
+        var attachContext = catalog.OnAttach?.Invoke(request);
+
+        return Task.FromResult(new CatalogAttachResult
         {
-            AttachOpaqueData = EncodeIdentity(request.Name),
+            AttachOpaqueData = EncodeIdentity(attachContext?.Identity ?? request.Name, attachContext?.ExtraOpaqueData),
             SupportsTransactions = request.Name == "example",
             SupportsTimeTravel = true,
             CatalogVersionFrozen = true,
@@ -1020,9 +1027,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             SupportsColumnStatistics = true,
             GlobalFunctions = BuildGlobalFunctionInfos(),
             GlobalFunctionPrefix = catalog.GlobalFunctionPrefix,
-            ResolvedDataVersion = null,
-            ResolvedImplementationVersion = null,
+            ResolvedDataVersion = attachContext?.ResolvedDataVersion,
+            ResolvedImplementationVersion = attachContext?.ResolvedImplementationVersion,
         });
+    }
 
     /// <summary>Mints a fresh per-transaction id (only ever called for a catalog identity whose
     /// <see cref="CatalogAttachAsync"/> response set <c>SupportsTransactions</c> — see that method's
@@ -1385,22 +1393,31 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return Encoding.UTF8.GetString(nameBytes);
     }
 
-    /// <summary>Encodes BOTH the deterministic identity name (unchanged: still the sole input to
+    /// <summary>Encodes the routing identity (unchanged: still the sole input to
     /// <see cref="DecodeIdentity"/>, so same-name function-registry routing — <c>same_name_catalogs.test</c>
-    /// — is unaffected) AND a fresh random per-<c>ATTACH</c>-call suffix, separated by a NUL byte.
-    /// The suffix exists so the FULL blob (see every <c>*Params.AttachOpaqueData</c> property) is
+    /// — is unaffected), a fresh random per-<c>ATTACH</c>-call GUID, and an optional worker-supplied
+    /// <paramref name="extra"/> payload (<see cref="Protocol.AttachContext.ExtraOpaqueData"/>) —
+    /// <c>&lt;identity&gt;\0&lt;16-byte GUID&gt;&lt;extra&gt;</c>. No second separator is needed
+    /// before <paramref name="extra"/>: the GUID is fixed-length, so a function that wants it back
+    /// (see <c>Worker.OnAttach</c>'s doc comment) just skips the first NUL plus 16 bytes.
+    ///
+    /// The GUID exists so the FULL blob (see every <c>*Params.AttachOpaqueData</c> property) is
     /// safe to use as a genuinely unique per-attach-SESSION storage key — e.g. two independent
     /// <c>ATTACH</c>s of the very same catalog name (two parallel test files against this same
-    /// worker binary, or two attaches in one session) never collide, unlike the identity name alone
-    /// (which is deliberately deterministic and therefore NOT unique per attach).</summary>
-    private static byte[] EncodeIdentity(string attachName)
+    /// worker binary, or two attaches in one session) never collide, unlike the identity alone
+    /// (which is deliberately deterministic and therefore NOT unique per attach) — <paramref
+    /// name="extra"/> doesn't change that: appending worker-chosen bytes after an already-random
+    /// GUID can only make two blobs MORE distinguishable, never less.</summary>
+    private static byte[] EncodeIdentity(string identity, byte[]? extra = null)
     {
-        var nameBytes = Encoding.UTF8.GetBytes(attachName);
+        var nameBytes = Encoding.UTF8.GetBytes(identity);
         var suffix = Guid.NewGuid().ToByteArray();
-        var encoded = new byte[nameBytes.Length + 1 + suffix.Length];
+        var extraLength = extra?.Length ?? 0;
+        var encoded = new byte[nameBytes.Length + 1 + suffix.Length + extraLength];
         nameBytes.CopyTo(encoded, 0);
         encoded[nameBytes.Length] = IdentitySeparator;
         suffix.CopyTo(encoded, nameBytes.Length + 1);
+        extra?.CopyTo(encoded, nameBytes.Length + 1 + suffix.Length);
         return encoded;
     }
 

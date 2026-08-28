@@ -3,7 +3,7 @@ using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
-namespace QueryFarm.Vgi.ExampleWorker.Table;
+namespace QueryFarm.Vgi.VersionedTablesWorker;
 
 /// <summary>
 /// A zero-argument table function that emits one fixed, pre-built <see cref="RecordBatch"/> and
@@ -25,9 +25,7 @@ public sealed class StaticRowsFunction(string name, string schemaName, RecordBat
     public Schema OutputSchema => data.Schema;
 
     /// <summary>Best-effort cardinality reported via the per-bind <c>table_function_cardinality</c>
-    /// RPC — <see langword="null"/> (the default) unless the caller opts in, since most fixtures
-    /// using this class don't need it (see <see cref="DataSchemaTables.TenThousandTable"/>'s
-    /// "legacy path" for a caller that does).</summary>
+    /// RPC — <see langword="null"/> (the default) unless the caller opts in.</summary>
     public long? Cardinality(TableBindParams bindParams) => cardinality;
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams) => new Producer(_serializedData);
