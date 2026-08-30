@@ -676,6 +676,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         if (catalog.FindTableInOut(identity, schemaName, name, DecodeInputSchema(request.InputSchema)) is { } tableInOut)
         {
+            RequireTableInOutInputSchema(tableInOut.Name, request.InputSchema);
             var bindParams = DecodeTableInOutBindParams(request);
             tableInOut.Bind(bindParams);
             ThrowIfSecretsPending(bindParams.Secrets);
@@ -695,6 +696,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     private static Apache.Arrow.Schema BindTable(ITableFunction function, BindRequest request)
     {
+        RequirePlainTableNoInputSchema(function.Name, request.InputSchema);
+
         var arguments = TableArgCodec.Decode(request.Arguments);
         var inputSchema = request.InputSchema is { Length: > 0 } bytes ? SchemaIpc.ReadSchemaOnly(bytes) : null;
 
@@ -730,6 +733,75 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         if (secrets.NeedsResolution)
         {
             throw new SecretScopeRequestException(secrets.PendingLookups);
+        }
+    }
+
+    /// <summary>Function-shape dispatch guard (bind/init side of a two-part fix — see
+    /// <see cref="RequirePlainTableNoInputSchema"/> and <see cref="RequirePlainTableNoInitPhase"/>
+    /// for the mirror image). A table-in-out function requires an input row stream to mean
+    /// anything — its <c>ResolveOutputSchema</c>/processor both need a REAL
+    /// <see cref="BindRequest.InputSchema"/>, not a stand-in. <see langword="null"/> here means the
+    /// caller drove this call via the plain-producer RPC path (<c>table_function()</c>) instead of
+    /// the exchange path this function's shape requires (<c>table_in_out_function(input=...)</c>).
+    ///
+    /// This was found live, against a real deployed worker, as a SILENT, NON-TERMINATING HANG, not
+    /// a clean error: the call sites this guards used to substitute an empty
+    /// <c>Apache.Arrow.Schema([], null)</c> for a missing input schema (see
+    /// <see cref="DecodeTableInOutBindParams"/>'s and <see cref="InitTableInOut"/>'s own
+    /// <c>inputSchema</c> ternaries) — which let bind/init succeed, but then both sides deadlocked:
+    /// the server only stops on the processor's own <c>Finish()</c> (never reached — a row-transform/
+    /// table-in-out function is designed to consume input rows that this call shape never sends),
+    /// and the plain-producer client only stops when the server stops sending a continuation token
+    /// (which it never does either, since this dispatch path was never designed to reach that
+    /// state). Rejecting the missing schema here, before either side commits to that dance, turns
+    /// the hang into an immediate, actionable error naming the function and the fix.
+    ///
+    /// A present-but-zero-column schema (<c>Schema([])</c>, non-null but empty) is NOT the same
+    /// thing and must not be conflated with a missing one: a blended/varargs row-transform function
+    /// legitimately gets called with zero real input columns (e.g. a childless <c>row_sum()</c>
+    /// call) — that is a real, deliberately-empty schema the caller negotiated, not evidence of the
+    /// wrong RPC method. Only a genuinely absent (<see langword="null"/>) wire field means "no input
+    /// schema was negotiated at all".</summary>
+    private static void RequireTableInOutInputSchema(string functionName, byte[]? inputSchema)
+    {
+        if (inputSchema is null)
+        {
+            throw new InvalidOperationException(
+                $"'{functionName}' is a table-in-out function (it requires an input row stream) but no " +
+                "input schema was supplied -- call it via table_in_out_function(input=...), not " +
+                "table_function().");
+        }
+    }
+
+    /// <summary>Mirror image of <see cref="RequireTableInOutInputSchema"/>, for the BIND-time shape
+    /// of the same confusion in the other direction: a plain (producer-only) table function never
+    /// legitimately receives an input schema at all (see <see cref="CatalogRegistry.FindTable"/>'s
+    /// doc comment — "table calls carry no InputSchema at all"). A non-<see langword="null"/> value
+    /// here means the caller drove this call via <c>table_in_out_function()</c> instead of the
+    /// plain-producer path this function's shape requires (<c>table_function()</c>).</summary>
+    private static void RequirePlainTableNoInputSchema(string functionName, byte[]? inputSchema)
+    {
+        if (inputSchema is not null)
+        {
+            throw new InvalidOperationException(
+                $"'{functionName}' is a plain table function (it takes no input row stream) but an " +
+                "input schema was supplied -- call it via table_function(), not table_in_out_function().");
+        }
+    }
+
+    /// <summary>Mirror image of <see cref="RequireTableInOutInputSchema"/>, for the INIT-time shape
+    /// of the same confusion: a plain table function's producer stream never carries an
+    /// <see cref="InitRequest.Phase"/> (that field only means something for table-in-out/
+    /// table-buffering dispatch). A non-<see langword="null"/> phase here means the caller drove
+    /// this call via <c>table_in_out_function()</c> instead of <c>table_function()</c>.</summary>
+    private static void RequirePlainTableNoInitPhase(string functionName, VgiInitPhase? phase)
+    {
+        if (phase is not null)
+        {
+            throw new InvalidOperationException(
+                $"'{functionName}' is a plain table function (it takes no input row stream) but was " +
+                $"called with init phase '{phase}' set -- call it via table_function(), not " +
+                "table_in_out_function().");
         }
     }
 
@@ -772,6 +844,13 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     private static RpcStream<StreamState> InitTable(ITableFunction function, BindRequest bindRequest, InitRequest request)
     {
+        // Defense-in-depth mirror of BindTable's own bind-time guard: a plain table function's
+        // init RPC never carries a table-in-out/table-buffering phase. A non-null phase here means
+        // this call actually came from the wrong Client method (table_in_out_function() instead of
+        // table_function()) -- reject it immediately rather than silently ignoring the phase and
+        // running as an ordinary producer while the caller is left feeding input rows nobody reads.
+        RequirePlainTableNoInitPhase(function.Name, request.Phase);
+
         var arguments = TableArgCodec.Decode(bindRequest.Arguments);
         var inputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes ? SchemaIpc.ReadSchemaOnly(schemaBytes) : null;
         var bindParams = new TableBindParams
@@ -847,6 +926,17 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// processor by substream id and opens its producer stream instead).</summary>
     private RpcStream<StreamState> InitTableInOut(ITableInOutFunction function, BindRequest bindRequest, InitRequest request)
     {
+        // Defense-in-depth mirror of BindAnyTable's own bind-time guard (RequireTableInOutInputSchema):
+        // only meaningful for the INPUT-phase (exchange) path below -- a FINALIZE init reuses the
+        // SAME bind_call the INPUT phase already validated, on the same connection, so it carries
+        // no new shape-mismatch risk of its own. Checked BEFORE any of the (below) silent
+        // `?? new Schema([], null)` substitution -- see that guard's doc comment for the live
+        // hang this prevents.
+        if (request.Phase != VgiInitPhase.Finalize)
+        {
+            RequireTableInOutInputSchema(function.Name, bindRequest.InputSchema);
+        }
+
         var arguments = TableArgCodec.Decode(bindRequest.Arguments);
         var inputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes
             ? SchemaIpc.ReadSchemaOnly(schemaBytes)
