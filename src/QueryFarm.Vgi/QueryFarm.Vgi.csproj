@@ -9,9 +9,15 @@
        back to the published NuGet package when the vgi-rpc-csharp checkout isn't present. -->
   <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' == 'true'">
     <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc/QueryFarm.VgiRpc.csproj" />
+    <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Http/QueryFarm.VgiRpc.Http.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' != 'true'">
     <PackageReference Include="QueryFarm.VgiRpc" />
+    <PackageReference Include="QueryFarm.VgiRpc.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

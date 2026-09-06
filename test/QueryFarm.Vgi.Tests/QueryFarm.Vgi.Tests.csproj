@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <PropertyGroup>
     <RootNamespace>QueryFarm.Vgi.Tests</RootNamespace>
     <IsPackable>false</IsPackable>
