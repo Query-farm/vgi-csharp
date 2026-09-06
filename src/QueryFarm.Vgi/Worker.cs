@@ -1,3 +1,9 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using QueryFarm.Vgi.Aggregate;
 using QueryFarm.Vgi.Buffering;
 using QueryFarm.Vgi.Catalog;
@@ -6,6 +12,8 @@ using QueryFarm.Vgi.Protocol;
 using QueryFarm.Vgi.Scalar;
 using QueryFarm.Vgi.Table;
 using QueryFarm.Vgi.TableInOut;
+using QueryFarm.VgiRpc.Identity;
+using QueryFarm.VgiRpc.Http;
 using QueryFarm.VgiRpc.Server;
 using QueryFarm.VgiRpc.Transport;
 
@@ -15,8 +23,8 @@ namespace QueryFarm.Vgi;
 /// Fluent builder for a VGI worker process — ports vgi-java's <c>Worker</c> builder pattern.
 /// Serves over stdio (the default, and what DuckDB's bare-command <c>LOCATION</c> subprocess
 /// transport uses) or over an AF_UNIX socket (<see cref="RunUnixSocketAsync"/>, the
-/// <c>LOCATION 'launch:&lt;argv&gt;'</c> pooled-launcher transport). <c>RunTcp</c>/<c>RunHttp</c>
-/// and the rest of <c>RunFromArgs</c>'s flag surface land in later milestones.
+/// <c>LOCATION 'launch:&lt;argv&gt;'</c> pooled-launcher transport), raw TCP behind
+/// an identity-preserving Iroh bridge, or HTTP through <see cref="RunHttpAsync"/>.
 ///
 /// CRITICAL: stdout is the wire channel (stdio mode) or the launcher's discovery-line channel
 /// (unix-socket mode) — never write to <see cref="Console.Out"/> from a registered function or
@@ -444,13 +452,151 @@ public sealed class Worker
     }
 
     /// <summary>
+    /// Serves the raw Arrow-mux upstream expected by <c>vgi-iroh-bridge</c>.
+    /// The listener is deliberately loopback-only, requires the bridge's
+    /// identity-bearing PROXY v2 preamble, and authenticates the Iroh EndpointId
+    /// by default. Set <paramref name="authenticate"/> to false for observation mode.
+    /// </summary>
+    public async Task RunIrohTcpUpstreamAsync(
+        string host,
+        int port,
+        string issuer,
+        IEnumerable<string>? trustedProxyAddresses = null,
+        bool authenticate = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsLoopbackHost(host))
+            throw new ArgumentException("Iroh bridge upstream must bind loopback.", nameof(host));
+        ArgumentException.ThrowIfNullOrWhiteSpace(issuer);
+
+        var impl = new VgiServiceImpl(_catalog);
+        var server = new RpcServer(typeof(IVgiService), impl, expectedProtocolVersion: _protocolVersion);
+        var options = new TcpServerOptions
+        {
+            ProxyProtocolV2Required = true,
+            TrustedProxyAddresses = (trustedProxyAddresses ?? ["127.0.0.1"]).ToArray(),
+            IrohProxyIssuer = issuer,
+            PeerAuthenticationPolicy = authenticate
+                ? PeerAuthenticationPolicies.Primary("iroh")
+                : PeerAuthenticationPolicies.Observe,
+        };
+        await SocketTransport.ServeTcpAsync(
+            host,
+            port,
+            (transport, token) => server.ServeAsync(transport, token),
+            options,
+            cancellationToken,
+            actualPort =>
+            {
+                Console.WriteLine($"TCP:{host}:{actualPort}");
+                Console.Out.Flush();
+            }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Serves the VGI HTTP protocol. Supplying <paramref name="irohBridge"/>
+    /// enables identity-preserving HTTP-over-Iroh behind an adjacent bridge;
+    /// the HTTP semantics, response budgets, continuations, and externalized
+    /// payload behavior remain unchanged.
+    /// </summary>
+    public async Task RunHttpAsync(
+        string host = "127.0.0.1",
+        int port = 0,
+        string prefix = "",
+        IrohBridgeOptions? irohBridge = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (irohBridge is not null && !IsLoopbackHost(host))
+            throw new ArgumentException("Iroh HTTP bridge upstream must bind loopback.", nameof(host));
+
+        var impl = new VgiServiceImpl(_catalog);
+        var rpc = new RpcServer(typeof(IVgiService), impl, expectedProtocolVersion: _protocolVersion);
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls($"http://{FormatHostForUrl(host)}:{port}");
+        var app = builder.Build();
+
+        RpcHttpEndpoints.AuthenticateDelegate? authenticate = null;
+        if (irohBridge is not null)
+        {
+            app.UseVgiRpcPhysicalPeerSnapshot();
+            var provider = IrohPeerIdentityProviders.Forwarded(
+                irohBridge.Issuer,
+                irohBridge.EffectiveTrustedProxyAddresses);
+            authenticate = PeerIdentityAuthentication.Compose(
+                null,
+                [provider],
+                irohBridge.Authenticate
+                    ? PeerAuthenticationPolicies.Primary("iroh")
+                    : PeerAuthenticationPolicies.Observe);
+        }
+
+        app.MapVgiRpc(rpc, prefix: prefix, authenticate: authenticate);
+        await app.StartAsync(cancellationToken).ConfigureAwait(false);
+        var addresses = app.Services.GetRequiredService<IServer>()
+            .Features.Get<IServerAddressesFeature>()?.Addresses;
+        var actualPort = addresses?
+            .Select(address => new Uri(address).Port)
+            .FirstOrDefault() ?? port;
+        Console.WriteLine($"PORT:{actualPort}");
+        Console.Out.Flush();
+        try
+        {
+            await app.WaitForShutdownAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await app.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
     /// The canonical CLI entry point every worker's <c>Main</c> calls. Understands the launcher
-    /// transport (<c>--unix &lt;path&gt; [--idle-timeout &lt;seconds&gt;]</c>) and defaults to stdio
-    /// when no flags are given — <c>--http</c>/<c>--tcp</c>/<c>--access-log</c> are parsed by later
-    /// milestones.
+    /// transport (<c>--unix &lt;path&gt; [--idle-timeout &lt;seconds&gt;]</c>), HTTP,
+    /// and the Iroh bridge flags; it defaults to stdio when no transport is selected.
     /// </summary>
     public Task RunFromArgsAsync(string[] args, CancellationToken cancellationToken = default)
     {
+        var httpIndex = Array.IndexOf(args, "--http");
+        if (httpIndex >= 0)
+        {
+            var port = 0;
+            if (httpIndex + 1 < args.Length && !args[httpIndex + 1].StartsWith("--", StringComparison.Ordinal)
+                && (!int.TryParse(args[httpIndex + 1], out port) || port is < 0 or > 65535))
+                throw new ArgumentException("--http port must be in 0..65535.", nameof(args));
+            var issuerIndex = Array.IndexOf(args, "--iroh-issuer");
+            IrohBridgeOptions? bridge = null;
+            if (issuerIndex >= 0)
+            {
+                if (issuerIndex + 1 >= args.Length)
+                    throw new ArgumentException("--iroh-issuer requires a value.", nameof(args));
+                var trusted = ValuesAfter(args, "--iroh-trusted-proxy");
+                bridge = new IrohBridgeOptions(
+                    args[issuerIndex + 1],
+                    trusted.Count == 0 ? null : trusted,
+                    !args.Contains("--iroh-observe", StringComparer.Ordinal));
+            }
+            return RunHttpAsync(port: port, irohBridge: bridge, cancellationToken: cancellationToken);
+        }
+
+        var irohIndex = Array.IndexOf(args, "--iroh-raw-upstream");
+        if (irohIndex >= 0)
+        {
+            if (irohIndex + 1 >= args.Length)
+                throw new ArgumentException("--iroh-raw-upstream requires [HOST:]PORT.", nameof(args));
+            var issuerIndex = Array.IndexOf(args, "--iroh-issuer");
+            if (issuerIndex < 0 || issuerIndex + 1 >= args.Length)
+                throw new ArgumentException("--iroh-raw-upstream requires --iroh-issuer.", nameof(args));
+            var (host, port) = ParseTcpBind(args[irohIndex + 1]);
+            var trusted = ValuesAfter(args, "--iroh-trusted-proxy");
+            return RunIrohTcpUpstreamAsync(
+                host,
+                port,
+                args[issuerIndex + 1],
+                trusted.Count == 0 ? null : trusted,
+                authenticate: !args.Contains("--iroh-observe", StringComparer.Ordinal),
+                cancellationToken: cancellationToken);
+        }
+
         var unixIndex = Array.IndexOf(args, "--unix");
         if (unixIndex >= 0)
         {
@@ -482,5 +628,43 @@ public sealed class Worker
         }
 
         return RunStdioAsync(cancellationToken);
+    }
+
+    private static bool IsLoopbackHost(string host) =>
+        host is "localhost" or "127.0.0.1" or "::1"
+        || System.Net.IPAddress.TryParse(host, out var address)
+            && System.Net.IPAddress.IsLoopback(address);
+
+    private static string FormatHostForUrl(string host) =>
+        host.Contains(':', StringComparison.Ordinal) ? $"[{host}]" : host;
+
+    private static (string Host, int Port) ParseTcpBind(string value)
+    {
+        var host = "127.0.0.1";
+        var portText = value;
+        var split = value.LastIndexOf(':');
+        if (split >= 0)
+        {
+            host = value[..split];
+            portText = value[(split + 1)..];
+            if (host.Length == 0) host = "127.0.0.1";
+            if (host.Length >= 2 && host[0] == '[' && host[^1] == ']') host = host[1..^1];
+        }
+        if (!int.TryParse(portText, out var port) || port is < 0 or > 65535)
+            throw new ArgumentException("--iroh-raw-upstream requires [HOST:]PORT in 0..65535.");
+        return (host, port);
+    }
+
+    private static List<string> ValuesAfter(string[] args, string flag)
+    {
+        var values = new List<string>();
+        for (var index = 0; index < args.Length; index++)
+        {
+            if (args[index] != flag) continue;
+            if (++index >= args.Length)
+                throw new ArgumentException($"{flag} requires a value.", nameof(args));
+            values.Add(args[index]);
+        }
+        return values;
     }
 }

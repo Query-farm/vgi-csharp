@@ -103,4 +103,30 @@ public sealed class WorkerUnixSocketTests
         var worker = new Worker();
         await Assert.ThrowsAsync<ArgumentException>(() => worker.RunFromArgsAsync(["--unix"]));
     }
+
+    [Fact]
+    public async Task IrohRawModeRequiresAnIssuerBeforeBinding()
+    {
+        var worker = new Worker();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            worker.RunFromArgsAsync(["--iroh-raw-upstream", "127.0.0.1:0"]));
+    }
+
+    [Fact]
+    public async Task IrohRawModeRefusesANonLoopbackWorkerPort()
+    {
+        var worker = new Worker();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            worker.RunIrohTcpUpstreamAsync("0.0.0.0", 9400, "test-mesh"));
+    }
+
+    [Fact]
+    public async Task IrohHttpModeRefusesANonLoopbackWorkerPort()
+    {
+        var worker = new Worker();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            worker.RunHttpAsync(
+                host: "0.0.0.0",
+                irohBridge: new IrohBridgeOptions("test-mesh")));
+    }
 }

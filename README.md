@@ -255,6 +255,8 @@ See inline doc comments throughout `src/QueryFarm.Vgi/` and `fixtures/QueryFarm.
 for the deeper "why" behind specific design choices — most non-obvious decisions are documented at
 the point of use, cross-referencing the specific sqllogictest file(s) they exist to satisfy.
 
+See [Iroh operations](docs/iroh.md) for native clients and bridge-ready raw or HTTP workers.
+
 ## License
 
 Copyright 2025, 2026 Query Farm LLC.
