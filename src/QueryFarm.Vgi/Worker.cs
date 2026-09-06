@@ -564,9 +564,20 @@ public sealed class Worker
         if (httpIndex >= 0)
         {
             var port = 0;
-            if (httpIndex + 1 < args.Length && !args[httpIndex + 1].StartsWith("--", StringComparison.Ordinal)
-                && (!int.TryParse(args[httpIndex + 1], out port) || port is < 0 or > 65535))
+            var positionalPort = httpIndex + 1 < args.Length
+                && !args[httpIndex + 1].StartsWith("--", StringComparison.Ordinal);
+            var portIndex = Array.IndexOf(args, "--port");
+            if (positionalPort && portIndex >= 0)
+                throw new ArgumentException("Use either --http PORT or --port, not both.", nameof(args));
+            var portValue = positionalPort
+                ? args[httpIndex + 1]
+                : portIndex >= 0 && portIndex + 1 < args.Length ? args[portIndex + 1] : "0";
+            if (!int.TryParse(portValue, out port) || port is < 0 or > 65535)
                 throw new ArgumentException("--http port must be in 0..65535.", nameof(args));
+            var hostIndex = Array.IndexOf(args, "--host");
+            if (hostIndex >= 0 && hostIndex + 1 >= args.Length)
+                throw new ArgumentException("--host requires a value.", nameof(args));
+            var host = hostIndex >= 0 ? args[hostIndex + 1] : "127.0.0.1";
             var issuerIndex = Array.IndexOf(args, "--iroh-issuer");
             IrohBridgeOptions? bridge = null;
             if (issuerIndex >= 0)
@@ -579,7 +590,7 @@ public sealed class Worker
                     trusted.Count == 0 ? null : trusted,
                     !args.Contains("--iroh-observe", StringComparer.Ordinal));
             }
-            return RunHttpAsync(port: port, irohBridge: bridge, cancellationToken: cancellationToken);
+            return RunHttpAsync(host: host, port: port, irohBridge: bridge, cancellationToken: cancellationToken);
         }
 
         var irohIndex = Array.IndexOf(args, "--iroh-raw-upstream");
