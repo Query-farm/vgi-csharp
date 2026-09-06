@@ -83,6 +83,18 @@ mkdir -p "$STAGE/test/sql/integration"
     awk -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/integration/$f"
   done )
 
+# The database-worker tests package this executable through a path relative to
+# the staged unittest working directory. Staging only .test files leaves that
+# path unmatched, so preserve the fixture and its executable bit explicitly.
+DATABASE_WORKER_FIXTURE="$VGI_SRC/test/support/database_worker_fixture.sh"
+if [ ! -f "$DATABASE_WORKER_FIXTURE" ]; then
+  echo "::error::pinned VGI suite is missing $DATABASE_WORKER_FIXTURE" >&2
+  exit 1
+fi
+mkdir -p "$STAGE/test/support"
+install -m 0755 "$DATABASE_WORKER_FIXTURE" \
+  "$STAGE/test/support/database_worker_fixture.sh"
+
 # Matches scripts/run_tests.sh's SUBPROCESS=1 lane — the default DuckDB
 # `LOCATION` subprocess transport, no launcher/AF_UNIX pooling.
 export VGI_TEST_WORKER="$WORKER"
