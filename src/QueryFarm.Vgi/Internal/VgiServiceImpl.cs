@@ -1255,7 +1255,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         List<string> requiredExtensions;
         if (table.Branches is { } declared)
         {
-            branches = declared.Select(BuildScanBranch).ToList();
+            branches = declared.Select(spec => BuildScanBranch(spec, identity, table.SchemaName)).ToList();
             requiredExtensions = table.RequiredExtensions.ToList();
         }
         else if (table.ScanFunction is { } scan)
@@ -1263,7 +1263,18 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             var (positional, named) = !string.IsNullOrEmpty(atUnit) && table.ResolveScanArguments is { } resolve
                 ? resolve(atUnit, atValue ?? "")
                 : (table.ScanArguments, table.ScanNamedArguments);
-            branches = [new ScanBranch { FunctionName = scan.Name, Arguments = ScanArgsCodec.Encode(positional, named) }];
+            branches =
+            [
+                new ScanBranch
+                {
+                    FunctionName = scan.Name,
+                    Arguments = ScanArgsCodec.Encode(positional, named),
+                    // Authoritative, not guessed: this branch was synthesized from the table's own
+                    // ITableFunction INSTANCE, which declares the schema CatalogRegistry.RegisterTable
+                    // keyed it under — no name-based lookup needed (protocol 1.5.0).
+                    SchemaName = scan.SchemaName,
+                },
+            ];
             requiredExtensions = [];
         }
         else
@@ -1279,12 +1290,22 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         });
     }
 
-    private static ScanBranch BuildScanBranch(ScanBranchSpec spec) => new()
+    /// <summary>Builds one declared branch's wire DTO. <paramref name="identity"/>/
+    /// <paramref name="tableSchemaName"/> exist only to resolve
+    /// <see cref="ScanBranch.SchemaName"/> (protocol 1.5.0) — a <see cref="ScanBranchSpec"/> names its
+    /// function by NAME alone, so which schema that name lives in has to come from the registry (see
+    /// <see cref="CatalogRegistry.SchemaForTableFunction"/>, which also yields <see langword="null"/>
+    /// for a native DuckDB function this worker never registered). A catalog-table or format branch
+    /// names no function at all and reports no schema.</summary>
+    private ScanBranch BuildScanBranch(ScanBranchSpec spec, string identity, string tableSchemaName) => new()
     {
         FunctionName = spec.FunctionName ?? "",
         Arguments = spec.FunctionName is not null
             ? ScanArgsCodec.Encode(spec.PositionalArguments, spec.NamedArguments)
             : [],
+        SchemaName = spec.FunctionName is { } branchFunction
+            ? catalog.SchemaForTableFunction(identity, branchFunction, tableSchemaName)
+            : null,
         BranchFilter = spec.BranchFilter,
         Writable = spec.Writable,
         SourceCatalog = spec.SourceCatalog,
@@ -1804,11 +1825,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             SupportsReturning = table.SupportsReturning,
             SupportsColumnStatistics = table.Statistics.Count > 0,
             ScanFunction = table.ScanFunction is { } scan && table.InlineScanFunction
-                ? BuildInlineScanFunction(scan.Name, table.ScanArguments, table.ScanNamedArguments)
+                ? BuildInlineScanFunction(scan.Name, scan.SchemaName, table.ScanArguments, table.ScanNamedArguments)
                 : null,
-            InsertFunction = table.InsertFunction is { } insert ? BuildInlineScanFunction(insert.Name) : null,
-            UpdateFunction = table.UpdateFunction is { } update ? BuildInlineScanFunction(update.Name) : null,
-            DeleteFunction = table.DeleteFunction is { } delete ? BuildInlineScanFunction(delete.Name) : null,
+            InsertFunction = table.InsertFunction is { } insert ? BuildInlineScanFunction(insert.Name, insert.SchemaName) : null,
+            UpdateFunction = table.UpdateFunction is { } update ? BuildInlineScanFunction(update.Name, update.SchemaName) : null,
+            DeleteFunction = table.DeleteFunction is { } delete ? BuildInlineScanFunction(delete.Name, delete.SchemaName) : null,
             CardinalityEstimate = table.CardinalityEstimate,
             CardinalityMax = table.CardinalityMax,
             ColumnStatistics = null,
@@ -1823,15 +1844,25 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// rather than needing a degenerate zero-field embedded struct batch. A <see cref="CatalogTable"/>
     /// declaring <see cref="CatalogTable.ScanArguments"/>/<see cref="CatalogTable.ScanNamedArguments"/>
     /// (e.g. a table backed by a function whose first argument is a required row count) instead
-    /// bakes those fixed constants in, so every scan of the table binds with them.</summary>
+    /// bakes those fixed constants in, so every scan of the table binds with them.
+    ///
+    /// <para><paramref name="schemaName"/> is the schema the named function's own
+    /// <see cref="Table.ITableFunction.SchemaName"/>/<see cref="TableInOut.ITableInOutFunction.SchemaName"/>
+    /// declares — i.e. the one <see cref="CatalogRegistry"/> keyed it under, which is NOT necessarily
+    /// the containing table's schema (see <see cref="Protocol.ScanFunctionResult.SchemaName"/>,
+    /// protocol 1.5.0). Every function reachable here is a real VGI registration, so unlike the
+    /// name-only <see cref="ScanBranchSpec"/> path this never has to guess and never reports
+    /// null.</para></summary>
     private static byte[] BuildInlineScanFunction(
         string functionName,
+        string schemaName,
         IReadOnlyList<object?>? positionalArguments = null,
         IReadOnlyDictionary<string, object?>? namedArguments = null) => EmbeddedIpc.Encode(new ScanFunctionResult
         {
             FunctionName = functionName,
             Arguments = ScanArgsCodec.Encode(positionalArguments ?? [], namedArguments),
             RequiredExtensions = [],
+            SchemaName = schemaName,
         });
 
     private static Schema WithRowIdMetadata(Schema schema, string rowIdColumn)

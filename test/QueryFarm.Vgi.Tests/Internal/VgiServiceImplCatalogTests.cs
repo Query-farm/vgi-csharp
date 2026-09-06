@@ -87,9 +87,11 @@ public class VgiServiceImplCatalogTests
     }
 }
 
-file sealed class StubTableFunction(string name) : ITableFunction
+file sealed class StubTableFunction(string name, string schemaName = "main") : ITableFunction
 {
     public string Name => name;
+
+    public string SchemaName => schemaName;
 
     public Schema ArgumentsSchema { get; } = new([], metadata: null);
 
@@ -247,6 +249,54 @@ public class CatalogTableScanBranchesGetTests
     }
 
     [Fact]
+    public async Task ScanFunctionBackedTable_ReportsTheFunctionsOwnSchema_NotTheTablesSchema()
+    {
+        // Protocol 1.5.0: a table's backing function is NOT necessarily registered in the table's own
+        // schema — data.numbers is scanned by main.sequence. The synthesized branch reads the schema
+        // off the ITableFunction INSTANCE the table holds, so this is authoritative, never a guess.
+        var registry = new CatalogRegistry();
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "numbers",
+            SchemaName = "data",
+            ScanFunction = new StubTableFunction("sequence", "main"),
+        });
+        var service = NewService(registry);
+
+        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "numbers", null, null, null);
+
+        var branch = EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]);
+        Assert.Equal("main", branch.SchemaName);
+    }
+
+    [Fact]
+    public async Task DeclaredFunctionBranch_ResolvesSchemaFromTheRegistry_AndReportsNoneForANativeFunction()
+    {
+        // A ScanBranchSpec names its function by NAME alone, so the schema has to come from the
+        // registry — which also answers "no schema at all" for a NATIVE DuckDB function this worker
+        // never registered (read_parquet), the permanent case that keeps the field optional.
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("sequence", "main"));
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "hetero",
+            SchemaName = "data",
+            Columns = new Schema([new Field("n", Int64Type.Default, nullable: true)], metadata: null),
+            Branches =
+            [
+                new ScanBranchSpec { FunctionName = "sequence", PositionalArguments = [50L] },
+                new ScanBranchSpec { FunctionName = "read_parquet", PositionalArguments = ["/tmp/a.parquet"] },
+            ],
+        });
+        var service = NewService(registry);
+
+        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "hetero", null, null, null);
+
+        Assert.Equal("main", EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]).SchemaName);
+        Assert.Null(EmbeddedIpc.Decode<ScanBranch>(result.Branches[1]).SchemaName);
+    }
+
+    [Fact]
     public async Task BranchesDeclaredTable_ReportsEachBranchVerbatim_IncludingFilterAndWritable()
     {
         var registry = new CatalogRegistry();
@@ -327,6 +377,8 @@ public class CatalogTableScanBranchesGetTests
         Assert.Equal(["/tmp/a.csv"], branch.FormatLocations);
         Assert.NotNull(branch.FormatOptions);
         Assert.NotEmpty(branch.FormatOptions!);
+        // A format branch names no function, so it reports no function schema (protocol 1.5.0).
+        Assert.Null(branch.SchemaName);
     }
 
     [Fact]
@@ -425,6 +477,9 @@ public class TableColumnMetadataAndDatabaseInfoTests
         Assert.NotNull(table.ScanFunction);
         var scanFunction = EmbeddedIpc.Decode<ScanFunctionResult>(table.ScanFunction!);
         Assert.Equal("inlined_scan", scanFunction.FunctionName);
+        // Protocol 1.5.0 — the inline result carries the function's own schema, which (as here) need
+        // not be the containing table's.
+        Assert.Equal("main", scanFunction.SchemaName);
     }
 
     [Fact]

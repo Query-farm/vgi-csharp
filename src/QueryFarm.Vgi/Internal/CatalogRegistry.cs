@@ -246,6 +246,37 @@ public sealed class CatalogRegistry
     /// same rule as <see cref="ScalarFunctionsFor"/>.</summary>
     public IReadOnlyCollection<ITableFunction> TableFunctionsFor(string identity) => Flatten(_tableFunctions, identity);
 
+    /// <summary>Resolves which schema a table function NAMED <paramref name="name"/> actually lives
+    /// in — for <see cref="Protocol.ScanBranch.SchemaName"/> (protocol 1.5.0), whose whole point is
+    /// that a table's backing function is NOT necessarily registered in the table's own schema (see
+    /// <c>data.numbers</c>, scanned by <c>main.sequence</c>). Unlike the
+    /// <see cref="CatalogTable.ScanFunction"/> path — which holds the actual
+    /// <see cref="ITableFunction"/> instance and can just read its own
+    /// <see cref="ITableFunction.SchemaName"/> — a <see cref="ScanBranchSpec"/> carries only a NAME,
+    /// so it needs this registry lookup. Prefers <paramref name="tableSchemaName"/> when the name IS
+    /// registered there (the common case); falls back to the function's one real home when it's
+    /// registered in exactly one OTHER schema; returns <see langword="null"/> when the registry has
+    /// no unambiguous answer — including the deliberate, permanent case of a NATIVE DuckDB function
+    /// (<c>read_parquet</c>, <c>iceberg_scan</c>, ...) this worker never registered and therefore has
+    /// no VGI-side schema for at all.</summary>
+    public string? SchemaForTableFunction(string identity, string name, string tableSchemaName)
+    {
+        if (CandidatesFor(_tableFunctions, identity, tableSchemaName, name) is { Count: > 0 })
+        {
+            return tableSchemaName;
+        }
+
+        var homes = _tableFunctions.Keys
+            .Where(key => key.Name == name && (key.Identity == identity || key.Identity == DefaultIdentity))
+            .Select(key => key.SchemaName)
+            .Distinct(StringComparer.Ordinal)
+            .Where(schemaName => CandidatesFor(_tableFunctions, identity, schemaName, name) is { Count: > 0 })
+            .Take(2)
+            .ToList();
+
+        return homes.Count == 1 ? homes[0] : null;
+    }
+
     /// <summary>Resolves a table-in-out function for a bind call — same identity-fallback rule as
     /// <see cref="FindScalar"/>. A name with more than one candidate is disambiguated by
     /// <see cref="OverloadResolver.SelectTableInOut{T}"/> against <paramref name="inputSchema"/>

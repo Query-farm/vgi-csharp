@@ -413,6 +413,28 @@ foreach (var table in DataSchemaTables.All(sequenceFunction, tenThousandFunction
     worker.RegisterCatalogTable(table);
 }
 
+// table/same_name_schemas.test — the DECLARATIVE-TABLE member of the schema-disambiguation family:
+// one table name registered in BOTH schemas, each backed by its own same-named
+// SameNameTableScanFunction instance (see that class's doc comment). RegisterCatalogTable registers
+// each ScanFunction under its own schema for us, so these two calls contribute exactly the two
+// test_same_name_table_scan registrations table/function_registration.test's inventory counts —
+// don't also .RegisterTable() them. The `data` comment is asserted verbatim by table/comments.test.
+worker.RegisterCatalogTable(new CatalogTable
+{
+    Name = "test_same_name_table",
+    SchemaName = "main",
+    Comment = "Schema-disambiguation probe; the main-schema table",
+    ScanFunction = new SameNameTableScanFunction("main"),
+});
+
+worker.RegisterCatalogTable(new CatalogTable
+{
+    Name = "test_same_name_table",
+    SchemaName = "data",
+    Comment = "Schema-disambiguation probe; the data-schema table",
+    ScanFunction = new SameNameTableScanFunction("data"),
+});
+
 // Function-backed table over the secret-using secret_demo function (test/sql/integration/secret/
 // secret_function_backed_table.test) — RegisterCatalogTable also registers SecretDemoFunction as an
 // ordinary function under its OWN name/schema ("main.secret_demo"), so it stays callable as

@@ -24,7 +24,8 @@ namespace QueryFarm.Vgi.Protocol;
 /// binding happens in the C++ optimizer rewriter once a real column list is in hand) the optimizer
 /// uses to prune whole branches that can't match a query's WHERE clause. Property order matches the
 /// generated <c>ScanBranchSchema()</c>: function_name, arguments, branch_filter, writable,
-/// source_catalog, source_schema, source_table, format_name, format_locations, format_options.
+/// source_catalog, source_schema, source_table, format_name, format_locations, format_options,
+/// schema_name.
 /// </summary>
 public sealed class ScanBranch
 {
@@ -50,4 +51,12 @@ public sealed class ScanBranch
     public List<string>? FormatLocations { get; set; }
 
     public byte[]? FormatOptions { get; set; }
+
+    /// <summary>FUNCTION-branch only — the catalog schema <see cref="FunctionName"/> is registered
+    /// in (protocol 1.5.0); see <see cref="ScanFunctionResult.SchemaName"/> for the full rationale
+    /// and for what <see langword="null"/> means. Always <see langword="null"/> for a catalog-table
+    /// or format branch, neither of which names a VGI function at all. NOT to be confused with
+    /// <see cref="SourceSchema"/> above, which is a catalog-table branch's SOURCE TABLE's schema —
+    /// a different, older field.</summary>
+    public string? SchemaName { get; set; }
 }
