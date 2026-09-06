@@ -182,6 +182,44 @@ public class CatalogRegistryTests
         Assert.Equal(["main"], accumulateNames);
     }
 
+    [Fact]
+    public void SchemaForTableFunction_PrefersTheTablesOwnSchema_WhenTheNameIsRegisteredThere()
+    {
+        // The same-name-in-two-schemas case protocol 1.5.0's ScanBranch.SchemaName exists for: a
+        // branch declared by a `data` table means `data`'s implementation, not `main`'s.
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("probe", "main"));
+        registry.RegisterTable(new StubTableFunction("probe", "data"));
+
+        Assert.Equal("data", registry.SchemaForTableFunction(CatalogRegistry.DefaultIdentity, "probe", "data"));
+        Assert.Equal("main", registry.SchemaForTableFunction(CatalogRegistry.DefaultIdentity, "probe", "main"));
+    }
+
+    [Fact]
+    public void SchemaForTableFunction_FallsBackToTheFunctionsOneRealHome_WhenTheTablesSchemaHasNone()
+    {
+        // data.numbers scanned by main.sequence — the whole reason the client can't just assume the
+        // table's own schema.
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("sequence", "main"));
+
+        Assert.Equal("main", registry.SchemaForTableFunction(CatalogRegistry.DefaultIdentity, "sequence", "data"));
+    }
+
+    [Fact]
+    public void SchemaForTableFunction_ReturnsNull_ForAnUnregisteredNativeFunctionOrAnAmbiguousOne()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("probe", "main"));
+        registry.RegisterTable(new StubTableFunction("probe", "other"));
+
+        // Never registered here at all — a native DuckDB function has no VGI-side schema, ever.
+        Assert.Null(registry.SchemaForTableFunction(CatalogRegistry.DefaultIdentity, "read_parquet", "data"));
+        // Registered in two schemas, NEITHER of them the table's — no unambiguous answer, so report
+        // nothing and let the client fall back to its own heuristic rather than guess wrong.
+        Assert.Null(registry.SchemaForTableFunction(CatalogRegistry.DefaultIdentity, "probe", "data"));
+    }
+
     private sealed class StubTableBufferingFunction(string name, string schemaName) : ITableBufferingFunction
     {
         public string Name => name;

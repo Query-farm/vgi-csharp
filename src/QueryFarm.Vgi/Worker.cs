@@ -45,9 +45,13 @@ public sealed class Worker
     /// <c>global_functions</c>/<c>global_function_prefix</c> to the <c>catalog_attach</c> result
     /// (see <see cref="Protocol.CatalogAttachResult"/>). 1.4.0 added <c>table_function_plan</c>
     /// (split-based scan planning) plus <c>split_tokens</c>/<c>row_limit</c> on the init
-    /// request.</para>
+    /// request. 1.5.0 added the nullable <c>schema_name</c> field to
+    /// <see cref="Protocol.ScanFunctionResult"/>/<see cref="Protocol.ScanBranch"/> — the worker's own
+    /// authoritative schema for the scan/write function it just resolved, so the client no longer has
+    /// to guess (the table's own schema, then <c>default_schema</c>) when one function name is
+    /// registered in more than one schema.</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "1.4.0";
+    public const string DefaultProtocolVersion = "1.5.0";
 
     private readonly CatalogRegistry _catalog = new();
     private string _protocolVersion = DefaultProtocolVersion;

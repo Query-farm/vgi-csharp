@@ -1,5 +1,6 @@
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
+using QueryFarm.VgiRpc.Reflection;
 using Xunit;
 
 namespace QueryFarm.Vgi.Tests.Protocol;
@@ -82,5 +83,87 @@ public class EmbeddedIpcTests
         Assert.Equal("s3", decoded.RequiredSecrets[0].SecretType);
         Assert.Equal(VgiPartitionKind.NotPartitioned, decoded.PartitionKind);
         Assert.Equal(AggregateOrderDependent.NotOrderDependent, decoded.OrderDependent);
+    }
+
+    [Fact]
+    public void RoundTrips_ScanFunctionResult_SchemaName_WhenSet()
+    {
+        // Protocol 1.5.0's addition — see ScanFunctionResult.SchemaName's doc comment.
+        var original = new ScanFunctionResult
+        {
+            FunctionName = "rowid_sequence",
+            Arguments = [],
+            RequiredExtensions = [],
+            SchemaName = "main",
+        };
+
+        var decoded = EmbeddedIpc.Decode<ScanFunctionResult>(EmbeddedIpc.Encode(original));
+
+        Assert.Equal("rowid_sequence", decoded.FunctionName);
+        Assert.Equal("main", decoded.SchemaName);
+    }
+
+    [Fact]
+    public void RoundTrips_ScanFunctionResult_SchemaName_NullWhenUnset()
+    {
+        // A native DuckDB function this worker never registered has no VGI-side schema to report —
+        // the permanent case that keeps the field optional rather than mandatory.
+        var original = new ScanFunctionResult { FunctionName = "read_parquet" };
+
+        var decoded = EmbeddedIpc.Decode<ScanFunctionResult>(EmbeddedIpc.Encode(original));
+
+        Assert.Equal("read_parquet", decoded.FunctionName);
+        Assert.Null(decoded.SchemaName);
+    }
+
+    [Fact]
+    public void RoundTrips_ScanBranch_SchemaName_WhenSet()
+    {
+        var original = new ScanBranch
+        {
+            FunctionName = "rowid_sequence",
+            Arguments = [],
+            SchemaName = "main",
+        };
+
+        var decoded = EmbeddedIpc.Decode<ScanBranch>(EmbeddedIpc.Encode(original));
+
+        Assert.Equal("rowid_sequence", decoded.FunctionName);
+        Assert.Equal("main", decoded.SchemaName);
+    }
+
+    [Fact]
+    public void RoundTrips_ScanBranch_SchemaName_NullForANonFunctionBranch()
+    {
+        // A catalog-table branch names no function at all, so it reports no function schema — its
+        // SourceSchema is a different field entirely (the SOURCE TABLE's schema).
+        var original = new ScanBranch
+        {
+            FunctionName = "",
+            SourceCatalog = "lakehouse",
+            SourceSchema = "bronze",
+            SourceTable = "orders",
+        };
+
+        var decoded = EmbeddedIpc.Decode<ScanBranch>(EmbeddedIpc.Encode(original));
+
+        Assert.Equal("bronze", decoded.SourceSchema);
+        Assert.Null(decoded.SchemaName);
+    }
+
+    [Fact]
+    public void ScanFunctionResultAndScanBranch_DeriveSchemaName_AsATrailingNullableStringField()
+    {
+        // Both wire schemas append schema_name LAST and nullable, matching the reference
+        // ScanFunctionResultSchema()/ScanBranchSchema() — a pre-1.5.0 peer simply omits the column.
+        foreach (var clrType in new[] { typeof(ScanFunctionResult), typeof(ScanBranch) })
+        {
+            var schema = SchemaDerivation.InnerSchemaFor(clrType);
+            var field = schema.GetFieldByIndex(schema.FieldsList.Count - 1);
+
+            Assert.Equal("schema_name", field.Name);
+            Assert.Equal(Apache.Arrow.Types.StringType.Default.TypeId, field.DataType.TypeId);
+            Assert.True(field.IsNullable);
+        }
     }
 }
