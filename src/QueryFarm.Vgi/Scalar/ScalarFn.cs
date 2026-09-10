@@ -42,6 +42,8 @@ public abstract class ScalarFn : IScalarFunction
 
     public virtual Schema OutputSchema => _plan.OutputSchema;
 
+    public virtual RecordBatch? ParameterDefaultValues => null;
+
     public virtual FunctionStability? Stability => null;
 
     public virtual FunctionNullHandling? NullHandling => null;

@@ -512,8 +512,16 @@ public static partial class PushdownFilterCodec
             UInt8Type or UInt16Type or UInt32Type or UInt64Type or FloatType or DoubleType ||
         type?.TypeId.ToString().StartsWith("Decimal", StringComparison.Ordinal) is true;
 
-    private static bool BindCompatible(IArrowType? left, IArrowType? right) =>
-        left is not null && right is not null && (left.Equals(right) || IsNumericType(left) && IsNumericType(right));
+    private static bool BindCompatible(IArrowType? left, IArrowType? right)
+    {
+        left = LogicalValueType(left);
+        right = LogicalValueType(right);
+        return left is not null && right is not null &&
+            (left.Equals(right) || IsNumericType(left) && IsNumericType(right));
+    }
+
+    private static IArrowType? LogicalValueType(IArrowType? type) =>
+        type is DictionaryType dictionary ? dictionary.ValueType : type;
 
     private static IArrowType? ReferencedType(JsonElement expression,
         IReadOnlyDictionary<string, (Field Field, IArrowArray Array)> payload, Schema outputSchema)
