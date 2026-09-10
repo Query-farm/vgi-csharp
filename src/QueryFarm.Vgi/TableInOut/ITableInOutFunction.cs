@@ -26,6 +26,8 @@ public interface ITableInOutFunction
 
     string SchemaName => "main";
 
+    IReadOnlyList<string> SchemaPath => [SchemaName];
+
     string Description => "";
 
     /// <summary>Optional free-text comment surfaced via <c>duckdb_functions().comment</c>

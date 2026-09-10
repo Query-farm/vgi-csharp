@@ -16,7 +16,7 @@ public sealed class FunctionInfo
 
     public string Name { get; set; } = "";
 
-    public string SchemaName { get; set; } = "main";
+    public List<string> SchemaPath { get; set; } = ["main"];
 
     public FunctionType FunctionType { get; set; }
 

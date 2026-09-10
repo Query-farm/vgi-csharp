@@ -9,7 +9,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// incoming Arrow batch's columns (by index, not by looking up column names) — it must match the
 /// C++ extension's <c>BuildBindRequest</c> field order EXACTLY: function_name, arguments,
 /// function_type, input_schema, settings, secrets, attach_opaque_data, transaction_opaque_data,
-/// resolved_secrets_provided, at_unit, at_value, copy_from, copy_to, schema_name. See
+/// resolved_secrets_provided, at_unit, at_value, copy_from, copy_to, schema_path. See
 /// <c>vgi_rpc_types.cpp</c>'s own comment on this exact historical bug.
 /// </summary>
 public sealed class BindRequest
@@ -40,5 +40,5 @@ public sealed class BindRequest
 
     public CopyToContext? CopyTo { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }

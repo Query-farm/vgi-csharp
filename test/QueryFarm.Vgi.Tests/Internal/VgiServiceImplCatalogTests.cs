@@ -61,6 +61,36 @@ public class VgiServiceImplCatalogTests
         Assert.Equal(firstSchemas.Items.Count, secondSchemas.Items.Count);
     }
 
+    [Fact]
+    public async Task CatalogDiscoveryAndLookup_PreserveArbitrarilyNestedSchemaPaths()
+    {
+        var columns = new Schema([new Field("id", Int64Type.Default, nullable: false)], metadata: null);
+        var registry = new CatalogRegistry();
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "events",
+            SchemaPath = ["tenant.with.dot", "analytics", "daily"],
+            Columns = columns,
+        });
+        var service = new VgiServiceImpl(registry);
+
+        var schemas = await service.CatalogSchemasAsync([], null);
+        var schema = Assert.Single(schemas.Items.Select(EmbeddedIpc.Decode<SchemaInfo>));
+        Assert.Equal(["tenant.with.dot", "analytics", "daily"], schema.Path);
+
+        var contents = await service.CatalogSchemaContentsTablesAsync(
+            [], ["tenant.with.dot", "analytics", "daily"], null);
+        var table = Assert.Single(contents.Items.Select(EmbeddedIpc.Decode<TableInfo>));
+        Assert.Equal(["tenant.with.dot", "analytics", "daily"], table.SchemaPath);
+
+        var lookup = await service.CatalogTableGetAsync(
+            [], ["tenant.with.dot", "analytics", "daily"], "events", null, null, null);
+        Assert.Single(lookup.Items);
+        var wrongParent = await service.CatalogTableGetAsync(
+            [], ["other", "analytics", "daily"], "events", null, null, null);
+        Assert.Empty(wrongParent.Items);
+    }
+
     [Theory]
     [InlineData("catalog_schema_create")]
     [InlineData("catalog_table_column_add")]
@@ -74,11 +104,11 @@ public class VgiServiceImplCatalogTests
 
         Task Call() => which switch
         {
-            "catalog_schema_create" => service.CatalogSchemaCreateAsync(attach, "s", OnConflict.Error, null, null, null),
-            "catalog_table_column_add" => service.CatalogTableColumnAddAsync(attach, "main", "t", [], false, false, null),
-            "catalog_table_column_drop" => service.CatalogTableColumnDropAsync(attach, "main", "t", "c", false, false, false, null),
-            "catalog_table_drop" => service.CatalogTableDropAsync(attach, "main", "t", false, false, null),
-            "catalog_view_create" => service.CatalogViewCreateAsync(attach, "main", "v", "SELECT 1", OnConflict.Error, null),
+            "catalog_schema_create" => service.CatalogSchemaCreateAsync(attach, ["s"], OnConflict.Error, null, null, null),
+            "catalog_table_column_add" => service.CatalogTableColumnAddAsync(attach, ["main"], "t", [], false, false, null),
+            "catalog_table_column_drop" => service.CatalogTableColumnDropAsync(attach, ["main"], "t", "c", false, false, false, null),
+            "catalog_table_drop" => service.CatalogTableDropAsync(attach, ["main"], "t", false, false, null),
+            "catalog_view_create" => service.CatalogViewCreateAsync(attach, ["main"], "v", "SELECT 1", OnConflict.Error, null),
             _ => throw new InvalidOperationException(which),
         };
 
@@ -237,7 +267,7 @@ public class CatalogTableScanBranchesGetTests
         registry.RegisterCatalogTable(new CatalogTable { Name = "numbers", SchemaName = "data", ScanFunction = new StubTableFunction("numbers_scan") });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "numbers", null, null, null);
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "numbers", null, null, null);
 
         Assert.Single(result.Branches);
         Assert.Empty(result.RequiredExtensions);
@@ -251,7 +281,7 @@ public class CatalogTableScanBranchesGetTests
     [Fact]
     public async Task ScanFunctionBackedTable_ReportsTheFunctionsOwnSchema_NotTheTablesSchema()
     {
-        // Protocol 1.5.0: a table's backing function is NOT necessarily registered in the table's own
+        // A table's backing function is NOT necessarily registered in the table's own
         // schema — data.numbers is scanned by main.sequence. The synthesized branch reads the schema
         // off the ITableFunction INSTANCE the table holds, so this is authoritative, never a guess.
         var registry = new CatalogRegistry();
@@ -263,10 +293,10 @@ public class CatalogTableScanBranchesGetTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "numbers", null, null, null);
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "numbers", null, null, null);
 
         var branch = EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]);
-        Assert.Equal("main", branch.SchemaName);
+        Assert.Equal(["main"], branch.SchemaPath);
     }
 
     [Fact]
@@ -290,10 +320,10 @@ public class CatalogTableScanBranchesGetTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "hetero", null, null, null);
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "hetero", null, null, null);
 
-        Assert.Equal("main", EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]).SchemaName);
-        Assert.Null(EmbeddedIpc.Decode<ScanBranch>(result.Branches[1]).SchemaName);
+        Assert.Equal(["main"], EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]).SchemaPath);
+        Assert.Null(EmbeddedIpc.Decode<ScanBranch>(result.Branches[1]).SchemaPath);
     }
 
     [Fact]
@@ -314,7 +344,7 @@ public class CatalogTableScanBranchesGetTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "multi", null, null, null);
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "multi", null, null, null);
 
         Assert.Equal(2, result.Branches.Count);
         Assert.Equal(["iceberg"], result.RequiredExtensions);
@@ -343,7 +373,7 @@ public class CatalogTableScanBranchesGetTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "empty", null, null, null);
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "empty", null, null, null);
 
         Assert.Empty(result.Branches);
     }
@@ -369,7 +399,7 @@ public class CatalogTableScanBranchesGetTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "csv_table", null, null, null);
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "csv_table", null, null, null);
 
         var branch = EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]);
         Assert.Equal("", branch.FunctionName);
@@ -377,8 +407,8 @@ public class CatalogTableScanBranchesGetTests
         Assert.Equal(["/tmp/a.csv"], branch.FormatLocations);
         Assert.NotNull(branch.FormatOptions);
         Assert.NotEmpty(branch.FormatOptions!);
-        // A format branch names no function, so it reports no function schema (protocol 1.5.0).
-        Assert.Null(branch.SchemaName);
+        // A format branch names no function, so it reports no function schema.
+        Assert.Null(branch.SchemaPath);
     }
 
     [Fact]
@@ -387,7 +417,7 @@ public class CatalogTableScanBranchesGetTests
         var service = NewService(new CatalogRegistry());
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.CatalogTableScanBranchesGetAsync([], "data", "nope", null, null, null));
+            () => service.CatalogTableScanBranchesGetAsync([], ["data"], "nope", null, null, null));
     }
 }
 
@@ -447,7 +477,7 @@ public class TableColumnMetadataAndDatabaseInfoTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableGetAsync([], "data", "products", null, null, null);
+        var result = await service.CatalogTableGetAsync([], ["data"], "products", null, null, null);
         var table = EmbeddedIpc.Decode<TableInfo>(result.Items[0]);
         var columns = SchemaIpc.ReadSchemaOnly(table.Columns);
 
@@ -471,15 +501,15 @@ public class TableColumnMetadataAndDatabaseInfoTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableGetAsync([], "data", "inlined", null, null, null);
+        var result = await service.CatalogTableGetAsync([], ["data"], "inlined", null, null, null);
         var table = EmbeddedIpc.Decode<TableInfo>(result.Items[0]);
 
         Assert.NotNull(table.ScanFunction);
         var scanFunction = EmbeddedIpc.Decode<ScanFunctionResult>(table.ScanFunction!);
         Assert.Equal("inlined_scan", scanFunction.FunctionName);
-        // Protocol 1.5.0 — the inline result carries the function's own schema, which (as here) need
+        // The inline result carries the function's own schema, which (as here) need
         // not be the containing table's.
-        Assert.Equal("main", scanFunction.SchemaName);
+        Assert.Equal(["main"], scanFunction.SchemaPath);
     }
 
     [Fact]
@@ -495,14 +525,14 @@ public class TableColumnMetadataAndDatabaseInfoTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableGetAsync([], "data", "not_inlined", null, null, null);
+        var result = await service.CatalogTableGetAsync([], ["data"], "not_inlined", null, null, null);
         var table = EmbeddedIpc.Decode<TableInfo>(result.Items[0]);
 
         Assert.Null(table.ScanFunction);
 
         // The C++ side falls back to catalog_table_scan_branches_get for a non-inlined table — that
         // RPC must still answer correctly (a single synthesized branch wrapping the same function).
-        var branches = await service.CatalogTableScanBranchesGetAsync([], "data", "not_inlined", null, null, null);
+        var branches = await service.CatalogTableScanBranchesGetAsync([], ["data"], "not_inlined", null, null, null);
         Assert.Single(branches.Branches);
         var branch = EmbeddedIpc.Decode<ScanBranch>(branches.Branches[0]);
         Assert.Equal("not_inlined_scan", branch.FunctionName);

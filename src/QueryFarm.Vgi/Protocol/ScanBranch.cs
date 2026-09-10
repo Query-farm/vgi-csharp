@@ -12,7 +12,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// catalog, never tunneled through the worker pipe) to call with <see cref="Arguments"/> (the same
 /// flat <c>arg_&lt;N&gt;</c>/bare-name wire shape as <see cref="ScanFunctionResult.Arguments"/>).</item>
 /// <item><b>Catalog-table branch</b> — <see cref="SourceTable"/> (+ optional
-/// <see cref="SourceCatalog"/>/<see cref="SourceSchema"/>) names a table in a companion catalog to
+/// <see cref="SourceCatalog"/>/<see cref="SourceSchemaPath"/>) names a table in a companion catalog to
 /// scan directly. No in-scope fixture uses this kind yet.</item>
 /// <item><b>Format branch</b> — <see cref="FormatName"/> (<c>csv</c>/<c>parquet</c>/...) plus
 /// <see cref="FormatLocations"/> let the C++ client pick the matching reader function itself,
@@ -24,8 +24,8 @@ namespace QueryFarm.Vgi.Protocol;
 /// binding happens in the C++ optimizer rewriter once a real column list is in hand) the optimizer
 /// uses to prune whole branches that can't match a query's WHERE clause. Property order matches the
 /// generated <c>ScanBranchSchema()</c>: function_name, arguments, branch_filter, writable,
-/// source_catalog, source_schema, source_table, format_name, format_locations, format_options,
-/// schema_name.
+/// source_catalog, source_schema_path, source_table, format_name, format_locations, format_options,
+/// schema_path.
 /// </summary>
 public sealed class ScanBranch
 {
@@ -42,7 +42,7 @@ public sealed class ScanBranch
 
     public string? SourceCatalog { get; set; }
 
-    public string? SourceSchema { get; set; }
+    public List<string>? SourceSchemaPath { get; set; }
 
     public string? SourceTable { get; set; }
 
@@ -53,10 +53,10 @@ public sealed class ScanBranch
     public byte[]? FormatOptions { get; set; }
 
     /// <summary>FUNCTION-branch only — the catalog schema <see cref="FunctionName"/> is registered
-    /// in (protocol 1.5.0); see <see cref="ScanFunctionResult.SchemaName"/> for the full rationale
+    /// in; see <see cref="ScanFunctionResult.SchemaPath"/> for the full rationale
     /// and for what <see langword="null"/> means. Always <see langword="null"/> for a catalog-table
     /// or format branch, neither of which names a VGI function at all. NOT to be confused with
-    /// <see cref="SourceSchema"/> above, which is a catalog-table branch's SOURCE TABLE's schema —
+    /// <see cref="SourceSchemaPath"/> above, which is a catalog-table branch's SOURCE TABLE's schema —
     /// a different, older field.</summary>
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }

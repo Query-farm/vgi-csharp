@@ -53,14 +53,30 @@ public sealed class CatalogRegistry
 
     public string CatalogName { get; set; } = "example";
 
-    public string DefaultSchema { get; set; } = "main";
+    private IReadOnlyList<string> _defaultSchemaPath = ["main"];
+
+    public string DefaultSchema
+    {
+        get => _defaultSchemaPath[^1];
+        set => _defaultSchemaPath = [value];
+    }
+
+    /// <summary>The default schema as raw identifier components. The attach result still carries
+    /// DuckDB's single default-schema name, while all schema-scoped VGI 2.0 calls use this path.</summary>
+    public IReadOnlyList<string> DefaultSchemaPath
+    {
+        get => _defaultSchemaPath;
+        set => _defaultSchemaPath = value.Count > 0
+            ? value.ToList()
+            : throw new ArgumentException("A default schema path must contain at least one component.", nameof(value));
+    }
 
     /// <summary>Database-level comment/tags surfaced via <c>duckdb_databases()</c> — set through
     /// <see cref="Worker.DatabaseComment"/>/<see cref="Worker.DatabaseTags"/>, read back by
     /// <c>VgiServiceImpl.CatalogAttachAsync</c> onto <see cref="Protocol.CatalogAttachResult.Comment"/>/
     /// <see cref="Protocol.CatalogAttachResult.Tags"/>. <see langword="null"/>/empty (the default)
     /// reports no comment and no tags — this worker never had a per-identity need for these (unlike
-    /// schemas' <see cref="RegisterSchema"/>), so they're plain single-valued properties.</summary>
+    /// schemas' <c>RegisterSchema</c>), so they're plain single-valued properties.</summary>
     public string? DatabaseComment { get; set; }
 
     public Dictionary<string, string> DatabaseTags { get; set; } = [];
@@ -113,6 +129,12 @@ public sealed class CatalogRegistry
 
     private bool FallsBackToDefault(string identity) => identity != DefaultIdentity && !_exclusiveIdentities.Contains(identity);
 
+    private static string PathKey(IReadOnlyList<string> path) =>
+        string.Concat(path.Select(component => $"{component.Length}:{component}"));
+
+    internal static bool PathsEqual(IReadOnlyList<string> left, IReadOnlyList<string> right) =>
+        left.SequenceEqual(right, StringComparer.Ordinal);
+
     private readonly Dictionary<(string Identity, string SchemaName, string Name), List<IScalarFunction>> _scalarFunctions = new();
     private readonly Dictionary<(string Identity, string SchemaName, string Name), List<ITableFunction>> _tableFunctions = new();
     private readonly Dictionary<(string Identity, string SchemaName, string Name), List<ITableInOutFunction>> _tableInOutFunctions = new();
@@ -126,10 +148,11 @@ public sealed class CatalogRegistry
     private readonly Dictionary<(string Identity, string FormatName), CopyFormat> _copyFormats = new();
 
     /// <summary>Per-<c>(identity, schemaName)</c> schema-level comment/tags — set via
-    /// <see cref="RegisterSchema"/>. A schema with no explicit registration (the common case — most
+    /// <c>RegisterSchema</c>. A schema with no explicit registration (the common case — most
     /// fixture schemas are implied purely by their tables'/functions' <c>SchemaName</c>) reports no
     /// comment and no tags.</summary>
-    private readonly Dictionary<(string Identity, string SchemaName), (string? Comment, Dictionary<string, string> Tags)> _schemas = new();
+    private readonly Dictionary<(string Identity, string SchemaName),
+        (IReadOnlyList<string> Path, string? Comment, Dictionary<string, string> Tags)> _schemas = new();
 
     /// <summary>Every declared global/session setting (<c>Worker.Settings</c>) — see
     /// <see cref="Protocol.SettingSpec"/>. Order is registration order (also the order advertised on
@@ -149,19 +172,19 @@ public sealed class CatalogRegistry
     public Func<Protocol.CatalogAttachRequest, Protocol.AttachContext?>? OnAttach { get; set; }
 
     public void RegisterScalar(IScalarFunction function, string identity = DefaultIdentity) =>
-        Add(_scalarFunctions, identity, function.SchemaName, function.Name, function);
+        Add(_scalarFunctions, identity, function.SchemaPath, function.Name, function);
 
     public void RegisterTable(ITableFunction function, string identity = DefaultIdentity) =>
-        Add(_tableFunctions, identity, function.SchemaName, function.Name, function);
+        Add(_tableFunctions, identity, function.SchemaPath, function.Name, function);
 
     public void RegisterTableInOut(ITableInOutFunction function, string identity = DefaultIdentity) =>
-        Add(_tableInOutFunctions, identity, function.SchemaName, function.Name, function);
+        Add(_tableInOutFunctions, identity, function.SchemaPath, function.Name, function);
 
     public void RegisterTableBuffering(ITableBufferingFunction function, string identity = DefaultIdentity) =>
-        Add(_tableBufferingFunctions, identity, function.SchemaName, function.Name, function);
+        Add(_tableBufferingFunctions, identity, function.SchemaPath, function.Name, function);
 
     public void RegisterAggregate(IAggregateFunction function, string identity = DefaultIdentity) =>
-        Add(_aggregateFunctions, identity, function.SchemaName, function.Name, function);
+        Add(_aggregateFunctions, identity, function.SchemaPath, function.Name, function);
 
     public void RegisterSetting(Protocol.SettingSpec setting) => _settings.Add(setting);
 
@@ -189,9 +212,9 @@ public sealed class CatalogRegistry
 
     private static void Add<T>(
         Dictionary<(string Identity, string SchemaName, string Name), List<T>> store,
-        string identity, string schemaName, string name, T function)
+        string identity, IReadOnlyList<string> schemaPath, string name, T function)
     {
-        var key = (identity, schemaName, name);
+        var key = (identity, PathKey(schemaPath), name);
         if (!store.TryGetValue(key, out var list))
         {
             list = [];
@@ -206,8 +229,9 @@ public sealed class CatalogRegistry
     /// bucket. <see langword="null"/> when neither bucket has one.</summary>
     private List<T>? CandidatesFor<T>(
         Dictionary<(string Identity, string SchemaName, string Name), List<T>> store,
-        string identity, string schemaName, string name)
+        string identity, IReadOnlyList<string> schemaPath, string name)
     {
+        var schemaName = PathKey(schemaPath);
         if (identity != DefaultIdentity && store.TryGetValue((identity, schemaName, name), out var direct) && direct.Count > 0)
         {
             return direct;
@@ -222,8 +246,11 @@ public sealed class CatalogRegistry
     /// <paramref name="paramSchema"/> disambiguate a multi-overload name; see
     /// <see cref="OverloadResolver.SelectScalar{T}"/> for why two separate wire sources are needed.</summary>
     public IScalarFunction? FindScalar(string identity, string schemaName, string name, byte[] constArguments, Schema? paramSchema)
+        => FindScalar(identity, [schemaName], name, constArguments, paramSchema);
+
+    public IScalarFunction? FindScalar(string identity, IReadOnlyList<string> schemaPath, string name, byte[] constArguments, Schema? paramSchema)
     {
-        var candidates = CandidatesFor(_scalarFunctions, identity, schemaName, name);
+        var candidates = CandidatesFor(_scalarFunctions, identity, schemaPath, name);
         return candidates is null ? null : OverloadResolver.SelectScalar(candidates, f => f.ArgumentsSchema, constArguments, paramSchema, name);
     }
 
@@ -237,8 +264,11 @@ public sealed class CatalogRegistry
     /// schema — table calls carry no <c>InputSchema</c> at all) disambiguates a multi-overload
     /// name; see <see cref="OverloadResolver.SelectTable{T}"/>.</summary>
     public ITableFunction? FindTable(string identity, string schemaName, string name, TableArguments? arguments = null)
+        => FindTable(identity, [schemaName], name, arguments);
+
+    public ITableFunction? FindTable(string identity, IReadOnlyList<string> schemaPath, string name, TableArguments? arguments = null)
     {
-        var candidates = CandidatesFor(_tableFunctions, identity, schemaName, name);
+        var candidates = CandidatesFor(_tableFunctions, identity, schemaPath, name);
         return candidates is null ? null : OverloadResolver.SelectTable(candidates, f => f.ArgumentsSchema, arguments ?? TableArgCodec.Decode(null), name);
     }
 
@@ -247,30 +277,33 @@ public sealed class CatalogRegistry
     public IReadOnlyCollection<ITableFunction> TableFunctionsFor(string identity) => Flatten(_tableFunctions, identity);
 
     /// <summary>Resolves which schema a table function NAMED <paramref name="name"/> actually lives
-    /// in — for <see cref="Protocol.ScanBranch.SchemaName"/> (protocol 1.5.0), whose whole point is
+    /// in — for <see cref="Protocol.ScanBranch.SchemaPath"/>, whose whole point is
     /// that a table's backing function is NOT necessarily registered in the table's own schema (see
     /// <c>data.numbers</c>, scanned by <c>main.sequence</c>). Unlike the
     /// <see cref="CatalogTable.ScanFunction"/> path — which holds the actual
     /// <see cref="ITableFunction"/> instance and can just read its own
-    /// <see cref="ITableFunction.SchemaName"/> — a <see cref="ScanBranchSpec"/> carries only a NAME,
-    /// so it needs this registry lookup. Prefers <paramref name="tableSchemaName"/> when the name IS
+    /// <see cref="ITableFunction.SchemaPath"/> — a <see cref="ScanBranchSpec"/> carries only a NAME,
+    /// so it needs this registry lookup. Prefers the table's schema path when the name IS
     /// registered there (the common case); falls back to the function's one real home when it's
     /// registered in exactly one OTHER schema; returns <see langword="null"/> when the registry has
     /// no unambiguous answer — including the deliberate, permanent case of a NATIVE DuckDB function
     /// (<c>read_parquet</c>, <c>iceberg_scan</c>, ...) this worker never registered and therefore has
     /// no VGI-side schema for at all.</summary>
-    public string? SchemaForTableFunction(string identity, string name, string tableSchemaName)
+    public string? SchemaForTableFunction(string identity, string name, string tableSchemaName) =>
+        SchemaForTableFunction(identity, name, [tableSchemaName]) is { } path ? path[^1] : null;
+
+    public IReadOnlyList<string>? SchemaForTableFunction(string identity, string name, IReadOnlyList<string> tableSchemaPath)
     {
-        if (CandidatesFor(_tableFunctions, identity, tableSchemaName, name) is { Count: > 0 })
+        if (CandidatesFor(_tableFunctions, identity, tableSchemaPath, name) is { Count: > 0 })
         {
-            return tableSchemaName;
+            return tableSchemaPath;
         }
 
-        var homes = _tableFunctions.Keys
-            .Where(key => key.Name == name && (key.Identity == identity || key.Identity == DefaultIdentity))
-            .Select(key => key.SchemaName)
-            .Distinct(StringComparer.Ordinal)
-            .Where(schemaName => CandidatesFor(_tableFunctions, identity, schemaName, name) is { Count: > 0 })
+        var homes = TableFunctionsFor(identity)
+            .Where(function => function.Name == name)
+            .Select(function => function.SchemaPath)
+            .GroupBy(PathKey, StringComparer.Ordinal)
+            .Select(group => group.First())
             .Take(2)
             .ToList();
 
@@ -278,15 +311,18 @@ public sealed class CatalogRegistry
     }
 
     /// <summary>Resolves a table-in-out function for a bind call — same identity-fallback rule as
-    /// <see cref="FindScalar"/>. A name with more than one candidate is disambiguated by
+    /// <c>FindScalar</c>. A name with more than one candidate is disambiguated by
     /// <see cref="OverloadResolver.SelectTableInOut{T}"/> against <paramref name="inputSchema"/>
     /// (the "blended" arity-overload case — e.g. <c>geo_encode.test</c>'s 2-arg vs 3-arg
     /// registrations); <paramref name="inputSchema"/> may be <see langword="null"/> when the caller
     /// has no candidate call to disambiguate against yet (fine as long as the name has exactly one
     /// registered candidate).</summary>
     public ITableInOutFunction? FindTableInOut(string identity, string schemaName, string name, Apache.Arrow.Schema? inputSchema = null)
+        => FindTableInOut(identity, [schemaName], name, inputSchema);
+
+    public ITableInOutFunction? FindTableInOut(string identity, IReadOnlyList<string> schemaPath, string name, Apache.Arrow.Schema? inputSchema = null)
     {
-        var candidates = CandidatesFor(_tableInOutFunctions, identity, schemaName, name);
+        var candidates = CandidatesFor(_tableInOutFunctions, identity, schemaPath, name);
         return candidates is null ? null : OverloadResolver.SelectTableInOut(candidates, f => f.ArgumentsSchema, inputSchema, name);
     }
 
@@ -294,11 +330,14 @@ public sealed class CatalogRegistry
     /// identity — same rule as <see cref="ScalarFunctionsFor"/>.</summary>
     public IReadOnlyCollection<ITableInOutFunction> TableInOutFunctionsFor(string identity) => Flatten(_tableInOutFunctions, identity);
 
-    /// <summary>Resolves a table-buffering function for a bind call — see <see cref="FindTableInOut"/>'s
+    /// <summary>Resolves a table-buffering function for a bind call — see <c>FindTableInOut</c>'s
     /// doc comment (no overload fixture exists for this function kind).</summary>
     public ITableBufferingFunction? FindTableBuffering(string identity, string schemaName, string name)
+        => FindTableBuffering(identity, [schemaName], name);
+
+    public ITableBufferingFunction? FindTableBuffering(string identity, IReadOnlyList<string> schemaPath, string name)
     {
-        var candidates = CandidatesFor(_tableBufferingFunctions, identity, schemaName, name);
+        var candidates = CandidatesFor(_tableBufferingFunctions, identity, schemaPath, name);
         return candidates is null ? null : RequireSingle(candidates, name);
     }
 
@@ -306,11 +345,14 @@ public sealed class CatalogRegistry
     /// identity — same rule as <see cref="ScalarFunctionsFor"/>.</summary>
     public IReadOnlyCollection<ITableBufferingFunction> TableBufferingFunctionsFor(string identity) => Flatten(_tableBufferingFunctions, identity);
 
-    /// <summary>Resolves an aggregate function for a bind call — see <see cref="FindTableInOut"/>'s
+    /// <summary>Resolves an aggregate function for a bind call — see <c>FindTableInOut</c>'s
     /// doc comment (no overload fixture exists for this function kind).</summary>
     public IAggregateFunction? FindAggregate(string identity, string schemaName, string name)
+        => FindAggregate(identity, [schemaName], name);
+
+    public IAggregateFunction? FindAggregate(string identity, IReadOnlyList<string> schemaPath, string name)
     {
-        var candidates = CandidatesFor(_aggregateFunctions, identity, schemaName, name);
+        var candidates = CandidatesFor(_aggregateFunctions, identity, schemaPath, name);
         return candidates is null ? null : RequireSingle(candidates, name);
     }
 
@@ -364,80 +406,93 @@ public sealed class CatalogRegistry
 
     /// <summary>Every schema name with at least one registered scalar, table, table-in-out,
     /// table-buffering, OR aggregate function, real catalog table, real catalog view, or explicit
-    /// <see cref="RegisterSchema"/> call, visible under the given attach identity.</summary>
-    public IReadOnlyCollection<string> SchemaNamesFor(string identity)
+    /// <c>RegisterSchema</c> call, visible under the given attach identity.</summary>
+    public IReadOnlyCollection<IReadOnlyList<string>> SchemaPathsFor(string identity)
     {
-        var names = new HashSet<string>(StringComparer.Ordinal);
+        var paths = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        void AddPath(IReadOnlyList<string> path) => paths[PathKey(path)] = path;
+
         foreach (var function in ScalarFunctionsFor(identity))
         {
-            names.Add(function.SchemaName);
+            AddPath(function.SchemaPath);
         }
 
         foreach (var function in TableFunctionsFor(identity))
         {
-            names.Add(function.SchemaName);
+            AddPath(function.SchemaPath);
         }
 
         foreach (var function in TableInOutFunctionsFor(identity))
         {
-            names.Add(function.SchemaName);
+            AddPath(function.SchemaPath);
         }
 
         foreach (var function in TableBufferingFunctionsFor(identity))
         {
-            names.Add(function.SchemaName);
+            AddPath(function.SchemaPath);
         }
 
         foreach (var function in AggregateFunctionsFor(identity))
         {
-            names.Add(function.SchemaName);
+            AddPath(function.SchemaPath);
         }
 
         foreach (var table in CatalogTablesFor(identity))
         {
-            names.Add(table.SchemaName);
+            AddPath(table.EffectiveSchemaPath);
         }
 
         foreach (var view in CatalogViewsFor(identity))
         {
-            names.Add(view.SchemaName);
+            AddPath(view.EffectiveSchemaPath);
         }
 
         foreach (var macro in CatalogMacrosFor(identity))
         {
-            names.Add(macro.SchemaName);
+            AddPath(macro.EffectiveSchemaPath);
         }
 
         foreach (var key in _schemas.Keys)
         {
             if (key.Identity == identity || (key.Identity == DefaultIdentity && FallsBackToDefault(identity)))
             {
-                names.Add(key.SchemaName);
+                AddPath(_schemas[key].Path);
             }
         }
 
-        if (names.Count == 0)
+        if (paths.Count == 0)
         {
-            names.Add(DefaultSchema);
+            AddPath(DefaultSchemaPath);
         }
 
-        return names;
+        return paths.Values;
     }
+
+    /// <summary>Legacy single-component view retained for existing callers.</summary>
+    public IReadOnlyCollection<string> SchemaNamesFor(string identity) =>
+        SchemaPathsFor(identity).Select(path => path[^1]).ToList();
 
     /// <summary>Declares a schema's comment/tags explicitly — optional; a schema implied purely by
     /// its tables'/functions' <c>SchemaName</c> reports no comment and no tags without this.</summary>
     public void RegisterSchema(string schemaName, string? comment = null, Dictionary<string, string>? tags = null, string identity = DefaultIdentity) =>
-        _schemas[(identity, schemaName)] = (comment, tags ?? []);
+        RegisterSchema([schemaName], comment, tags, identity);
+
+    public void RegisterSchema(IReadOnlyList<string> schemaPath, string? comment = null, Dictionary<string, string>? tags = null, string identity = DefaultIdentity) =>
+        _schemas[(identity, PathKey(schemaPath))] = (schemaPath.ToList(), comment, tags ?? []);
 
     public (string? Comment, Dictionary<string, string> Tags) SchemaMetadataFor(string identity, string schemaName)
+        => SchemaMetadataFor(identity, [schemaName]);
+
+    public (string? Comment, Dictionary<string, string> Tags) SchemaMetadataFor(string identity, IReadOnlyList<string> schemaPath)
     {
+        var schemaName = PathKey(schemaPath);
         if (_schemas.TryGetValue((identity, schemaName), out var direct))
         {
-            return direct;
+            return (direct.Comment, direct.Tags);
         }
 
         return FallsBackToDefault(identity) && _schemas.TryGetValue((DefaultIdentity, schemaName), out var fallback)
-            ? fallback
+            ? (fallback.Comment, fallback.Tags)
             : (null, []);
     }
 
@@ -456,9 +511,9 @@ public sealed class CatalogRegistry
     /// DISTINCT objects that happen to share a name (the overload-testing pattern) are untouched.</summary>
     public void RegisterCatalogTable(CatalogTable table, string identity = DefaultIdentity)
     {
-        _tables[(identity, table.SchemaName, table.Name)] = table;
+        _tables[(identity, PathKey(table.EffectiveSchemaPath), table.Name)] = table;
 
-        if (table.ScanFunction is { } scan && !AlreadyRegisteredByReference(_tableFunctions, identity, scan.SchemaName, scan.Name, scan))
+        if (table.ScanFunction is { } scan && !AlreadyRegisteredByReference(_tableFunctions, identity, scan.SchemaPath, scan.Name, scan))
         {
             RegisterTable(scan, identity);
         }
@@ -484,11 +539,15 @@ public sealed class CatalogRegistry
     /// <see cref="RegisterCatalogTable"/>'s doc comment.</summary>
     private static bool AlreadyRegisteredByReference<T>(
         Dictionary<(string Identity, string SchemaName, string Name), List<T>> store,
-        string identity, string schemaName, string name, T function) =>
-        store.TryGetValue((identity, schemaName, name), out var existing) && existing.Contains(function);
+        string identity, IReadOnlyList<string> schemaPath, string name, T function) =>
+        store.TryGetValue((identity, PathKey(schemaPath), name), out var existing) && existing.Contains(function);
 
     public CatalogTable? FindCatalogTable(string identity, string schemaName, string name)
+        => FindCatalogTable(identity, [schemaName], name);
+
+    public CatalogTable? FindCatalogTable(string identity, IReadOnlyList<string> schemaPath, string name)
     {
+        var schemaName = PathKey(schemaPath);
         if (_tables.TryGetValue((identity, schemaName, name), out var direct))
         {
             return direct;
@@ -534,10 +593,14 @@ public sealed class CatalogRegistry
     }
 
     public void RegisterView(CatalogView view, string identity = DefaultIdentity) =>
-        _views[(identity, view.SchemaName, view.Name)] = view;
+        _views[(identity, PathKey(view.EffectiveSchemaPath), view.Name)] = view;
 
     public CatalogView? FindView(string identity, string schemaName, string name)
+        => FindView(identity, [schemaName], name);
+
+    public CatalogView? FindView(string identity, IReadOnlyList<string> schemaPath, string name)
     {
+        var schemaName = PathKey(schemaPath);
         if (_views.TryGetValue((identity, schemaName, name), out var direct))
         {
             return direct;
@@ -583,10 +646,14 @@ public sealed class CatalogRegistry
     }
 
     public void RegisterMacro(CatalogMacro macro, string identity = DefaultIdentity) =>
-        _macros[(identity, macro.SchemaName, macro.Name)] = macro;
+        _macros[(identity, PathKey(macro.EffectiveSchemaPath), macro.Name)] = macro;
 
     public CatalogMacro? FindMacro(string identity, string schemaName, string name)
+        => FindMacro(identity, [schemaName], name);
+
+    public CatalogMacro? FindMacro(string identity, IReadOnlyList<string> schemaPath, string name)
     {
+        var schemaName = PathKey(schemaPath);
         if (_macros.TryGetValue((identity, schemaName, name), out var direct))
         {
             return direct;

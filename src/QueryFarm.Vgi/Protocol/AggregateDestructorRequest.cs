@@ -12,7 +12,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// correct (and only correct) response.
 ///
 /// PROPERTY DECLARATION ORDER IS LOAD-BEARING — matches <c>AggregateDestructorRequestSchema</c>
-/// exactly: function_name, execution_id, group_ids_batch, attach_opaque_data, schema_name.
+/// exactly: function_name, execution_id, group_ids_batch, attach_opaque_data, schema_path.
 /// </summary>
 public sealed class AggregateDestructorRequest
 {
@@ -24,7 +24,7 @@ public sealed class AggregateDestructorRequest
 
     public byte[]? AttachOpaqueData { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }
 
 /// <summary>The <c>aggregate_destructor</c> RPC's packed result — no fields (matches

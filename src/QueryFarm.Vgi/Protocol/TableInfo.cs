@@ -4,7 +4,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// One item of a <c>catalog_table_get</c>/<c>catalog_schema_contents_tables</c> <see cref="ItemsResponse"/>.
 /// The C++ extension validates each item's embedded-IPC schema with STRICT <c>arrow::Schema::Equals</c>
 /// against its generated <c>TableInfoSchema()</c> — property declaration order matters and must match
-/// that 24-field schema exactly: comment, tags, name, schema_name, columns, not_null_constraints,
+/// that 24-field schema exactly: comment, tags, name, schema_path, columns, not_null_constraints,
 /// unique_constraints, check_constraints, primary_key_constraints, foreign_key_constraints,
 /// supports_insert, supports_update, supports_delete, supports_returning, supports_column_statistics,
 /// scan_function, insert_function, update_function, delete_function, cardinality_estimate,
@@ -18,7 +18,7 @@ public sealed class TableInfo
 
     public string Name { get; set; } = "";
 
-    public string SchemaName { get; set; } = "";
+    public List<string> SchemaPath { get; set; } = [];
 
     /// <summary>Serialized (schema-only, <see cref="Internal.SchemaIpc"/>) Arrow schema describing
     /// this table's columns — a column marked with <see cref="Internal.VgiRowIdMetadata.Key"/> field

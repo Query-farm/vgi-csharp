@@ -15,7 +15,7 @@ public sealed class SchemaInfo
 
     public byte[] AttachOpaqueData { get; set; } = [];
 
-    public string Name { get; set; } = "";
+    public List<string> Path { get; set; } = [];
 
     /// <summary>
     /// Declared with a nullable <c>long?</c> value type deliberately: Arrow's own

@@ -12,7 +12,7 @@ namespace QueryFarm.Vgi.Protocol;
 ///
 /// PROPERTY DECLARATION ORDER IS LOAD-BEARING — matches <c>AggregateFinalizeRequestSchema</c>
 /// exactly: function_name, execution_id, group_ids_batch, output_schema, attach_opaque_data,
-/// schema_name.
+/// schema_path.
 /// </summary>
 public sealed class AggregateFinalizeRequest
 {
@@ -29,7 +29,7 @@ public sealed class AggregateFinalizeRequest
 
     public byte[]? AttachOpaqueData { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }
 
 /// <summary>The <c>aggregate_finalize</c> RPC's packed result — property order matches the C++

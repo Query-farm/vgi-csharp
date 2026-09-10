@@ -63,7 +63,7 @@ public interface IVgiService
     /// — attach a <c>cache_max_age_seconds</c> custom_metadata entry on the returned batch to cap
     /// how long the C++ side may cache the answer; absent means no TTL cap.</summary>
     Task<byte[]?> CatalogTableColumnStatisticsGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         Task.FromResult<byte[]?>(null);
 
     /// <summary>Table-buffering Sink phase, per input batch — see <see cref="VgiInitPhase.TableBuffering"/>'s
@@ -99,24 +99,24 @@ public interface IVgiService
     Task<ItemsResponse> CatalogSchemasAsync(byte[] attachOpaqueData, byte[]? transactionOpaqueData, ICallContext? ctx = null);
 
     Task<ItemsResponse> CatalogSchemaContentsFunctionsAsync(
-        byte[] attachOpaqueData, string name, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null);
+        byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null);
 
     Task<ItemsResponse> CatalogCatalogsAsync(ICallContext? ctx = null) =>
         Task.FromResult(new ItemsResponse());
 
     Task<ItemsResponse> CatalogSchemaContentsTablesAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         Task.FromResult(new ItemsResponse());
 
     Task<ItemsResponse> CatalogSchemaContentsViewsAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         Task.FromResult(new ItemsResponse());
 
     /// <summary>Zero-or-one-item lookup (same <see cref="ItemsResponse"/> shape as every other
     /// catalog-discovery RPC — "not found" is an empty list, not an error) for a single schema by
     /// name.</summary>
     Task<ItemsResponse> CatalogSchemaGetAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         Task.FromResult(new ItemsResponse());
 
     /// <summary>Zero-or-one-item lookup for a single table by <c>(schemaName, name)</c>. <c>atUnit</c>/
@@ -124,7 +124,7 @@ public interface IVgiService
     /// clause — a worker with no time-travel support (every table this worker registers) ignores
     /// them and returns the current/only version.</summary>
     Task<ItemsResponse> CatalogTableGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? atUnit, string? atValue,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         Task.FromResult(new ItemsResponse());
 
@@ -134,21 +134,21 @@ public interface IVgiService
     /// <c>vgi_table_branches()</c> diagnostic against a plain single-function table. Same
     /// <c>atUnit</c>/<c>atValue</c> time-travel parameters as <see cref="CatalogTableGetAsync"/>.</summary>
     Task<ScanBranchesResult> CatalogTableScanBranchesGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? atUnit, string? atValue,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
         byte[]? transactionOpaqueData, ICallContext? ctx = null);
 
     /// <summary>Zero-or-one-item lookup for a single view by <c>(schemaName, name)</c>.</summary>
     Task<ItemsResponse> CatalogViewGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         Task.FromResult(new ItemsResponse());
 
     Task<ItemsResponse> CatalogSchemaContentsMacrosAsync(
-        byte[] attachOpaqueData, string name, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         Task.FromResult(new ItemsResponse());
 
     /// <summary>Zero-or-one-item lookup for a single macro by <c>(schemaName, name)</c>.</summary>
     Task<ItemsResponse> CatalogMacroGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         Task.FromResult(new ItemsResponse());
 
     Task<ItemsResponse> CatalogCopyFromFormatsAsync(
@@ -179,94 +179,94 @@ public interface IVgiService
     // ------------------------------------------------------------------------------------------
 
     Task CatalogSchemaCreateAsync(
-        byte[] attachOpaqueData, string name, OnConflict onConflict, string? comment, Dictionary<string, string>? tags,
+        byte[] attachOpaqueData, List<string> path, OnConflict onConflict, string? comment, Dictionary<string, string>? tags,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_schema_create");
 
     Task CatalogSchemaDropAsync(
-        byte[] attachOpaqueData, string name, bool ignoreNotFound, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        byte[] attachOpaqueData, List<string> path, bool ignoreNotFound, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_schema_drop");
 
     Task CatalogTableCreateAsync(TableCreateRequest request, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_create");
 
     Task CatalogTableDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, bool ignoreNotFound, bool cascade,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_drop");
 
     Task CatalogTableRenameAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string newName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string newName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_rename");
 
     Task CatalogTableCommentSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? comment, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_comment_set");
 
     Task CatalogTableColumnAddAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[] columnDefinition, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[] columnDefinition, bool ignoreNotFound,
         bool ifColumnNotExists, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_add");
 
     Task CatalogTableColumnDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
         bool ifColumnExists, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_drop");
 
     Task CatalogTableColumnRenameAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, string newColumnName,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string newColumnName,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_rename");
 
     Task CatalogTableColumnCommentSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, string? comment,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string? comment,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_comment_set");
 
     Task CatalogTableColumnDefaultSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, string expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_default_set");
 
     Task CatalogTableColumnDefaultDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_default_drop");
 
     Task CatalogTableColumnTypeChangeAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[] columnDefinition, string? expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[] columnDefinition, string? expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_type_change");
 
     Task CatalogTableNotNullSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_not_null_set");
 
     Task CatalogTableNotNullDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_not_null_drop");
 
     Task CatalogViewCreateAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string definition, OnConflict onConflict,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string definition, OnConflict onConflict,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_view_create");
 
     Task CatalogViewDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, bool ignoreNotFound, bool cascade,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_view_drop");
 
     Task CatalogViewRenameAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string newName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string newName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_view_rename");
 
     Task CatalogViewCommentSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? comment, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_view_comment_set");
 }

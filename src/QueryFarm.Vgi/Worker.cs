@@ -49,9 +49,10 @@ public sealed class Worker
     /// <see cref="Protocol.ScanFunctionResult"/>/<see cref="Protocol.ScanBranch"/> — the worker's own
     /// authoritative schema for the scan/write function it just resolved, so the client no longer has
     /// to guess (the table's own schema, then <c>default_schema</c>) when one function name is
-    /// registered in more than one schema.</para>
+    /// registered in more than one schema. 2.0.0 replaces schema names throughout the protocol
+    /// with raw identifier-component paths so schemas can be nested to arbitrary depth.</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "1.5.0";
+    public const string DefaultProtocolVersion = "2.0.0";
 
     private readonly CatalogRegistry _catalog = new();
     private string _protocolVersion = DefaultProtocolVersion;
@@ -93,6 +94,17 @@ public sealed class Worker
     public Worker DefaultSchema(string name)
     {
         _catalog.DefaultSchema = name;
+        _catalog.DefaultSchemaPath = [name];
+        return this;
+    }
+
+    /// <summary>Sets the default schema path used when a bind request omits one. DuckDB 1.x only
+    /// consumes the final component in its attach result, while VGI 2.0 dispatch retains all
+    /// components.</summary>
+    public Worker DefaultSchema(IReadOnlyList<string> path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path.LastOrDefault());
+        _catalog.DefaultSchemaPath = path.ToList();
         return this;
     }
 
@@ -262,10 +274,16 @@ public sealed class Worker
     }
 
     /// <summary>Declares a schema's comment/tags explicitly — optional, see
-    /// <see cref="CatalogRegistry.RegisterSchema"/>.</summary>
+    /// <c>CatalogRegistry.RegisterSchema</c>.</summary>
     public Worker RegisterSchema(string schemaName, string? comment = null, Dictionary<string, string>? tags = null, string identity = CatalogRegistry.DefaultIdentity)
     {
         _catalog.RegisterSchema(schemaName, comment, tags, identity);
+        return this;
+    }
+
+    public Worker RegisterSchema(IReadOnlyList<string> schemaPath, string? comment = null, Dictionary<string, string>? tags = null, string identity = CatalogRegistry.DefaultIdentity)
+    {
+        _catalog.RegisterSchema(schemaPath, comment, tags, identity);
         return this;
     }
 

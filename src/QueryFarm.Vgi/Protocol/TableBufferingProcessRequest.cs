@@ -13,7 +13,7 @@ namespace QueryFarm.Vgi.Protocol;
 ///
 /// PROPERTY DECLARATION ORDER IS LOAD-BEARING — matches <c>TableBufferingProcessRequestSchema</c>
 /// exactly: function_name, execution_id, input_batch, attach_opaque_data, transaction_id, batch_index,
-/// schema_name.
+/// schema_path.
 /// </summary>
 public sealed class TableBufferingProcessRequest
 {
@@ -32,7 +32,7 @@ public sealed class TableBufferingProcessRequest
 
     public long? BatchIndex { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }
 
 /// <summary>The <c>table_buffering_process</c> RPC's packed result: one field, <c>state_id</c> —

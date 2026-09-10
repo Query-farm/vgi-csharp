@@ -10,7 +10,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// scoped to the whole bind) the first time it's touched by update/combine/finalize.
 ///
 /// PROPERTY DECLARATION ORDER IS LOAD-BEARING — matches <c>AggregateUpdateRequestSchema</c> exactly:
-/// function_name, execution_id, input_batch, attach_opaque_data, schema_name.
+/// function_name, execution_id, input_batch, attach_opaque_data, schema_path.
 /// </summary>
 public sealed class AggregateUpdateRequest
 {
@@ -22,7 +22,7 @@ public sealed class AggregateUpdateRequest
 
     public byte[]? AttachOpaqueData { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }
 
 /// <summary>The <c>aggregate_update</c> RPC's packed result — no fields (matches the C++

@@ -41,8 +41,8 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
         real.TableFunctionDynamicToStringAsync(request, ctx);
 
     public Task<byte[]?> CatalogTableColumnStatisticsGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableColumnStatisticsGetAsync(attachOpaqueData, schemaName, name, transactionOpaqueData, ctx);
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogTableColumnStatisticsGetAsync(attachOpaqueData, schemaPath, name, transactionOpaqueData, ctx);
 
     public Task<TableBufferingProcessResult> TableBufferingProcessAsync(TableBufferingProcessRequest request, ICallContext? ctx = null) =>
         real.TableBufferingProcessAsync(request, ctx);
@@ -81,9 +81,9 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
     /// what <c>VgiServiceImpl</c> would have sent), then re-encodes the <c>double</c> function's
     /// item with a corrupted <c>null_handling</c> — see <see cref="BadEnumFunctionInfoEncoder"/>.</summary>
     public async Task<ItemsResponse> CatalogSchemaContentsFunctionsAsync(
-        byte[] attachOpaqueData, string name, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
-        var response = await real.CatalogSchemaContentsFunctionsAsync(attachOpaqueData, name, type, transactionOpaqueData, ctx);
+        var response = await real.CatalogSchemaContentsFunctionsAsync(attachOpaqueData, path, type, transactionOpaqueData, ctx);
         var patched = response.Items.Select(itemBytes =>
         {
             var info = EmbeddedIpc.Decode<FunctionInfo>(itemBytes);
@@ -96,38 +96,38 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
         real.CatalogCatalogsAsync(ctx);
 
     public Task<ItemsResponse> CatalogSchemaContentsTablesAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogSchemaContentsTablesAsync(attachOpaqueData, name, transactionOpaqueData, ctx);
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogSchemaContentsTablesAsync(attachOpaqueData, path, transactionOpaqueData, ctx);
 
     public Task<ItemsResponse> CatalogSchemaContentsViewsAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogSchemaContentsViewsAsync(attachOpaqueData, name, transactionOpaqueData, ctx);
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogSchemaContentsViewsAsync(attachOpaqueData, path, transactionOpaqueData, ctx);
 
     public Task<ItemsResponse> CatalogSchemaGetAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogSchemaGetAsync(attachOpaqueData, name, transactionOpaqueData, ctx);
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogSchemaGetAsync(attachOpaqueData, path, transactionOpaqueData, ctx);
 
     public Task<ItemsResponse> CatalogTableGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? atUnit, string? atValue,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableGetAsync(attachOpaqueData, schemaName, name, atUnit, atValue, transactionOpaqueData, ctx);
+        real.CatalogTableGetAsync(attachOpaqueData, schemaPath, name, atUnit, atValue, transactionOpaqueData, ctx);
 
     public Task<ScanBranchesResult> CatalogTableScanBranchesGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? atUnit, string? atValue,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableScanBranchesGetAsync(attachOpaqueData, schemaName, name, atUnit, atValue, transactionOpaqueData, ctx);
+        real.CatalogTableScanBranchesGetAsync(attachOpaqueData, schemaPath, name, atUnit, atValue, transactionOpaqueData, ctx);
 
     public Task<ItemsResponse> CatalogViewGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogViewGetAsync(attachOpaqueData, schemaName, name, transactionOpaqueData, ctx);
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogViewGetAsync(attachOpaqueData, schemaPath, name, transactionOpaqueData, ctx);
 
     public Task<ItemsResponse> CatalogSchemaContentsMacrosAsync(
-        byte[] attachOpaqueData, string name, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogSchemaContentsMacrosAsync(attachOpaqueData, name, type, transactionOpaqueData, ctx);
+        byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogSchemaContentsMacrosAsync(attachOpaqueData, path, type, transactionOpaqueData, ctx);
 
     public Task<ItemsResponse> CatalogMacroGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogMacroGetAsync(attachOpaqueData, schemaName, name, transactionOpaqueData, ctx);
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogMacroGetAsync(attachOpaqueData, schemaPath, name, transactionOpaqueData, ctx);
 
     public Task<ItemsResponse> CatalogCopyFromFormatsAsync(
         byte[] attachOpaqueData, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
@@ -154,94 +154,94 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
     // -------------------------------------------------------------------------------------------
 
     public Task CatalogSchemaCreateAsync(
-        byte[] attachOpaqueData, string name, OnConflict onConflict, string? comment, Dictionary<string, string>? tags,
+        byte[] attachOpaqueData, List<string> path, OnConflict onConflict, string? comment, Dictionary<string, string>? tags,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogSchemaCreateAsync(attachOpaqueData, name, onConflict, comment, tags, transactionOpaqueData, ctx);
+        real.CatalogSchemaCreateAsync(attachOpaqueData, path, onConflict, comment, tags, transactionOpaqueData, ctx);
 
     public Task CatalogSchemaDropAsync(
-        byte[] attachOpaqueData, string name, bool ignoreNotFound, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogSchemaDropAsync(attachOpaqueData, name, ignoreNotFound, cascade, transactionOpaqueData, ctx);
+        byte[] attachOpaqueData, List<string> path, bool ignoreNotFound, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogSchemaDropAsync(attachOpaqueData, path, ignoreNotFound, cascade, transactionOpaqueData, ctx);
 
     public Task CatalogTableCreateAsync(TableCreateRequest request, ICallContext? ctx = null) =>
         real.CatalogTableCreateAsync(request, ctx);
 
     public Task CatalogTableDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, bool ignoreNotFound, bool cascade,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableDropAsync(attachOpaqueData, schemaName, name, ignoreNotFound, cascade, transactionOpaqueData, ctx);
+        real.CatalogTableDropAsync(attachOpaqueData, schemaPath, name, ignoreNotFound, cascade, transactionOpaqueData, ctx);
 
     public Task CatalogTableRenameAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string newName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string newName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableRenameAsync(attachOpaqueData, schemaName, name, newName, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableRenameAsync(attachOpaqueData, schemaPath, name, newName, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableCommentSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? comment, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableCommentSetAsync(attachOpaqueData, schemaName, name, comment, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableCommentSetAsync(attachOpaqueData, schemaPath, name, comment, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnAddAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[] columnDefinition, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[] columnDefinition, bool ignoreNotFound,
         bool ifColumnNotExists, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableColumnAddAsync(attachOpaqueData, schemaName, name, columnDefinition, ignoreNotFound, ifColumnNotExists, transactionOpaqueData, ctx);
+        real.CatalogTableColumnAddAsync(attachOpaqueData, schemaPath, name, columnDefinition, ignoreNotFound, ifColumnNotExists, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
         bool ifColumnExists, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableColumnDropAsync(attachOpaqueData, schemaName, name, columnName, ignoreNotFound, ifColumnExists, cascade, transactionOpaqueData, ctx);
+        real.CatalogTableColumnDropAsync(attachOpaqueData, schemaPath, name, columnName, ignoreNotFound, ifColumnExists, cascade, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnRenameAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, string newColumnName,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string newColumnName,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableColumnRenameAsync(attachOpaqueData, schemaName, name, columnName, newColumnName, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableColumnRenameAsync(attachOpaqueData, schemaPath, name, columnName, newColumnName, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnCommentSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, string? comment,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string? comment,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableColumnCommentSetAsync(attachOpaqueData, schemaName, name, columnName, comment, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableColumnCommentSetAsync(attachOpaqueData, schemaPath, name, columnName, comment, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnDefaultSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, string expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableColumnDefaultSetAsync(attachOpaqueData, schemaName, name, columnName, expression, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableColumnDefaultSetAsync(attachOpaqueData, schemaPath, name, columnName, expression, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnDefaultDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableColumnDefaultDropAsync(attachOpaqueData, schemaName, name, columnName, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableColumnDefaultDropAsync(attachOpaqueData, schemaPath, name, columnName, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnTypeChangeAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[] columnDefinition, string? expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[] columnDefinition, string? expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableColumnTypeChangeAsync(attachOpaqueData, schemaName, name, columnDefinition, expression, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableColumnTypeChangeAsync(attachOpaqueData, schemaPath, name, columnDefinition, expression, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableNotNullSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableNotNullSetAsync(attachOpaqueData, schemaName, name, columnName, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableNotNullSetAsync(attachOpaqueData, schemaPath, name, columnName, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableNotNullDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableNotNullDropAsync(attachOpaqueData, schemaName, name, columnName, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogTableNotNullDropAsync(attachOpaqueData, schemaPath, name, columnName, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogViewCreateAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string definition, OnConflict onConflict,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string definition, OnConflict onConflict,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogViewCreateAsync(attachOpaqueData, schemaName, name, definition, onConflict, transactionOpaqueData, ctx);
+        real.CatalogViewCreateAsync(attachOpaqueData, schemaPath, name, definition, onConflict, transactionOpaqueData, ctx);
 
     public Task CatalogViewDropAsync(
-        byte[] attachOpaqueData, string schemaName, string name, bool ignoreNotFound, bool cascade,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogViewDropAsync(attachOpaqueData, schemaName, name, ignoreNotFound, cascade, transactionOpaqueData, ctx);
+        real.CatalogViewDropAsync(attachOpaqueData, schemaPath, name, ignoreNotFound, cascade, transactionOpaqueData, ctx);
 
     public Task CatalogViewRenameAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string newName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string newName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogViewRenameAsync(attachOpaqueData, schemaName, name, newName, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogViewRenameAsync(attachOpaqueData, schemaPath, name, newName, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogViewCommentSetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? comment, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogViewCommentSetAsync(attachOpaqueData, schemaName, name, comment, ignoreNotFound, transactionOpaqueData, ctx);
+        real.CatalogViewCommentSetAsync(attachOpaqueData, schemaPath, name, comment, ignoreNotFound, transactionOpaqueData, ctx);
 }

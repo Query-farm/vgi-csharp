@@ -5,7 +5,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// phase completes, giving the worker a chance to wipe any durable state it stashed for
 /// <see cref="ExecutionId"/> (see <c>Internal.FunctionStorage</c>). PROPERTY DECLARATION ORDER IS
 /// LOAD-BEARING — matches <c>TableBufferingDestructorRequestSchema</c> exactly: function_name,
-/// execution_id, attach_opaque_data, transaction_id, schema_name.
+/// execution_id, attach_opaque_data, transaction_id, schema_path.
 /// </summary>
 public sealed class TableBufferingDestructorRequest
 {
@@ -17,7 +17,7 @@ public sealed class TableBufferingDestructorRequest
 
     public byte[]? TransactionId { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }
 
 /// <summary>The <c>table_buffering_destructor</c> RPC's packed result — no fields.</summary>

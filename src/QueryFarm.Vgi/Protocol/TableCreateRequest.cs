@@ -4,14 +4,14 @@ namespace QueryFarm.Vgi.Protocol;
 /// The <c>catalog_table_create</c> RPC's packed request (wire field name <c>request</c>, matching
 /// <c>init</c>/<c>table_buffering_*</c>'s packed-single-parameter convention). Property order
 /// matches the C++ extension's <c>BuildTableCreateRequest</c> field order exactly: attach_opaque_data,
-/// schema_name, name, columns, on_conflict, not_null_constraints, unique_constraints,
+/// schema_path, name, columns, on_conflict, not_null_constraints, unique_constraints,
 /// check_constraints, primary_key_constraints, foreign_key_constraints, transaction_opaque_data.
 /// </summary>
 public sealed class TableCreateRequest
 {
     public byte[] AttachOpaqueData { get; set; } = [];
 
-    public string SchemaName { get; set; } = "";
+    public List<string> SchemaPath { get; set; } = [];
 
     public string Name { get; set; } = "";
 

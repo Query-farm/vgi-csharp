@@ -7,7 +7,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// result, AND the four <c>TableInfo.{scan,insert,update,delete}_function</c> inline fields (parsed
 /// with the identical <c>ParseScanFunctionResult</c> on the C++ side either way — see
 /// <c>vgi_catalog_api.cpp</c>). Property order matches the generated <c>ScanFunctionResultSchema()</c>:
-/// function_name, arguments, required_extensions, schema_name.
+/// function_name, arguments, required_extensions, schema_path.
 ///
 /// <see cref="Arguments"/> is the SAME wire shape <see cref="Internal.TableArgCodec"/> decodes for a
 /// normal bind call, EXCEPT the positional-argument field prefix is <c>arg_&lt;N&gt;</c> (not
@@ -26,15 +26,15 @@ public sealed class ScanFunctionResult
 
     public List<string> RequiredExtensions { get; set; } = [];
 
-    /// <summary>The catalog schema <see cref="FunctionName"/> is registered in (protocol 1.5.0). A
+    /// <summary>The raw catalog schema path <see cref="FunctionName"/> is registered in. A
     /// function name is unique only WITHIN a schema, so a client that doesn't know this can't tell
     /// which of two same-named implementations this result means — <c>VgiTableEntry::GetScanFunctionImpl</c>
     /// takes a schema named here that is neither the table's own schema nor the catalog's
     /// <c>default_schema</c> as authoritative, and only falls back to its old
     /// table's-schema-then-default-schema guess otherwise. <see langword="null"/> means "no VGI-side
-    /// schema to report" — a pre-1.5.0 peer, or a <see cref="FunctionName"/> that is a NATIVE DuckDB
+    /// schema to report" — for example a <see cref="FunctionName"/> that is a NATIVE DuckDB
     /// function (<c>read_parquet</c>, <c>iceberg_scan</c>, ...) this worker never registered. That
     /// second case is permanent, not transitional, which is why the field stays optional rather than
     /// becoming mandatory.</summary>
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }

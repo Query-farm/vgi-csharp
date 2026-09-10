@@ -27,6 +27,10 @@ public sealed record ScanBranchSpec
 
     public string? SourceSchema { get; init; }
 
+    /// <summary>Raw schema identifier components for a nested companion-catalog schema. When null,
+    /// the legacy <see cref="SourceSchema"/> supplies a one-component path.</summary>
+    public IReadOnlyList<string>? SourceSchemaPath { get; init; }
+
     public string? SourceTable { get; init; }
 
     /// <summary>Format-branch kind — names WHAT the data is (<c>csv</c>/<c>parquet</c>/...) and

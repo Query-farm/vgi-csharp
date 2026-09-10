@@ -26,6 +26,12 @@ public sealed class CatalogTable
 
     public string SchemaName { get; init; } = "main";
 
+    /// <summary>Raw schema identifier components. Set this for nested schemas; when null, the
+    /// legacy <see cref="SchemaName"/> supplies a one-component path.</summary>
+    public IReadOnlyList<string>? SchemaPath { get; init; }
+
+    internal IReadOnlyList<string> EffectiveSchemaPath => SchemaPath ?? [SchemaName];
+
     public string? Comment { get; init; }
 
     public Dictionary<string, string> Tags { get; init; } = [];
@@ -209,7 +215,7 @@ public sealed class CatalogTable
     public Schema ResolveColumns() => Columns
         ?? ScanFunction?.OutputSchema
         ?? throw new InvalidOperationException(
-            $"Catalog table '{SchemaName}.{Name}' declares neither explicit Columns nor a ScanFunction to derive them from.");
+            $"Catalog table '{string.Join('.', EffectiveSchemaPath)}.{Name}' declares neither explicit Columns nor a ScanFunction to derive them from.");
 }
 
 /// <summary>One <see cref="CatalogTable.ForeignKeys"/> entry — column-NAME form (resolved against
@@ -224,4 +230,8 @@ public sealed class CatalogForeignKey
     public required IReadOnlyList<string> ReferencedColumns { get; init; }
 
     public string? ReferencedSchema { get; init; }
+
+    /// <summary>Raw schema identifier components for a nested-schema target. When null, the legacy
+    /// <see cref="ReferencedSchema"/> or the containing table's schema is used.</summary>
+    public IReadOnlyList<string>? ReferencedSchemaPath { get; init; }
 }

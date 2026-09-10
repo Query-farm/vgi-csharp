@@ -8,6 +8,10 @@ public sealed class CatalogView
 
     public string SchemaName { get; init; } = "main";
 
+    public IReadOnlyList<string>? SchemaPath { get; init; }
+
+    internal IReadOnlyList<string> EffectiveSchemaPath => SchemaPath ?? [SchemaName];
+
     public required string Definition { get; init; }
 
     public string? Comment { get; init; }

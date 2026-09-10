@@ -18,6 +18,10 @@ public interface IScalarFunction
 
     string SchemaName => "main";
 
+    /// <summary>Raw schema identifier components. Override this for nested schemas; the legacy
+    /// <see cref="SchemaName"/> remains the single-component default.</summary>
+    IReadOnlyList<string> SchemaPath => [SchemaName];
+
     string Description => "";
 
     /// <summary>Optional free-text comment surfaced via <c>duckdb_functions().comment</c>

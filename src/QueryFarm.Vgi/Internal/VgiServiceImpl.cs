@@ -59,7 +59,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<BindResponse> BindAsync(BindRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
-        var schemaName = request.SchemaName ?? catalog.DefaultSchema;
+        var schemaPath = EffectiveSchemaPath(request.SchemaPath);
 
         // A table/table-in-out/table-buffering Bind() that requested a dynamic (call-argument-
         // derived) secret scope via SecretsAccessor.Get() throws instead of returning normally (see
@@ -70,8 +70,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         try
         {
             var outputSchema = request.FunctionType == FunctionType.Table
-                ? BindAnyTable(identity, schemaName, request)
-                : BindScalar(identity, schemaName, request);
+                ? BindAnyTable(identity, schemaPath, request)
+                : BindScalar(identity, schemaPath, request);
 
             return Task.FromResult(new BindResponse
             {
@@ -99,30 +99,30 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     {
         var bindRequest = EmbeddedIpc.Decode<BindRequest>(request.BindCall);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
-        var schemaName = bindRequest.SchemaName ?? catalog.DefaultSchema;
+        var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
         var name = bindRequest.FunctionName;
 
         if (bindRequest.FunctionType != FunctionType.Table)
         {
-            return Task.FromResult(InitScalar(identity, schemaName, bindRequest));
+            return Task.FromResult(InitScalar(identity, schemaPath, bindRequest));
         }
 
-        if (catalog.FindTable(identity, schemaName, name, TableArgCodec.Decode(bindRequest.Arguments)) is { } table)
+        if (catalog.FindTable(identity, schemaPath, name, TableArgCodec.Decode(bindRequest.Arguments)) is { } table)
         {
             return Task.FromResult(InitTable(table, bindRequest, request));
         }
 
-        if (catalog.FindTableInOut(identity, schemaName, name, DecodeInputSchema(bindRequest.InputSchema)) is { } tableInOut)
+        if (catalog.FindTableInOut(identity, schemaPath, name, DecodeInputSchema(bindRequest.InputSchema)) is { } tableInOut)
         {
             return Task.FromResult(InitTableInOut(tableInOut, bindRequest, request));
         }
 
-        if (catalog.FindTableBuffering(identity, schemaName, name) is { } buffering)
+        if (catalog.FindTableBuffering(identity, schemaPath, name) is { } buffering)
         {
             return Task.FromResult(InitTableBuffering(buffering, bindRequest, request));
         }
 
-        throw new InvalidOperationException($"Unknown table function '{schemaName}.{name}' (identity '{identity}').");
+        throw new InvalidOperationException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
     }
 
     /// <summary>Scan planning (splits). Only ever called by the C++ client when the target table
@@ -137,9 +137,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         var bindRequest = EmbeddedIpc.Decode<BindRequest>(bindCallBytes);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
-        var schemaName = bindRequest.SchemaName ?? catalog.DefaultSchema;
+        var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
 
-        if (catalog.FindTable(identity, schemaName, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function || !function.SupportsSplits)
+        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function || !function.SupportsSplits)
         {
             return Task.FromResult(DefaultSingleSplitPlan());
         }
@@ -193,7 +193,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var fingerprint = SplitToken.BindFingerprint(
-            bindRequest.SchemaName ?? "", bindRequest.FunctionName, bindRequest.Arguments, bindRequest.Settings);
+            EffectiveSchemaPath(bindRequest.SchemaPath), bindRequest.FunctionName, bindRequest.Arguments, bindRequest.Settings);
         var anchor = SplitToken.Anchor(catalogVersion);
 
         var blobs = new List<byte[]>(planResult.Splits.Count);
@@ -243,9 +243,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         var bindRequest = EmbeddedIpc.Decode<BindRequest>(bindCallBytes);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
-        var schemaName = bindRequest.SchemaName ?? catalog.DefaultSchema;
+        var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
 
-        if (catalog.FindTable(identity, schemaName, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
+        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
         {
             return Task.FromResult(new TableFunctionCardinalityResult());
         }
@@ -278,9 +278,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         var bindRequest = EmbeddedIpc.Decode<BindRequest>(bindCallBytes);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
-        var schemaName = bindRequest.SchemaName ?? catalog.DefaultSchema;
+        var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
 
-        if (catalog.FindTable(identity, schemaName, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
+        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
         {
             return Task.FromResult<byte[]?>(null);
         }
@@ -330,9 +330,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         var bindRequest = EmbeddedIpc.Decode<BindRequest>(bindCallBytes);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
-        var schemaName = bindRequest.SchemaName ?? catalog.DefaultSchema;
+        var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
 
-        if (catalog.FindTable(identity, schemaName, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
+        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
         {
             return Task.FromResult(new TableFunctionDynamicToStringResult());
         }
@@ -365,10 +365,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// <summary>Per-column statistics for a real catalog table — see
     /// <see cref="Catalog.CatalogTable.Statistics"/>.</summary>
     public Task<byte[]?> CatalogTableColumnStatisticsGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-        var table = catalog.FindCatalogTable(identity, schemaName, name);
+        var table = catalog.FindCatalogTable(identity, schemaPath, name);
         if (table is null || table.Statistics.Count == 0)
         {
             return Task.FromResult<byte[]?>(null);
@@ -391,7 +391,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// worker's own payloads (see <see cref="TableInitParams.SplitPayloads"/>) — runs before any
     /// user code, so an unverified token's payload can never be acted on. Returns
     /// <see langword="null"/> for every ordinary (non-split) init.</summary>
-    private static IReadOnlyList<byte[]>? OpenSplitTokens(InitRequest request, BindRequest bindRequest)
+    private IReadOnlyList<byte[]>? OpenSplitTokens(InitRequest request, BindRequest bindRequest)
     {
         var tokens = request.SplitTokens;
         if (tokens is null || tokens.Count == 0)
@@ -400,7 +400,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var fingerprint = SplitToken.BindFingerprint(
-            bindRequest.SchemaName ?? "", bindRequest.FunctionName, bindRequest.Arguments, bindRequest.Settings);
+            EffectiveSchemaPath(bindRequest.SchemaPath), bindRequest.FunctionName, bindRequest.Arguments, bindRequest.Settings);
         var anchor = SplitToken.Anchor(CatalogVersion);
 
         var payloads = new List<byte[]>(tokens.Count);
@@ -415,8 +415,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<TableBufferingProcessResult> TableBufferingProcessAsync(TableBufferingProcessRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
-        var schemaName = request.SchemaName ?? catalog.DefaultSchema;
-        var function = ResolveTableBuffering(identity, schemaName, request.FunctionName);
+        var schemaPath = EffectiveSchemaPath(request.SchemaPath);
+        var function = ResolveTableBuffering(identity, schemaPath, request.FunctionName);
 
         var storage = new FunctionStorage(request.ExecutionId);
         var bindContext = ReadBindContext(storage);
@@ -442,8 +442,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<TableBufferingCombineResult> TableBufferingCombineAsync(TableBufferingCombineRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
-        var schemaName = request.SchemaName ?? catalog.DefaultSchema;
-        var function = ResolveTableBuffering(identity, schemaName, request.FunctionName);
+        var schemaPath = EffectiveSchemaPath(request.SchemaPath);
+        var function = ResolveTableBuffering(identity, schemaPath, request.FunctionName);
 
         var storage = new FunctionStorage(request.ExecutionId);
         var bindContext = ReadBindContext(storage);
@@ -475,8 +475,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<AggregateBindResult> AggregateBindAsync(AggregateBindRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
-        var schemaName = request.SchemaName ?? catalog.DefaultSchema;
-        var function = ResolveAggregate(identity, schemaName, request.FunctionName);
+        var schemaPath = EffectiveSchemaPath(request.SchemaPath);
+        var function = ResolveAggregate(identity, schemaPath, request.FunctionName);
 
         var arguments = TableArgCodec.Decode(request.Arguments);
         var inputSchema = request.InputSchema is { Length: > 0 } bytes ? SchemaIpc.ReadSchemaOnly(bytes) : null;
@@ -509,8 +509,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<AggregateUpdateResult> AggregateUpdateAsync(AggregateUpdateRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
-        var schemaName = request.SchemaName ?? catalog.DefaultSchema;
-        var function = ResolveAggregate(identity, schemaName, request.FunctionName);
+        var schemaPath = EffectiveSchemaPath(request.SchemaPath);
+        var function = ResolveAggregate(identity, schemaPath, request.FunctionName);
 
         var batch = request.InputBatch;
         var gidIndex = batch.Schema.GetFieldIndex(AggregateGroupIdColumn);
@@ -561,8 +561,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<AggregateCombineResult> AggregateCombineAsync(AggregateCombineRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
-        var schemaName = request.SchemaName ?? catalog.DefaultSchema;
-        var function = ResolveAggregate(identity, schemaName, request.FunctionName);
+        var schemaPath = EffectiveSchemaPath(request.SchemaPath);
+        var function = ResolveAggregate(identity, schemaPath, request.FunctionName);
 
         var batch = request.MergeBatch;
         var srcIndex = batch.Schema.GetFieldIndex("source_group_id");
@@ -609,8 +609,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<AggregateFinalizeResult> AggregateFinalizeAsync(AggregateFinalizeRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
-        var schemaName = request.SchemaName ?? catalog.DefaultSchema;
-        var function = ResolveAggregate(identity, schemaName, request.FunctionName);
+        var schemaPath = EffectiveSchemaPath(request.SchemaPath);
+        var function = ResolveAggregate(identity, schemaPath, request.FunctionName);
 
         var gidBatch = request.GroupIdsBatch;
         var gidIndex = gidBatch.Schema.GetFieldIndex("group_id");
@@ -648,10 +648,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return Task.FromResult(new AggregateDestructorResult());
     }
 
-    private Apache.Arrow.Schema BindScalar(string identity, string schemaName, BindRequest request)
+    private Apache.Arrow.Schema BindScalar(string identity, IReadOnlyList<string> schemaPath, BindRequest request)
     {
         var inputSchema = DecodeInputSchema(request.InputSchema);
-        var function = ResolveScalar(identity, schemaName, request.FunctionName, request.Arguments, inputSchema);
+        var function = ResolveScalar(identity, schemaPath, request.FunctionName, request.Arguments, inputSchema);
 
         function.Bind(new ScalarBindParams
         {
@@ -665,16 +665,16 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return function.ResolveOutputSchema(inputSchema);
     }
 
-    private Apache.Arrow.Schema BindAnyTable(string identity, string schemaName, BindRequest request)
+    private Apache.Arrow.Schema BindAnyTable(string identity, IReadOnlyList<string> schemaPath, BindRequest request)
     {
         var name = request.FunctionName;
 
-        if (catalog.FindTable(identity, schemaName, name, TableArgCodec.Decode(request.Arguments)) is { } table)
+        if (catalog.FindTable(identity, schemaPath, name, TableArgCodec.Decode(request.Arguments)) is { } table)
         {
             return BindTable(table, request);
         }
 
-        if (catalog.FindTableInOut(identity, schemaName, name, DecodeInputSchema(request.InputSchema)) is { } tableInOut)
+        if (catalog.FindTableInOut(identity, schemaPath, name, DecodeInputSchema(request.InputSchema)) is { } tableInOut)
         {
             RequireTableInOutInputSchema(tableInOut.Name, request.InputSchema);
             var bindParams = DecodeTableInOutBindParams(request);
@@ -683,7 +683,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return tableInOut.ResolveOutputSchema(bindParams);
         }
 
-        if (catalog.FindTableBuffering(identity, schemaName, name) is { } buffering)
+        if (catalog.FindTableBuffering(identity, schemaPath, name) is { } buffering)
         {
             var bindParams = DecodeTableInOutBindParams(request);
             buffering.Bind(bindParams);
@@ -691,7 +691,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return buffering.ResolveOutputSchema(bindParams);
         }
 
-        throw new InvalidOperationException($"Unknown table function '{schemaName}.{name}' (identity '{identity}').");
+        throw new InvalidOperationException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
     }
 
     private static Apache.Arrow.Schema BindTable(ITableFunction function, BindRequest request)
@@ -775,7 +775,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     /// <summary>Mirror image of <see cref="RequireTableInOutInputSchema"/>, for the BIND-time shape
     /// of the same confusion in the other direction: a plain (producer-only) table function never
-    /// legitimately receives an input schema at all (see <see cref="CatalogRegistry.FindTable"/>'s
+    /// legitimately receives an input schema at all (see <c>CatalogRegistry.FindTable</c>'s
     /// doc comment — "table calls carry no InputSchema at all"). A non-<see langword="null"/> value
     /// here means the caller drove this call via <c>table_in_out_function()</c> instead of the
     /// plain-producer path this function's shape requires (<c>table_function()</c>).</summary>
@@ -825,10 +825,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         };
     }
 
-    private RpcStream<StreamState> InitScalar(string identity, string schemaName, BindRequest bindRequest)
+    private RpcStream<StreamState> InitScalar(string identity, IReadOnlyList<string> schemaPath, BindRequest bindRequest)
     {
         var inputSchema = DecodeInputSchema(bindRequest.InputSchema);
-        var function = ResolveScalar(identity, schemaName, bindRequest.FunctionName, bindRequest.Arguments, inputSchema);
+        var function = ResolveScalar(identity, schemaPath, bindRequest.FunctionName, bindRequest.Arguments, inputSchema);
         var outputSchema = function.ResolveOutputSchema(inputSchema);
 
         var header = new GlobalInitResponse
@@ -842,7 +842,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return new RpcStream<StreamState>(outputSchema, state, InputSchema: null, Header: header);
     }
 
-    private static RpcStream<StreamState> InitTable(ITableFunction function, BindRequest bindRequest, InitRequest request)
+    private RpcStream<StreamState> InitTable(ITableFunction function, BindRequest bindRequest, InitRequest request)
     {
         // Defense-in-depth mirror of BindTable's own bind-time guard: a plain table function's
         // init RPC never carries a table-in-out/table-buffering phase. A non-null phase here means
@@ -1176,10 +1176,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<ItemsResponse> CatalogSchemasAsync(byte[] attachOpaqueData, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-        var schemaNames = catalog.SchemaNamesFor(identity);
+        var schemaPaths = catalog.SchemaPathsFor(identity);
 
-        var items = schemaNames
-            .Select(name => BuildSchemaInfo(identity, name))
+        var items = schemaPaths
+            .Select(path => BuildSchemaInfo(identity, path))
             .Select(EmbeddedIpc.Encode)
             .ToList();
 
@@ -1187,15 +1187,15 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     }
 
     public Task<ItemsResponse> CatalogSchemaGetAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-        if (!catalog.SchemaNamesFor(identity).Contains(name))
+        if (!catalog.SchemaPathsFor(identity).Any(candidate => CatalogRegistry.PathsEqual(candidate, path)))
         {
             return Task.FromResult(new ItemsResponse());
         }
 
-        return Task.FromResult(new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildSchemaInfo(identity, name))] });
+        return Task.FromResult(new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildSchemaInfo(identity, path))] });
     }
 
     /// <summary>Zero-or-one-item lookup for a single table by <c>(schemaName, name)</c>. Only ever
@@ -1210,11 +1210,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// fire once it resolves the scan (<c>catalog/multi_branch_scan.test</c>) — this worker refusing
     /// first would surface the wrong error message.</summary>
     public Task<ItemsResponse> CatalogTableGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? atUnit, string? atValue,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
         byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-        var table = catalog.FindCatalogTable(identity, schemaName, name);
+        var table = catalog.FindCatalogTable(identity, schemaPath, name);
         if (table is null)
         {
             return Task.FromResult(new ItemsResponse());
@@ -1224,7 +1224,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         {
             if (!table.SupportsTimeTravel)
             {
-                throw new InvalidOperationException($"Table '{schemaName}.{name}' does not support time travel queries.");
+                throw new InvalidOperationException($"Table '{string.Join('.', schemaPath)}.{name}' does not support time travel queries.");
             }
 
             if (table.ResolveAtClause is { } resolve)
@@ -1244,18 +1244,18 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// no filter, not writable — the same shape <c>BuildInlineScanFunction</c> already gives the
     /// inline <c>TableInfo.scan_function</c> field for its real scan path.</summary>
     public Task<ScanBranchesResult> CatalogTableScanBranchesGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, string? atUnit, string? atValue,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
         byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-        var table = catalog.FindCatalogTable(identity, schemaName, name)
-            ?? throw new InvalidOperationException($"Unknown table: '{schemaName}.{name}'.");
+        var table = catalog.FindCatalogTable(identity, schemaPath, name)
+            ?? throw new InvalidOperationException($"Unknown table: '{string.Join('.', schemaPath)}.{name}'.");
 
         List<ScanBranch> branches;
         List<string> requiredExtensions;
         if (table.Branches is { } declared)
         {
-            branches = declared.Select(spec => BuildScanBranch(spec, identity, table.SchemaName)).ToList();
+            branches = declared.Select(spec => BuildScanBranch(spec, identity, table.EffectiveSchemaPath)).ToList();
             requiredExtensions = table.RequiredExtensions.ToList();
         }
         else if (table.ScanFunction is { } scan)
@@ -1271,8 +1271,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                     Arguments = ScanArgsCodec.Encode(positional, named),
                     // Authoritative, not guessed: this branch was synthesized from the table's own
                     // ITableFunction INSTANCE, which declares the schema CatalogRegistry.RegisterTable
-                    // keyed it under — no name-based lookup needed (protocol 1.5.0).
-                    SchemaName = scan.SchemaName,
+                    // keyed it under — no name-based lookup needed.
+                    SchemaPath = scan.SchemaPath.ToList(),
                 },
             ];
             requiredExtensions = [];
@@ -1280,7 +1280,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         else
         {
             throw new InvalidOperationException(
-                $"Catalog table '{schemaName}.{name}' declares neither a ScanFunction nor Branches to answer catalog_table_scan_branches_get with.");
+                $"Catalog table '{string.Join('.', schemaPath)}.{name}' declares neither a ScanFunction nor Branches to answer catalog_table_scan_branches_get with.");
         }
 
         return Task.FromResult(new ScanBranchesResult
@@ -1291,25 +1291,26 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     }
 
     /// <summary>Builds one declared branch's wire DTO. <paramref name="identity"/>/
-    /// <paramref name="tableSchemaName"/> exist only to resolve
-    /// <see cref="ScanBranch.SchemaName"/> (protocol 1.5.0) — a <see cref="ScanBranchSpec"/> names its
+    /// <paramref name="tableSchemaPath"/> exist only to resolve
+    /// <see cref="ScanBranch.SchemaPath"/> — a <see cref="ScanBranchSpec"/> names its
     /// function by NAME alone, so which schema that name lives in has to come from the registry (see
-    /// <see cref="CatalogRegistry.SchemaForTableFunction"/>, which also yields <see langword="null"/>
+    /// <c>CatalogRegistry.SchemaForTableFunction</c>, which also yields <see langword="null"/>
     /// for a native DuckDB function this worker never registered). A catalog-table or format branch
     /// names no function at all and reports no schema.</summary>
-    private ScanBranch BuildScanBranch(ScanBranchSpec spec, string identity, string tableSchemaName) => new()
+    private ScanBranch BuildScanBranch(ScanBranchSpec spec, string identity, IReadOnlyList<string> tableSchemaPath) => new()
     {
         FunctionName = spec.FunctionName ?? "",
         Arguments = spec.FunctionName is not null
             ? ScanArgsCodec.Encode(spec.PositionalArguments, spec.NamedArguments)
             : [],
-        SchemaName = spec.FunctionName is { } branchFunction
-            ? catalog.SchemaForTableFunction(identity, branchFunction, tableSchemaName)
+        SchemaPath = spec.FunctionName is { } branchFunction
+            ? catalog.SchemaForTableFunction(identity, branchFunction, tableSchemaPath)?.ToList()
             : null,
         BranchFilter = spec.BranchFilter,
         Writable = spec.Writable,
         SourceCatalog = spec.SourceCatalog,
-        SourceSchema = spec.SourceSchema,
+        SourceSchemaPath = spec.SourceSchemaPath?.ToList()
+            ?? (spec.SourceSchema is null ? null : [spec.SourceSchema]),
         SourceTable = spec.SourceTable,
         FormatName = spec.FormatName,
         FormatLocations = spec.FormatLocations?.ToList(),
@@ -1317,21 +1318,21 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     };
 
     public Task<ItemsResponse> CatalogViewGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-        var view = catalog.FindView(identity, schemaName, name);
+        var view = catalog.FindView(identity, schemaPath, name);
         return Task.FromResult(view is null
             ? new ItemsResponse()
             : new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildViewInfo(view))] });
     }
 
     public Task<ItemsResponse> CatalogSchemaContentsTablesAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
         var items = catalog.CatalogTablesFor(identity)
-            .Where(table => string.Equals(table.SchemaName, name, StringComparison.Ordinal))
+            .Where(table => CatalogRegistry.PathsEqual(table.EffectiveSchemaPath, path))
             .Select(BuildTableInfo)
             .Select(EmbeddedIpc.Encode)
             .ToList();
@@ -1340,11 +1341,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     }
 
     public Task<ItemsResponse> CatalogSchemaContentsViewsAsync(
-        byte[] attachOpaqueData, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
         var items = catalog.CatalogViewsFor(identity)
-            .Where(view => string.Equals(view.SchemaName, name, StringComparison.Ordinal))
+            .Where(view => CatalogRegistry.PathsEqual(view.EffectiveSchemaPath, path))
             .Select(BuildViewInfo)
             .Select(EmbeddedIpc.Encode)
             .ToList();
@@ -1353,14 +1354,14 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     }
 
     public Task<ItemsResponse> CatalogSchemaContentsMacrosAsync(
-        byte[] attachOpaqueData, string name, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
         var wantScalar = type != SchemaObjectType.TableMacro;
         var wantTable = type != SchemaObjectType.ScalarMacro;
 
         var items = catalog.CatalogMacrosFor(identity)
-            .Where(macro => string.Equals(macro.SchemaName, name, StringComparison.Ordinal))
+            .Where(macro => CatalogRegistry.PathsEqual(macro.EffectiveSchemaPath, path))
             .Where(macro => macro.MacroType == Protocol.MacroType.Scalar ? wantScalar : wantTable)
             .Select(BuildMacroInfo)
             .Select(EmbeddedIpc.Encode)
@@ -1392,24 +1393,24 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     };
 
     public Task<ItemsResponse> CatalogMacroGetAsync(
-        byte[] attachOpaqueData, string schemaName, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-        var macro = catalog.FindMacro(identity, schemaName, name);
+        var macro = catalog.FindMacro(identity, schemaPath, name);
         return Task.FromResult(macro is null
             ? new ItemsResponse()
             : new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildMacroInfo(macro))] });
     }
 
     public Task<ItemsResponse> CatalogSchemaContentsFunctionsAsync(
-        byte[] attachOpaqueData, string name, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
 
         IEnumerable<byte[]> items = type switch
         {
             SchemaObjectType.ScalarFunction => catalog.ScalarFunctionsFor(identity)
-                .Where(function => string.Equals(function.SchemaName, name, StringComparison.Ordinal))
+                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
                 .Select(BuildFunctionInfo)
                 .Select(EmbeddedIpc.Encode),
             // DuckDB's catalog doesn't distinguish a plain source table function from a streaming
@@ -1417,17 +1418,17 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             // "table functions" from the client's point of view (the TABLE-typed argument, present
             // only on the latter two, is what makes the C++ side register them differently).
             SchemaObjectType.TableFunction => catalog.TableFunctionsFor(identity)
-                .Where(function => string.Equals(function.SchemaName, name, StringComparison.Ordinal))
+                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
                 .Select(BuildFunctionInfo)
                 .Concat(catalog.TableInOutFunctionsFor(identity)
-                    .Where(function => string.Equals(function.SchemaName, name, StringComparison.Ordinal))
+                    .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
                     .Select(BuildFunctionInfo))
                 .Concat(catalog.TableBufferingFunctionsFor(identity)
-                    .Where(function => string.Equals(function.SchemaName, name, StringComparison.Ordinal))
+                    .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
                     .Select(BuildFunctionInfo))
                 .Select(EmbeddedIpc.Encode),
             SchemaObjectType.AggregateFunction => catalog.AggregateFunctionsFor(identity)
-                .Where(function => string.Equals(function.SchemaName, name, StringComparison.Ordinal))
+                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
                 .Select(BuildFunctionInfo)
                 .Select(EmbeddedIpc.Encode),
             _ => [],
@@ -1444,17 +1445,17 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static Apache.Arrow.Schema? DecodeInputSchema(byte[]? bytes) =>
         bytes is { Length: > 0 } ? SchemaIpc.ReadSchemaOnly(bytes) : null;
 
-    private IScalarFunction ResolveScalar(string identity, string schemaName, string name, byte[] constArguments, Apache.Arrow.Schema? paramSchema) =>
-        catalog.FindScalar(identity, schemaName, name, constArguments, paramSchema)
-        ?? throw new InvalidOperationException($"Unknown scalar function '{schemaName}.{name}' (identity '{identity}').");
+    private IScalarFunction ResolveScalar(string identity, IReadOnlyList<string> schemaPath, string name, byte[] constArguments, Apache.Arrow.Schema? paramSchema) =>
+        catalog.FindScalar(identity, schemaPath, name, constArguments, paramSchema)
+        ?? throw new InvalidOperationException($"Unknown scalar function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
-    private ITableBufferingFunction ResolveTableBuffering(string identity, string schemaName, string name) =>
-        catalog.FindTableBuffering(identity, schemaName, name)
-        ?? throw new InvalidOperationException($"Unknown table-buffering function '{schemaName}.{name}' (identity '{identity}').");
+    private ITableBufferingFunction ResolveTableBuffering(string identity, IReadOnlyList<string> schemaPath, string name) =>
+        catalog.FindTableBuffering(identity, schemaPath, name)
+        ?? throw new InvalidOperationException($"Unknown table-buffering function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
-    private IAggregateFunction ResolveAggregate(string identity, string schemaName, string name) =>
-        catalog.FindAggregate(identity, schemaName, name)
-        ?? throw new InvalidOperationException($"Unknown aggregate function '{schemaName}.{name}' (identity '{identity}').");
+    private IAggregateFunction ResolveAggregate(string identity, IReadOnlyList<string> schemaPath, string name) =>
+        catalog.FindAggregate(identity, schemaPath, name)
+        ?? throw new InvalidOperationException($"Unknown aggregate function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
     /// <summary>Synthetic column the C++ side prepends to every <c>aggregate_update</c>
     /// <c>input_batch</c> — see <c>VgiAggregateUpdate</c>'s <c>__vgi_group_id</c> field.</summary>
@@ -1559,7 +1560,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Comment = function.Comment,
         Tags = function.Tags.ToDictionary(),
         Name = function.Name,
-        SchemaName = function.SchemaName,
+        SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Scalar,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
@@ -1575,7 +1576,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Comment = function.Comment,
         Tags = function.Tags.ToDictionary(),
         Name = function.Name,
-        SchemaName = function.SchemaName,
+        SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Table,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
@@ -1609,7 +1610,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Comment = function.Comment,
         Tags = function.Tags.ToDictionary(),
         Name = function.Name,
-        SchemaName = function.SchemaName,
+        SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Table,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
@@ -1633,7 +1634,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Comment = function.Comment,
         Tags = function.Tags.ToDictionary(),
         Name = function.Name,
-        SchemaName = function.SchemaName,
+        SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.TableBuffering,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
@@ -1656,7 +1657,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Comment = function.Comment,
         Tags = function.Tags.ToDictionary(),
         Name = function.Name,
-        SchemaName = function.SchemaName,
+        SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Aggregate,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
@@ -1716,27 +1717,27 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// <see cref="Catalog.CatalogTable"/> today, and adding one risks the exact-count
     /// <c>table/function_registration.test</c> (162 expected) for a single-test diagnostic-log
     /// assertion. Deferred.</para></summary>
-    private SchemaInfo BuildSchemaInfo(string identity, string name)
+    private SchemaInfo BuildSchemaInfo(string identity, IReadOnlyList<string> path)
     {
-        var (comment, tags) = catalog.SchemaMetadataFor(identity, name);
+        var (comment, tags) = catalog.SchemaMetadataFor(identity, path);
 
         return new SchemaInfo
         {
             Comment = comment,
             Tags = tags,
             AttachOpaqueData = [],
-            Name = name,
+            Path = path.ToList(),
             EstimatedObjectCount = new Dictionary<string, long?>
             {
-                ["table"] = catalog.CatalogTablesFor(identity).Count(t => t.SchemaName == name),
-                ["view"] = catalog.CatalogViewsFor(identity).Count(v => v.SchemaName == name),
-                ["scalar_function"] = catalog.ScalarFunctionsFor(identity).Count(f => f.SchemaName == name),
+                ["table"] = catalog.CatalogTablesFor(identity).Count(t => CatalogRegistry.PathsEqual(t.EffectiveSchemaPath, path)),
+                ["view"] = catalog.CatalogViewsFor(identity).Count(v => CatalogRegistry.PathsEqual(v.EffectiveSchemaPath, path)),
+                ["scalar_function"] = catalog.ScalarFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, path)),
                 ["table_function"] =
-                    catalog.TableFunctionsFor(identity).Count(f => f.SchemaName == name) +
-                    catalog.TableInOutFunctionsFor(identity).Count(f => f.SchemaName == name) +
-                    catalog.TableBufferingFunctionsFor(identity).Count(f => f.SchemaName == name),
-                ["aggregate_function"] = catalog.AggregateFunctionsFor(identity).Count(f => f.SchemaName == name),
-                ["macro"] = catalog.CatalogMacrosFor(identity).Count(m => m.SchemaName == name),
+                    catalog.TableFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, path)) +
+                    catalog.TableInOutFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, path)) +
+                    catalog.TableBufferingFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, path)),
+                ["aggregate_function"] = catalog.AggregateFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, path)),
+                ["macro"] = catalog.CatalogMacrosFor(identity).Count(m => CatalogRegistry.PathsEqual(m.EffectiveSchemaPath, path)),
                 ["index"] = 0,
             },
         };
@@ -1747,7 +1748,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Comment = macro.Comment,
         Tags = macro.Tags,
         Name = macro.Name,
-        SchemaName = macro.SchemaName,
+        SchemaPath = macro.EffectiveSchemaPath.ToList(),
         MacroType = macro.MacroType,
         Parameters = macro.Parameters.ToList(),
         ParameterDefaultValues = macro.ParameterDefaults is { } defaults ? RecordBatchIpc.Write(defaults) : null,
@@ -1779,7 +1780,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Comment = view.Comment,
         Tags = view.Tags,
         Name = view.Name,
-        SchemaName = view.SchemaName,
+        SchemaPath = view.EffectiveSchemaPath.ToList(),
         Definition = view.Definition,
         ColumnComments = view.ColumnComments,
     };
@@ -1804,7 +1805,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Comment = table.Comment,
             Tags = table.Tags,
             Name = table.Name,
-            SchemaName = table.SchemaName,
+            SchemaPath = table.EffectiveSchemaPath.ToList(),
             Columns = SchemaIpc.WriteSchemaOnly(columns),
             NotNullConstraints = table.NotNullColumns.Select(c => (int?)byName(c)).ToList(),
             UniqueConstraints = table.UniqueColumns.Select(group => group.Select(c => (int?)byName(c)).ToList()).ToList(),
@@ -1817,7 +1818,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 FkColumns = fk.Columns.ToList(),
                 PkColumns = fk.ReferencedColumns.ToList(),
                 ReferencedTable = fk.ReferencedTable,
-                ReferencedSchema = fk.ReferencedSchema ?? table.SchemaName,
+                ReferencedSchemaPath = fk.ReferencedSchemaPath?.ToList()
+                    ?? (fk.ReferencedSchema is { } referencedSchema ? [referencedSchema] : table.EffectiveSchemaPath.ToList()),
             })).ToList(),
             SupportsInsert = table.SupportsInsert,
             SupportsUpdate = table.SupportsUpdate,
@@ -1825,11 +1827,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             SupportsReturning = table.SupportsReturning,
             SupportsColumnStatistics = table.Statistics.Count > 0,
             ScanFunction = table.ScanFunction is { } scan && table.InlineScanFunction
-                ? BuildInlineScanFunction(scan.Name, scan.SchemaName, table.ScanArguments, table.ScanNamedArguments)
+                ? BuildInlineScanFunction(scan.Name, scan.SchemaPath, table.ScanArguments, table.ScanNamedArguments)
                 : null,
-            InsertFunction = table.InsertFunction is { } insert ? BuildInlineScanFunction(insert.Name, insert.SchemaName) : null,
-            UpdateFunction = table.UpdateFunction is { } update ? BuildInlineScanFunction(update.Name, update.SchemaName) : null,
-            DeleteFunction = table.DeleteFunction is { } delete ? BuildInlineScanFunction(delete.Name, delete.SchemaName) : null,
+            InsertFunction = table.InsertFunction is { } insert ? BuildInlineScanFunction(insert.Name, insert.SchemaPath) : null,
+            UpdateFunction = table.UpdateFunction is { } update ? BuildInlineScanFunction(update.Name, update.SchemaPath) : null,
+            DeleteFunction = table.DeleteFunction is { } delete ? BuildInlineScanFunction(delete.Name, delete.SchemaPath) : null,
             CardinalityEstimate = table.CardinalityEstimate,
             CardinalityMax = table.CardinalityMax,
             ColumnStatistics = null,
@@ -1846,23 +1848,23 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// (e.g. a table backed by a function whose first argument is a required row count) instead
     /// bakes those fixed constants in, so every scan of the table binds with them.
     ///
-    /// <para><paramref name="schemaName"/> is the schema the named function's own
-    /// <see cref="Table.ITableFunction.SchemaName"/>/<see cref="TableInOut.ITableInOutFunction.SchemaName"/>
+    /// <para><paramref name="schemaPath"/> is the schema the named function's own
+    /// <see cref="Table.ITableFunction.SchemaPath"/>/<see cref="TableInOut.ITableInOutFunction.SchemaPath"/>
     /// declares — i.e. the one <see cref="CatalogRegistry"/> keyed it under, which is NOT necessarily
-    /// the containing table's schema (see <see cref="Protocol.ScanFunctionResult.SchemaName"/>,
-    /// protocol 1.5.0). Every function reachable here is a real VGI registration, so unlike the
+    /// the containing table's schema (see <see cref="Protocol.ScanFunctionResult.SchemaPath"/>).
+    /// Every function reachable here is a real VGI registration, so unlike the
     /// name-only <see cref="ScanBranchSpec"/> path this never has to guess and never reports
     /// null.</para></summary>
     private static byte[] BuildInlineScanFunction(
         string functionName,
-        string schemaName,
+        IReadOnlyList<string> schemaPath,
         IReadOnlyList<object?>? positionalArguments = null,
         IReadOnlyDictionary<string, object?>? namedArguments = null) => EmbeddedIpc.Encode(new ScanFunctionResult
         {
             FunctionName = functionName,
             Arguments = ScanArgsCodec.Encode(positionalArguments ?? [], namedArguments),
             RequiredExtensions = [],
-            SchemaName = schemaName,
+            SchemaPath = schemaPath.ToList(),
         });
 
     private static Schema WithRowIdMetadata(Schema schema, string rowIdColumn)
@@ -1930,4 +1932,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ? index
             : throw new InvalidOperationException($"Table '{tableName}': constraint references unknown column '{columnName}'.");
     };
+
+    private IReadOnlyList<string> EffectiveSchemaPath(IReadOnlyList<string>? path) =>
+        path is { Count: > 0 } ? path : catalog.DefaultSchemaPath;
 }

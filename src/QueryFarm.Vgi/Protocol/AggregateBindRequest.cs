@@ -7,7 +7,7 @@ namespace QueryFarm.Vgi.Protocol;
 ///
 /// PROPERTY DECLARATION ORDER IS LOAD-BEARING — matches the C++ extension's generated
 /// <c>AggregateBindRequestSchema</c> exactly: function_name, arguments, input_schema, settings,
-/// secrets, attach_opaque_data, schema_name.
+/// secrets, attach_opaque_data, schema_path.
 /// </summary>
 public sealed class AggregateBindRequest
 {
@@ -31,7 +31,7 @@ public sealed class AggregateBindRequest
 
     public byte[]? AttachOpaqueData { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }
 
 /// <summary>The <c>aggregate_bind</c> RPC's packed result (the dataclass embedded under the

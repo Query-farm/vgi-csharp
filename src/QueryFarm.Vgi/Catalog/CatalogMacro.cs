@@ -10,6 +10,10 @@ public sealed class CatalogMacro
 
     public string SchemaName { get; init; } = "main";
 
+    public IReadOnlyList<string>? SchemaPath { get; init; }
+
+    internal IReadOnlyList<string> EffectiveSchemaPath => SchemaPath ?? [SchemaName];
+
     public required Protocol.MacroType MacroType { get; init; }
 
     /// <summary>The macro body: a scalar expression for <see cref="Protocol.MacroType.Scalar"/>,

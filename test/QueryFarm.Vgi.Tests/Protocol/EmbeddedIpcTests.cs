@@ -31,7 +31,7 @@ public class EmbeddedIpcTests
             AtValue = null,
             CopyFrom = new CopyFromContext { Format = "csv", FilePath = "/tmp/x.csv", ExpectedSchema = [1] },
             CopyTo = null,
-            SchemaName = "main",
+            SchemaPath = ["warehouse", "main"],
         };
 
         var bytes = EmbeddedIpc.Encode(original);
@@ -48,7 +48,7 @@ public class EmbeddedIpcTests
         Assert.Equal("csv", decoded.CopyFrom!.Format);
         Assert.Equal("/tmp/x.csv", decoded.CopyFrom.FilePath);
         Assert.Null(decoded.CopyTo);
-        Assert.Equal("main", decoded.SchemaName);
+        Assert.Equal(["warehouse", "main"], decoded.SchemaPath);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class EmbeddedIpcTests
             Comment = "a comment",
             Tags = new Dictionary<string, string> { ["k"] = "v" },
             Name = "upper_case",
-            SchemaName = "main",
+            SchemaPath = ["warehouse", "main"],
             FunctionType = FunctionType.Scalar,
             Arguments = [1, 2],
             OutputSchema = [3, 4],
@@ -86,25 +86,24 @@ public class EmbeddedIpcTests
     }
 
     [Fact]
-    public void RoundTrips_ScanFunctionResult_SchemaName_WhenSet()
+    public void RoundTrips_ScanFunctionResult_SchemaPath_WhenSet()
     {
-        // Protocol 1.5.0's addition — see ScanFunctionResult.SchemaName's doc comment.
         var original = new ScanFunctionResult
         {
             FunctionName = "rowid_sequence",
             Arguments = [],
             RequiredExtensions = [],
-            SchemaName = "main",
+            SchemaPath = ["warehouse", "main"],
         };
 
         var decoded = EmbeddedIpc.Decode<ScanFunctionResult>(EmbeddedIpc.Encode(original));
 
         Assert.Equal("rowid_sequence", decoded.FunctionName);
-        Assert.Equal("main", decoded.SchemaName);
+        Assert.Equal(["warehouse", "main"], decoded.SchemaPath);
     }
 
     [Fact]
-    public void RoundTrips_ScanFunctionResult_SchemaName_NullWhenUnset()
+    public void RoundTrips_ScanFunctionResult_SchemaPath_NullWhenUnset()
     {
         // A native DuckDB function this worker never registered has no VGI-side schema to report —
         // the permanent case that keeps the field optional rather than mandatory.
@@ -113,57 +112,87 @@ public class EmbeddedIpcTests
         var decoded = EmbeddedIpc.Decode<ScanFunctionResult>(EmbeddedIpc.Encode(original));
 
         Assert.Equal("read_parquet", decoded.FunctionName);
-        Assert.Null(decoded.SchemaName);
+        Assert.Null(decoded.SchemaPath);
     }
 
     [Fact]
-    public void RoundTrips_ScanBranch_SchemaName_WhenSet()
+    public void RoundTrips_ScanBranch_SchemaPath_WhenSet()
     {
         var original = new ScanBranch
         {
             FunctionName = "rowid_sequence",
             Arguments = [],
-            SchemaName = "main",
+            SchemaPath = ["warehouse", "main"],
         };
 
         var decoded = EmbeddedIpc.Decode<ScanBranch>(EmbeddedIpc.Encode(original));
 
         Assert.Equal("rowid_sequence", decoded.FunctionName);
-        Assert.Equal("main", decoded.SchemaName);
+        Assert.Equal(["warehouse", "main"], decoded.SchemaPath);
     }
 
     [Fact]
-    public void RoundTrips_ScanBranch_SchemaName_NullForANonFunctionBranch()
+    public void RoundTrips_ScanBranch_SchemaPath_NullForANonFunctionBranch()
     {
         // A catalog-table branch names no function at all, so it reports no function schema — its
-        // SourceSchema is a different field entirely (the SOURCE TABLE's schema).
+        // SourceSchemaPath is a different field entirely (the SOURCE TABLE's schema).
         var original = new ScanBranch
         {
             FunctionName = "",
             SourceCatalog = "lakehouse",
-            SourceSchema = "bronze",
+            SourceSchemaPath = ["warehouse", "bronze"],
             SourceTable = "orders",
         };
 
         var decoded = EmbeddedIpc.Decode<ScanBranch>(EmbeddedIpc.Encode(original));
 
-        Assert.Equal("bronze", decoded.SourceSchema);
-        Assert.Null(decoded.SchemaName);
+        Assert.Equal(["warehouse", "bronze"], decoded.SourceSchemaPath);
+        Assert.Null(decoded.SchemaPath);
     }
 
     [Fact]
-    public void ScanFunctionResultAndScanBranch_DeriveSchemaName_AsATrailingNullableStringField()
+    public void ScanFunctionResultAndScanBranch_DeriveSchemaPath_AsATrailingNullableStringListField()
     {
-        // Both wire schemas append schema_name LAST and nullable, matching the reference
-        // ScanFunctionResultSchema()/ScanBranchSchema() — a pre-1.5.0 peer simply omits the column.
+        // Both wire schemas append schema_path LAST and nullable, matching the reference
+        // ScanFunctionResultSchema()/ScanBranchSchema().
         foreach (var clrType in new[] { typeof(ScanFunctionResult), typeof(ScanBranch) })
         {
             var schema = SchemaDerivation.InnerSchemaFor(clrType);
             var field = schema.GetFieldByIndex(schema.FieldsList.Count - 1);
 
-            Assert.Equal("schema_name", field.Name);
-            Assert.Equal(Apache.Arrow.Types.StringType.Default.TypeId, field.DataType.TypeId);
+            Assert.Equal("schema_path", field.Name);
+            var listType = Assert.IsType<Apache.Arrow.Types.ListType>(field.DataType);
+            Assert.Equal(Apache.Arrow.Types.StringType.Default.TypeId, listType.ValueDataType.TypeId);
             Assert.True(field.IsNullable);
         }
+    }
+
+    [Fact]
+    public void RoundTrips_V2NamedRecords_WithNestedSchemaPaths()
+    {
+        var capabilities = new ClientCapabilities
+        {
+            Engine = "duckdb",
+            NativeFormats = ["arrow_stream"],
+            Catalogs = ["memory", "vgi"],
+            CanStream = true,
+            FilterEncodings = ["substrait"],
+        };
+        var decodedCapabilities = EmbeddedIpc.Decode<ClientCapabilities>(EmbeddedIpc.Encode(capabilities));
+        Assert.Equal(capabilities.Engine, decodedCapabilities.Engine);
+        Assert.Equal(capabilities.NativeFormats, decodedCapabilities.NativeFormats);
+        Assert.Equal(capabilities.Catalogs, decodedCapabilities.Catalogs);
+        Assert.True(decodedCapabilities.CanStream);
+        Assert.Equal(capabilities.FilterEncodings, decodedCapabilities.FilterEncodings);
+
+        var foreignKey = new ForeignKeyInfo
+        {
+            FkColumns = ["customer_id"],
+            PkColumns = ["id"],
+            ReferencedSchemaPath = ["warehouse", "silver"],
+            ReferencedTable = "customers",
+        };
+        var decodedForeignKey = EmbeddedIpc.Decode<ForeignKeyInfo>(EmbeddedIpc.Encode(foreignKey));
+        Assert.Equal(["warehouse", "silver"], decodedForeignKey.ReferencedSchemaPath);
     }
 }

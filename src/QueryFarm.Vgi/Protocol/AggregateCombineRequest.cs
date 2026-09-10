@@ -12,7 +12,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// frees state.
 ///
 /// PROPERTY DECLARATION ORDER IS LOAD-BEARING — matches <c>AggregateCombineRequestSchema</c>
-/// exactly: function_name, execution_id, merge_batch, attach_opaque_data, schema_name.
+/// exactly: function_name, execution_id, merge_batch, attach_opaque_data, schema_path.
 /// </summary>
 public sealed class AggregateCombineRequest
 {
@@ -24,7 +24,7 @@ public sealed class AggregateCombineRequest
 
     public byte[]? AttachOpaqueData { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }
 
 /// <summary>The <c>aggregate_combine</c> RPC's packed result — no fields (matches

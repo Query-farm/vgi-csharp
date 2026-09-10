@@ -18,7 +18,7 @@ public enum MacroType
 /// One item of a <c>catalog_schema_contents_macros</c>/<c>catalog_macro_get</c>
 /// <see cref="ItemsResponse"/>. The C++ extension validates this type's embedded-IPC schema with
 /// STRICT <c>arrow::Schema::Equals</c> against its generated <c>MacroInfoSchema()</c> — property
-/// declaration order matters and must match that schema exactly: comment, tags, name, schema_name,
+/// declaration order matters and must match that schema exactly: comment, tags, name, schema_path,
 /// macro_type, parameters, parameter_default_values, definition, arguments_schema.
 /// </summary>
 public sealed class MacroInfo
@@ -29,7 +29,7 @@ public sealed class MacroInfo
 
     public string Name { get; set; } = "";
 
-    public string SchemaName { get; set; } = "";
+    public List<string> SchemaPath { get; set; } = [];
 
     public MacroType MacroType { get; set; }
 

@@ -30,6 +30,20 @@ public class CatalogRegistryTests
             throw new NotSupportedException("Not exercised by these tests.");
     }
 
+    private sealed class NestedStubTableFunction(string name, IReadOnlyList<string> schemaPath) : ITableFunction
+    {
+        public string Name => name;
+
+        public IReadOnlyList<string> SchemaPath => schemaPath;
+
+        public Schema ArgumentsSchema => EmptySchema;
+
+        public Schema OutputSchema => EmptySchema;
+
+        public ITableFunctionProducer CreateProducer(TableInitParams initParams) =>
+            throw new NotSupportedException("Not exercised by these tests.");
+    }
+
     private static CatalogTable MakeTable(string name, string schemaName) => new()
     {
         Name = name,
@@ -79,6 +93,22 @@ public class CatalogRegistryTests
         Assert.NotNull(registry.FindCatalogTable("", "data", "t1"));
         Assert.NotEqual(registry.FindCatalogTable("", "main", "t1")!.SchemaName, registry.FindCatalogTable("", "data", "t1")!.SchemaName);
         Assert.Null(registry.FindCatalogTable("", "nonexistent_schema", "t1"));
+    }
+
+    [Fact]
+    public void NestedSchemaPaths_AreDistinctEvenWhenTheirLeafNamesMatch()
+    {
+        var registry = new CatalogRegistry();
+        var tenantA = new NestedStubTableFunction("probe", ["tenant_a", "analytics"]);
+        var tenantB = new NestedStubTableFunction("probe", ["tenant_b", "analytics"]);
+        registry.RegisterTable(tenantA);
+        registry.RegisterTable(tenantB);
+
+        Assert.Same(tenantA, registry.FindTable("", ["tenant_a", "analytics"], "probe"));
+        Assert.Same(tenantB, registry.FindTable("", ["tenant_b", "analytics"], "probe"));
+        Assert.Null(registry.FindTable("", ["analytics"], "probe"));
+        Assert.Contains(registry.SchemaPathsFor(""), path => path.SequenceEqual(["tenant_a", "analytics"]));
+        Assert.Contains(registry.SchemaPathsFor(""), path => path.SequenceEqual(["tenant_b", "analytics"]));
     }
 
     [Fact]
@@ -185,7 +215,7 @@ public class CatalogRegistryTests
     [Fact]
     public void SchemaForTableFunction_PrefersTheTablesOwnSchema_WhenTheNameIsRegisteredThere()
     {
-        // The same-name-in-two-schemas case protocol 1.5.0's ScanBranch.SchemaName exists for: a
+        // The same-name-in-two-schemas case ScanBranch.SchemaPath exists for: a
         // branch declared by a `data` table means `data`'s implementation, not `main`'s.
         var registry = new CatalogRegistry();
         registry.RegisterTable(new StubTableFunction("probe", "main"));

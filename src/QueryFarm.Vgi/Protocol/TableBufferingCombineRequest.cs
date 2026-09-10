@@ -5,7 +5,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// C++ extension's coordinator-election picks, after every Sink <c>table_buffering_process</c> call
 /// has completed. PROPERTY DECLARATION ORDER IS LOAD-BEARING — matches
 /// <c>TableBufferingCombineRequestSchema</c> exactly: function_name, execution_id, state_ids,
-/// attach_opaque_data, transaction_id, schema_name.
+/// attach_opaque_data, transaction_id, schema_path.
 /// </summary>
 public sealed class TableBufferingCombineRequest
 {
@@ -21,7 +21,7 @@ public sealed class TableBufferingCombineRequest
 
     public byte[]? TransactionId { get; set; }
 
-    public string? SchemaName { get; set; }
+    public List<string>? SchemaPath { get; set; }
 }
 
 /// <summary>The <c>table_buffering_combine</c> RPC's packed result: <c>finalize_state_ids</c> — the

@@ -43,7 +43,7 @@ public class TimeTravelCatalogTests
         registry.RegisterCatalogTable(new CatalogTable { Name = "plain", SchemaName = "data", Columns = OneColumnSchema });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableGetAsync([], "data", "plain", null, null, null);
+        var result = await service.CatalogTableGetAsync([], ["data"], "plain", null, null, null);
 
         Assert.Single(result.Items);
     }
@@ -56,7 +56,7 @@ public class TimeTravelCatalogTests
         var service = NewService(registry);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.CatalogTableGetAsync([], "data", "plain", "VERSION", "1", null));
+            () => service.CatalogTableGetAsync([], ["data"], "plain", "VERSION", "1", null));
 
         Assert.Contains("does not support time travel", exception.Message, StringComparison.Ordinal);
     }
@@ -79,7 +79,7 @@ public class TimeTravelCatalogTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableGetAsync([], "data", "multi", "VERSION", "1", null);
+        var result = await service.CatalogTableGetAsync([], ["data"], "multi", "VERSION", "1", null);
 
         Assert.Single(result.Items);
         var table = EmbeddedIpc.Decode<TableInfo>(result.Items[0]);
@@ -99,7 +99,7 @@ public class TimeTravelCatalogTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableGetAsync([], "data", "tt", "VERSION", "1", null);
+        var result = await service.CatalogTableGetAsync([], ["data"], "tt", "VERSION", "1", null);
 
         Assert.Single(result.Items);
         var table = EmbeddedIpc.Decode<TableInfo>(result.Items[0]);
@@ -138,11 +138,11 @@ public class TimeTravelCatalogTests
         });
         var service = NewService(registry);
 
-        var v1Result = await service.CatalogTableGetAsync([], "data", "versioned", "VERSION", "1", null);
+        var v1Result = await service.CatalogTableGetAsync([], ["data"], "versioned", "VERSION", "1", null);
         var v1Table = EmbeddedIpc.Decode<TableInfo>(v1Result.Items[0]);
         Assert.Single(SchemaIpc.ReadSchemaOnly(v1Table.Columns).FieldsList);
 
-        var v2Result = await service.CatalogTableGetAsync([], "data", "versioned", "VERSION", "2", null);
+        var v2Result = await service.CatalogTableGetAsync([], ["data"], "versioned", "VERSION", "2", null);
         var v2Table = EmbeddedIpc.Decode<TableInfo>(v2Result.Items[0]);
         Assert.Equal(2, SchemaIpc.ReadSchemaOnly(v2Table.Columns).FieldsList.Count);
     }
@@ -162,7 +162,7 @@ public class TimeTravelCatalogTests
         var service = NewService(registry);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.CatalogTableGetAsync([], "data", "versioned", "VERSION", "99", null));
+            () => service.CatalogTableGetAsync([], ["data"], "versioned", "VERSION", "99", null));
 
         Assert.Contains("Unknown version: 99", exception.Message, StringComparison.Ordinal);
     }
@@ -184,7 +184,7 @@ public class TimeTravelCatalogTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "cols", null, null, null);
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "cols", null, null, null);
 
         var branch = EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]);
         Assert.Equal("cols_scan", branch.FunctionName);
@@ -213,7 +213,7 @@ public class TimeTravelCatalogTests
         });
         var service = NewService(registry);
 
-        var result = await service.CatalogTableScanBranchesGetAsync([], "data", "cols", "VERSION", "1", null);
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "cols", "VERSION", "1", null);
 
         var branch = EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]);
         Assert.Equal("cols_scan", branch.FunctionName);
