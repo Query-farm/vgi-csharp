@@ -65,7 +65,7 @@ public sealed class EchoBufferingFunction : ITableBufferingFunction
             _pending ??= finalizeParams.Storage.ScanLog(RawNamespace, RawKey).GetEnumerator();
             if (!_decodedLoaded)
             {
-                _decoded = PushdownFilterCodec.Decode(finalizeParams.PushdownFilters, finalizeParams.JoinKeys);
+                _decoded = PushdownFilterCodec.Decode(finalizeParams.PushdownFilters, finalizeParams.JoinKeys, finalizeParams.OutputSchema);
                 _decodedLoaded = true;
             }
 

@@ -80,7 +80,7 @@ public sealed class SequenceFunction : ITableFunction
         var count = initParams.Arguments.Int64(0);
         var batchSize = initParams.Arguments.Int64Named("batch_size", 1000);
         var increment = initParams.Arguments.Int64Named("increment", 1);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         return new SequenceProducer(count, Math.Max(1, batchSize), increment, decoded, initParams.OutputSchema);
     }
 

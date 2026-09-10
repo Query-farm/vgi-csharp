@@ -75,7 +75,13 @@ public interface ITableFunction
 
     bool? LateMaterialization => null;
 
-    IReadOnlyList<string> SupportedExpressionFilters => [];
+    IReadOnlyList<string> FilterSemanticProfiles => FilterPushdown is true ? ["vgi.duckdb.standard.v1"] : [];
+
+    IReadOnlyList<FilterFunctionCapability> AdditionalFilterFunctions => [];
+
+    IReadOnlyList<RuntimeFilterAlgorithmCapability> RuntimeFilterAlgorithms => [];
+
+    IReadOnlyList<EvaluationContextCapability> FilterEvaluationContexts => [];
 
     VgiOrderPreservation? OrderPreservation => null;
 

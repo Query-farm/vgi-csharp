@@ -120,8 +120,9 @@ public sealed class SplitDynamicFilterFunction : ITableFunction
     {
         var payloads = SplitOnlyGuard.RequireSingle(initParams, Name);
         var (_, start, end) = SplitPayloadCodec.Decode(payloads[0]);
-        var staticDecoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
-        return new Producer(start, end, staticDecoded, initParams.ProjectedSchema, initParams.ProjectionIds);
+        var staticDecoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
+        return new Producer(start, end, staticDecoded, initParams.ProjectedSchema, initParams.ProjectionIds,
+            initParams.OutputSchema, initParams.JoinKeys);
     }
 
     /// <summary>The tick metadata key DuckDB's dynamic-filter machinery attaches a fresh,
@@ -135,15 +136,16 @@ public sealed class SplitDynamicFilterFunction : ITableFunction
     private const string DynamicFilterMetadataKey = "vgi_pushdown_filters";
 
     private sealed class Producer(
-        long start, long end, DecodedFilters? staticDecoded, Schema projectedSchema, IReadOnlyList<long>? projectionIds)
+        long start, long end, DecodedFilters? staticDecoded, Schema projectedSchema, IReadOnlyList<long>? projectionIds,
+        Schema outputSchema, IReadOnlyList<byte[]>? joinKeys)
         : ITableFunctionProducer
     {
         private const int CandidateBatchSize = 500;
         private long _next = start;
+        private readonly PushdownFilterState? _filterState = staticDecoded is null ? null : new(staticDecoded);
 
         public void Produce(OutputCollector output)
         {
-            var decoded = staticDecoded;
             DecodedFilters? dynamicDecoded = null;
             if (output.InputMetadata is { } meta
                 && meta.TryGetValue(DynamicFilterMetadataKey, out var base64) && !string.IsNullOrEmpty(base64))
@@ -151,7 +153,13 @@ public sealed class SplitDynamicFilterFunction : ITableFunction
                 // The dynamic-filter tick carries ONLY the dynamic (join-derived) component — the
                 // static half was already delivered at init and isn't re-sent — so row selection
                 // below still uses just `staticDecoded`; the reported STRING is the union of both.
-                dynamicDecoded = PushdownFilterCodec.Decode(Convert.FromBase64String(base64));
+                dynamicDecoded = PushdownFilterCodec.Decode(Convert.FromBase64String(base64), joinKeys, outputSchema);
+                if (_filterState is null || dynamicDecoded is null)
+                {
+                    throw new InvalidDataException("Dynamic filter delta received without an initial snapshot.");
+                }
+
+                _filterState.ApplyDelta(dynamicDecoded);
             }
 
             var filterText = SplitFilterBoundsFormatter.Format(staticDecoded, dynamicDecoded);
@@ -172,7 +180,7 @@ public sealed class SplitDynamicFilterFunction : ITableFunction
                 {
                     var n = chunkStart + i;
                     row["n"] = n;
-                    if (PushdownFilterEvaluator.Matches(decoded, row))
+                    if (_filterState?.Matches(row) ?? true)
                     {
                         matched.Add(n);
                     }
@@ -246,14 +254,14 @@ internal static class SplitFilterBoundsFormatter
 
         foreach (var filters in filterSets)
         {
-            if (filters is null || filters.Root.ValueKind != JsonValueKind.Array)
+            if (filters is null)
             {
                 continue;
             }
 
-            foreach (var node in filters.Root.EnumerateArray())
+            foreach (var predicate in filters.Predicates)
             {
-                sawAny |= Collect(node, filters, bounds);
+                sawAny |= Collect(predicate.Expression, filters, bounds);
             }
         }
 
@@ -281,13 +289,20 @@ internal static class SplitFilterBoundsFormatter
 
     private static bool Collect(JsonElement node, DecodedFilters filters, SortedDictionary<string, (long? Min, long? Max)> bounds)
     {
-        var type = node.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
+        var type = node.TryGetProperty("node", out var typeProp) ? typeProp.GetString() : null;
         switch (type)
         {
-            case "constant":
-                var column = ColumnName(node);
+            case "comparison":
                 var op = node.TryGetProperty("op", out var opProp) ? opProp.GetString() : "eq";
-                var value = ToLong(node.TryGetProperty("value_ref", out var vr) ? filters.ValueRef(vr.GetInt32()) : null);
+                var left = node.GetProperty("left");
+                var right = node.GetProperty("right");
+                if (left.GetProperty("node").GetString() != "column_ref" || right.GetProperty("node").GetString() != "literal")
+                {
+                    return false;
+                }
+
+                var column = ColumnName(left);
+                var value = ToLong(filters.ValueRef(right.GetProperty("value_ref").GetUInt64()));
                 if (value is null)
                 {
                     return false;
@@ -319,13 +334,13 @@ internal static class SplitFilterBoundsFormatter
                 return any;
 
             case "in":
-            case "in_list":
-                var inColumn = ColumnName(node);
-                var refs = node.TryGetProperty("value_refs", out var vrs) ? vrs
-                    : node.TryGetProperty("values", out var vs) ? vs : default;
-                var inValues = refs.ValueKind == JsonValueKind.Array
-                    ? refs.EnumerateArray().Select(r => ToLong(filters.ValueRef(r.GetInt32()))).Where(v => v.HasValue).Select(v => v!.Value).ToList()
-                    : [];
+                var inColumn = ColumnName(node.GetProperty("expression"));
+                var set = node.GetProperty("set");
+                var rawValues = set.GetProperty("kind").GetString() == "literal"
+                    ? filters.LiteralSet(set.GetProperty("value_ref").GetUInt64())
+                    : filters.ExternalSet(set.GetProperty("batch_index").GetInt32(),
+                        set.GetProperty("column_index").GetInt32(), set.GetProperty("column_name").GetString()!);
+                var inValues = rawValues.Select(ToLong).Where(v => v.HasValue).Select(v => v!.Value).ToList();
                 if (inValues.Count == 0)
                 {
                     return false;
@@ -333,19 +348,6 @@ internal static class SplitFilterBoundsFormatter
 
                 MergeMin(bounds, inColumn, inValues.Min());
                 MergeMax(bounds, inColumn, inValues.Max());
-                return true;
-
-            case "join_keys":
-                var jkColumn = ColumnName(node);
-                var keysColumn = node.TryGetProperty("keys_column", out var kc) ? kc.GetString() ?? "" : "";
-                var jkValues = filters.JoinKeyValues(keysColumn).Select(ToLong).Where(v => v.HasValue).Select(v => v!.Value).ToList();
-                if (jkValues.Count == 0)
-                {
-                    return false;
-                }
-
-                MergeMin(bounds, jkColumn, jkValues.Min());
-                MergeMax(bounds, jkColumn, jkValues.Max());
                 return true;
 
             default:

@@ -59,7 +59,7 @@ public sealed class LateMaterializationFunction : ITableFunction
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var witness = BuildWitness(decoded);
         var indices = initParams.ProjectionIds
             ?? Enumerable.Range(0, initParams.OutputSchema.FieldsList.Count).Select(i => (long)i).ToList();
@@ -110,16 +110,16 @@ public sealed class LateMaterializationFunction : ITableFunction
 
     private static (long? Lo, long? Hi) ResolveRange(DecodedFilters? decoded, string column)
     {
-        if (decoded is null || decoded.Root.ValueKind != JsonValueKind.Array)
+        if (decoded is null)
         {
             return (null, null);
         }
 
         long? lo = null;
         long? hi = null;
-        foreach (var node in decoded.Root.EnumerateArray())
+        foreach (var predicate in decoded.Predicates)
         {
-            CollectRange(node, decoded, column, ref lo, ref hi);
+            CollectRange(predicate.Expression, decoded, column, ref lo, ref hi);
         }
 
         return (lo, hi);
@@ -127,8 +127,7 @@ public sealed class LateMaterializationFunction : ITableFunction
 
     private static void CollectRange(JsonElement node, DecodedFilters decoded, string column, ref long? lo, ref long? hi)
     {
-        var type = node.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
-        var nodeColumn = node.TryGetProperty("column_name", out var cn) ? cn.GetString() : null;
+        var type = node.TryGetProperty("node", out var typeProp) ? typeProp.GetString() : null;
 
         if (type == "and")
         {
@@ -140,21 +139,33 @@ public sealed class LateMaterializationFunction : ITableFunction
             return;
         }
 
-        if (type == "constant" && nodeColumn == column && node.TryGetProperty("op", out var opProp))
+        if (type == "comparison" && node.TryGetProperty("op", out var opProp))
         {
             var op = opProp.GetString();
-            if (op is "ge" or "gt" && node.TryGetProperty("value_ref", out var geRef))
+            var left = node.GetProperty("left");
+            var right = node.GetProperty("right");
+            if (!IsColumn(left, column) || right.GetProperty("node").GetString() != "literal")
             {
-                var v = Convert.ToInt64(decoded.ValueRef(geRef.GetInt32()));
+                return;
+            }
+
+            var valueRef = right.GetProperty("value_ref").GetUInt64();
+            if (op is "ge" or "gt")
+            {
+                var v = Convert.ToInt64(decoded.ValueRef(valueRef));
                 lo = lo is null ? v : Math.Max(lo.Value, v);
             }
-            else if (op is "le" or "lt" && node.TryGetProperty("value_ref", out var leRef))
+            else if (op is "le" or "lt")
             {
-                var v = Convert.ToInt64(decoded.ValueRef(leRef.GetInt32()));
+                var v = Convert.ToInt64(decoded.ValueRef(valueRef));
                 hi = hi is null ? v : Math.Min(hi.Value, v);
             }
         }
     }
+
+    private static bool IsColumn(JsonElement node, string column) =>
+        node.TryGetProperty("node", out var kind) && kind.GetString() == "column_ref" &&
+        node.TryGetProperty("column_name", out var name) && name.GetString() == column;
 
     private static IEnumerable<JsonElement> Children(JsonElement node) =>
         node.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array
@@ -189,7 +200,14 @@ public sealed class LateMaterializationFunction : ITableFunction
             for (var i = start; i < start + count; i++)
             {
                 var rowId = rowIdFor(i);
-                var row = new Dictionary<string, object?> { ["row_id"] = rowId };
+                var ord = (i * multiplier) % rowCount;
+                var row = new Dictionary<string, object?>
+                {
+                    ["row_id"] = rowId,
+                    ["ord"] = nullOrdStride > 0 && i % nullOrdStride == 0 ? null : ord,
+                    ["payload"] = $"payload_{rowId}",
+                    ["pushed"] = witness,
+                };
                 if (!PushdownFilterEvaluator.Matches(decoded, row))
                 {
                     continue;
@@ -197,7 +215,6 @@ public sealed class LateMaterializationFunction : ITableFunction
 
                 emitted++;
                 rowIdBuilder?.Append(rowId);
-                var ord = (i * multiplier) % rowCount;
                 if (nullOrdStride > 0 && i % nullOrdStride == 0)
                 {
                     ordBuilder?.AppendNull();

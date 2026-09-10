@@ -184,7 +184,7 @@ public static class TimeTravelPushdownTables
         public ITableFunctionProducer CreateProducer(TableInitParams initParams)
         {
             var version = ResolveVersion(initParams.AtUnit, initParams.AtValue);
-            var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+            var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
             var filterText = PushdownFilterFormatter.Format(decoded);
             return new Producer(version, decoded, filterText, initParams.ProjectedSchema, initParams.ProjectionIds);
         }
@@ -233,7 +233,7 @@ public static class TimeTravelPushdownTables
         public ITableFunctionProducer CreateProducer(TableInitParams initParams)
         {
             var version = (int)initParams.Arguments.Int64(0);
-            var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+            var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
             var filterText = PushdownFilterFormatter.Format(decoded);
             return new Producer(version, decoded, filterText, initParams.ProjectedSchema, initParams.ProjectionIds);
         }

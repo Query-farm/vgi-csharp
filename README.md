@@ -129,6 +129,16 @@ expression/spatial-predicate pushdown, evaluated via an embedded DuckDB engine â
 cross-process state storage are all handled by the framework, not something each function
 reimplements.
 
+Filter-capable table functions advertise `FilterSemanticProfiles` (the default is
+`vgi.duckdb.standard.v1` when `FilterPushdown` is true), plus optional versioned extension-function,
+runtime-filter, and evaluation-context capabilities. Protocol 2.0 filter payloads use only the
+strict `vgi.filters.v2` snapshot/delta encoding: literals remain typed Arrow payload fields,
+`field_ref` can nest to any depth, and IN sets can be inline Arrow lists or externally indexed
+join-key batches. `PushdownFilterCodec` requires the unprojected bind output schema and rejects
+index/name mismatches, malformed payloads, or legacy encodings atomically;
+`PushdownFilterEvaluator` applies required predicates exactly and may ignore a complete advisory
+predicate it cannot evaluate.
+
 ## Beyond functions: full catalogs
 
 A worker can expose more than bare functions â€” a complete catalog of schemas, function-backed

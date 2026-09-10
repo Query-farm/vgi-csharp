@@ -13,13 +13,9 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// <c>"item_&lt;id&gt;"</c>, <c>tags</c> = <c>[tag_(id%5), tag_((id+1)%5)]</c>, <c>score</c> =
 /// <c>id*1.1</c>.
 ///
-/// <para><b>Genuine expression-filter pushdown.</b> Declares <see cref="SupportedExpressionFilters"/>
-/// for <c>list_contains</c>, <c>starts_with</c>, and <c>contains</c> — matching the test file's
-/// non-spatial half exactly, including its "unsupported function ⇒ residual FILTER stays" negative
-/// assertion (<c>length(name) &gt; 7</c> is deliberately NOT declared, so DuckDB correctly leaves a
-/// residual FILTER for it). Pushed predicates are decoded by <see cref="Internal.PushdownFilterCodec"/>
-/// and evaluated by <see cref="Internal.ExpressionFilterEvaluator"/> — an embedded DuckDB connection,
-/// not hand-written C# reimplementations of these functions (see that class's doc comment for why).
+/// <para><b>Expression-filter pushdown.</b> Advertises the standard v2 semantic profile. Pushed
+/// predicates are decoded strictly by <see cref="Internal.PushdownFilterCodec"/> and evaluated by
+/// <see cref="Internal.ExpressionFilterEvaluator"/>.
 /// This file is gated behind a file-level <c>require spatial</c> (it shares one file with
 /// <see cref="SpatialFilterExampleFunction"/>'s spatial half), so exercising even this non-spatial
 /// half locally needs a <c>spatial</c>-capable DuckDB build — see <c>ci/README.md</c>.</para></summary>
@@ -44,12 +40,10 @@ public sealed class ExpressionFilterTestFunction : ITableFunction
 
     public bool FiltersExactlyApplied => true;
 
-    public IReadOnlyList<string> SupportedExpressionFilters => ["list_contains", "starts_with", "contains"];
-
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         return new Producer(count, initParams.OutputSchema, decoded);
     }
 

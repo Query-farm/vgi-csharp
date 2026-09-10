@@ -39,7 +39,7 @@ public sealed class OrderEchoFunction : ITableFunction
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         return new Producer(
             count,
             decoded,

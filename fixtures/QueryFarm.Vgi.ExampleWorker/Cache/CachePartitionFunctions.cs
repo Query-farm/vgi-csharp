@@ -63,7 +63,7 @@ public sealed class CachePartitionScopeFunction(string name = "cache_partition_s
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var n = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var partitionSchema = new Schema([initParams.OutputSchema.GetFieldByIndex(0)], metadata: null);
         return new Producer(n, decoded, initParams.OutputSchema, partitionSchema);
     }
@@ -156,7 +156,7 @@ public sealed class CachePartitionParallelFunction : ITableFunction
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var n = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var partitionSchema = new Schema([initParams.OutputSchema.GetFieldByIndex(0)], metadata: null);
         var key = Convert.ToHexString(initParams.ExecutionId ?? []);
         return new Producer(key, n, decoded, initParams.OutputSchema, partitionSchema);
@@ -257,7 +257,7 @@ public sealed class CachePartitionMulticolFunction : ITableFunction
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var n = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var partitionSchema = new Schema(
             [initParams.OutputSchema.GetFieldByIndex(0), initParams.OutputSchema.GetFieldByIndex(1)], metadata: null);
         return new Producer(n, decoded, initParams.OutputSchema, partitionSchema);
@@ -368,7 +368,7 @@ public sealed class CachePartitionProjFunction : ITableFunction
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var n = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var partitionSchema = new Schema([initParams.OutputSchema.GetFieldByIndex(0)], metadata: null);
         return new Producer(n, decoded, initParams.ProjectedSchema, initParams.ProjectionIds, partitionSchema);
     }

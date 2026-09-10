@@ -38,7 +38,7 @@ public sealed class FilteredColumnsEchoFunction : ITableFunction
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var filteredColumns = CollectColumns(decoded);
         var filteredColsText = filteredColumns.Count == 0 ? "(empty)" : string.Join(",", filteredColumns.OrderBy(c => c, StringComparer.Ordinal));
         var hasN = filteredColumns.Contains("n");
@@ -52,14 +52,14 @@ public sealed class FilteredColumnsEchoFunction : ITableFunction
     private static HashSet<string> CollectColumns(DecodedFilters? filters)
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
-        if (filters is null || filters.Root.ValueKind != JsonValueKind.Array)
+        if (filters is null)
         {
             return result;
         }
 
-        foreach (var node in filters.Root.EnumerateArray())
+        foreach (var predicate in filters.Predicates)
         {
-            Collect(node, result);
+            Collect(predicate.Expression, result);
         }
 
         return result;
@@ -70,6 +70,14 @@ public sealed class FilteredColumnsEchoFunction : ITableFunction
         if (node.TryGetProperty("column_name", out var name) && name.GetString() is { } n)
         {
             result.Add(n);
+        }
+
+        foreach (var property in new[] { "expression", "left", "right", "input" })
+        {
+            if (node.TryGetProperty(property, out var child) && child.ValueKind == JsonValueKind.Object)
+            {
+                Collect(child, result);
+            }
         }
 
         if (node.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array)

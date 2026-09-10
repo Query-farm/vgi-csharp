@@ -37,7 +37,7 @@ public sealed class SplitEchoFiltersFunction : ITableFunction
     public PlanResult Plan(TableBindParams bindParams, PlanRequest request)
     {
         var splits = bindParams.Arguments.Int64Named("splits", 1);
-        var sawFilters = PushdownFilterCodec.Decode(request.PushdownFilters) is not null;
+        var sawFilters = PushdownFilterCodec.Decode(request.PushdownFilters, null, OutputSchema) is not null;
         var nProjection = request.ProjectionIds?.Count ?? 0;
 
         var scanSplits = new List<ScanSplit>();
@@ -61,7 +61,7 @@ public sealed class SplitEchoFiltersFunction : ITableFunction
         // does not itself re-check a filter a function declared FilterPushdown for. The SAME
         // filter also reaches this split's own init (independently of what plan() saw), so it's
         // re-decoded here rather than threaded through the payload.
-        var initDecoded = PushdownFilterCodec.Decode(initParams.PushdownFilters);
+        var initDecoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, null, initParams.OutputSchema);
         return new Producer(ordinal, sawFilters, nProjection, initDecoded, initParams.OutputSchema);
     }
 

@@ -52,7 +52,7 @@ public sealed class FilterEchoFunction : ITableFunction
     {
         var count = initParams.Arguments.Int64(0);
         var batchSize = initParams.Arguments.Int64Named("batch_size", 2048);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var filterText = PushdownFilterFormatter.Format(decoded);
         return new Producer(count, Math.Max(1, batchSize), filterText, decoded, initParams.ProjectedSchema, initParams.ProjectionIds);
     }
@@ -158,35 +158,38 @@ public static class PushdownFilterFormatter
             return "(none)";
         }
 
-        if (filters.Root.ValueKind != JsonValueKind.Array || filters.Root.GetArrayLength() == 0)
+        if (filters.Predicates.Count == 0)
         {
             return "(none)";
         }
 
-        var parts = filters.Root.EnumerateArray().Select(node => FormatNode(node, filters));
+        var parts = filters.Predicates.Select(predicate => FormatNode(predicate.Expression, filters));
         return string.Join(" AND ", parts);
     }
 
     private static string FormatNode(JsonElement node, DecodedFilters filters)
     {
-        var type = node.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
+        var type = node.GetProperty("node").GetString();
         switch (type)
         {
-            case "constant":
-                return FormatConstant(node, filters);
+            case "column_ref":
+                return ColumnName(node);
+            case "field_ref":
+                return $"{FormatNode(node.GetProperty("expression"), filters)}.{node.GetProperty("field_name").GetString()}";
+            case "literal":
+                return FormatValue(filters.ValueRef(node.GetProperty("value_ref").GetUInt64()));
+            case "comparison":
+                return FormatComparison(node, filters);
             case "is_null":
-                return $"{ColumnName(node)} IS NULL";
-            case "is_not_null":
-                return $"{ColumnName(node)} IS NOT NULL";
+                return $"{FormatNode(node.GetProperty("expression"), filters)} IS {(node.GetProperty("negated").GetBoolean() ? "NOT " : "")}NULL";
             case "and":
                 return "(" + string.Join(" AND ", Children(node, filters)) + ")";
             case "or":
                 return "(" + string.Join(" OR ", Children(node, filters)) + ")";
+            case "not":
+                return $"NOT ({FormatNode(node.GetProperty("expression"), filters)})";
             case "in":
-            case "in_list":
                 return FormatIn(node, filters);
-            case "join_keys":
-                return FormatJoinKeys(node, filters);
             default:
                 return node.GetRawText();
         }
@@ -197,7 +200,7 @@ public static class PushdownFilterFormatter
             ? children.EnumerateArray().Select(c => FormatNode(c, filters))
             : [];
 
-    private static string FormatConstant(JsonElement node, DecodedFilters filters)
+    private static string FormatComparison(JsonElement node, DecodedFilters filters)
     {
         var op = node.TryGetProperty("op", out var opProp) ? opProp.GetString() : "eq";
         var opText = op switch
@@ -211,53 +214,21 @@ public static class PushdownFilterFormatter
             _ => op ?? "=",
         };
 
-        var value = FormatValue(ResolveValue(node, filters));
-        return $"{ColumnName(node)} {opText} {value}";
+        return $"{FormatNode(node.GetProperty("left"), filters)} {opText} {FormatNode(node.GetProperty("right"), filters)}";
     }
 
     private static string FormatIn(JsonElement node, DecodedFilters filters)
     {
-        IEnumerable<object?> values;
-        if (node.TryGetProperty("value_refs", out var refs) && refs.ValueKind == JsonValueKind.Array)
-        {
-            values = refs.EnumerateArray().Select(r => filters.ValueRef(r.GetInt32()));
-        }
-        else if (node.TryGetProperty("values", out var vals) && vals.ValueKind == JsonValueKind.Array)
-        {
-            values = vals.EnumerateArray().Select(r => filters.ValueRef(r.GetInt32()));
-        }
-        else
-        {
-            values = [];
-        }
-
-        return $"{ColumnName(node)} IN ({string.Join(", ", values.Select(FormatValue))})";
-    }
-
-    /// <summary>Every DuckDB <c>InFilter</c> — whether from a literal SQL <c>IN (...)</c> or a
-    /// join-derived build-side key set — serializes as this SAME <c>"join_keys"</c> JSON type (see
-    /// <c>~/Development/vgi/src/vgi_table_function_impl.cpp</c>'s <c>SerializeFilterInto</c>,
-    /// <c>TableFilterType::IN_FILTER</c> case), so a literal-vs-join-derived distinction isn't
-    /// available to key off here. Lists the values for a small candidate set (as
-    /// <c>filter_echo.test</c>'s literal <c>IN (1, 3, 7)</c>/<c>IN (0, 10, ..., 90)</c> cases — up
-    /// to 10 values — expect verbatim) and falls back to a <c>"(N values)"</c> count summary once
-    /// the set is large enough that listing it would be unreadable (as
-    /// <c>join_keys_pushdown.test</c>'s 200-key build side expects) — this fixture's own choice of
-    /// cutoff, not a wire-level threshold.</summary>
-    private const int MaxListedJoinKeyValues = 20;
-
-    private static string FormatJoinKeys(JsonElement node, DecodedFilters filters)
-    {
-        var keysColumn = node.TryGetProperty("keys_column", out var kc) ? kc.GetString() ?? "" : "";
-        var values = filters.JoinKeyValues(keysColumn);
+        var set = node.GetProperty("set");
+        var values = set.GetProperty("kind").GetString() == "literal"
+            ? filters.LiteralSet(set.GetProperty("value_ref").GetUInt64())
+            : filters.ExternalSet(set.GetProperty("batch_index").GetInt32(),
+                set.GetProperty("column_index").GetInt32(), set.GetProperty("column_name").GetString()!);
         var rendered = values.Count > MaxListedJoinKeyValues
             ? $"{values.Count} values"
             : string.Join(", ", values.Select(FormatValue));
-        return $"{ColumnName(node)} IN ({rendered})";
+        return $"{FormatNode(node.GetProperty("expression"), filters)} {(node.GetProperty("negated").GetBoolean() ? "NOT " : "")}IN ({rendered})";
     }
-
-    private static object? ResolveValue(JsonElement node, DecodedFilters filters) =>
-        node.TryGetProperty("value_ref", out var vr) ? filters.ValueRef(vr.GetInt32()) : null;
 
     private static string ColumnName(JsonElement node) =>
         node.TryGetProperty("column_name", out var name) ? name.GetString() ?? "?" : "?";
@@ -271,4 +242,6 @@ public static class PushdownFilterFormatter
         float f => f.ToString(System.Globalization.CultureInfo.InvariantCulture),
         _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "NULL",
     };
+
+    private const int MaxListedJoinKeyValues = 20;
 }

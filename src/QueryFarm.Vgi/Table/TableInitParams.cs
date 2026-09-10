@@ -49,13 +49,13 @@ public sealed class TableInitParams
     /// <summary>Raw embedded-IPC pushdown-filter bytes (<c>InitRequest.PushdownFilters</c>) —
     /// <see langword="null"/> when DuckDB pushed no filters down. Only meaningful when this
     /// function advertised <see cref="ITableFunction.FilterPushdown"/>. Decode with
-    /// <see cref="PushdownFilter.Decode"/>.</summary>
+    /// <see cref="Internal.PushdownFilterCodec.Decode"/>, passing this unprojected
+    /// <see cref="OutputSchema"/> for index/name validation. Protocol 2.0 accepts only the strict
+    /// <c>vgi.filters.v2</c> snapshot form.</summary>
     public byte[]? PushdownFilters { get; init; }
 
-    /// <summary>One embedded-IPC single-column batch per IN-filter/join-key column
-    /// (<c>InitRequest.JoinKeys</c>) — a <c>pushdown_filters</c> node of type <c>"join_keys"</c>
-    /// names which one of these (by its <c>keys_column</c> field) holds its candidate value set.
-    /// Decode with <see cref="Internal.PushdownFilterCodec"/>'s join-key helpers.</summary>
+    /// <summary>Embedded-IPC batches referenced by v2 external IN sets using authoritative
+    /// <c>batch_index</c>/<c>column_index</c> coordinates and a validating <c>column_name</c>.</summary>
     public IReadOnlyList<byte[]>? JoinKeys { get; init; }
 
     public long? RowLimit { get; init; }

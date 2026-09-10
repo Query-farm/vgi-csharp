@@ -93,7 +93,7 @@ public sealed class ValuePruneFunction : ITableFunction
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var resolvedText = FormatResolved(ResolveColumnValues(decoded, "n"));
         return new Producer(count, decoded, resolvedText, initParams.ProjectedSchema, initParams.ProjectionIds);
     }
@@ -105,14 +105,14 @@ public sealed class ValuePruneFunction : ITableFunction
     /// makes the whole node non-enumerable, since dropping that branch's rows would be wrong.</summary>
     internal static IReadOnlyList<object?>? ResolveColumnValues(DecodedFilters? filters, string column)
     {
-        if (filters is null || filters.Root.ValueKind != JsonValueKind.Array)
+        if (filters is null)
         {
             return null;
         }
 
-        foreach (var node in filters.Root.EnumerateArray())
+        foreach (var predicate in filters.Predicates)
         {
-            var resolved = ResolveNode(node, column, filters);
+            var resolved = ResolveNode(predicate.Expression, column, filters);
             if (resolved is not null)
             {
                 return resolved;
@@ -124,29 +124,35 @@ public sealed class ValuePruneFunction : ITableFunction
 
     private static IReadOnlyList<object?>? ResolveNode(JsonElement node, string column, DecodedFilters filters)
     {
-        var type = node.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
-        var nodeColumn = node.TryGetProperty("column_name", out var cn) ? cn.GetString() : null;
+        var type = node.TryGetProperty("node", out var typeProp) ? typeProp.GetString() : null;
 
         switch (type)
         {
-            case "constant" when nodeColumn == column:
-                var op = node.TryGetProperty("op", out var opProp) ? opProp.GetString() : null;
-                if (op != "eq")
+            case "comparison":
+                if (node.GetProperty("op").GetString() != "eq")
                 {
                     return null;
                 }
 
-                return node.TryGetProperty("value_ref", out var vr) ? [filters.ValueRef(vr.GetInt32())] : null;
-            case "in" or "in_list" when nodeColumn == column:
-                var refs = node.TryGetProperty("value_refs", out var r1) && r1.ValueKind == JsonValueKind.Array
-                    ? r1.EnumerateArray()
-                    : node.TryGetProperty("values", out var r2) && r2.ValueKind == JsonValueKind.Array
-                        ? r2.EnumerateArray()
-                        : [];
-                return refs.Select(r => filters.ValueRef(r.GetInt32())).ToList();
-            case "join_keys" when nodeColumn == column:
-                var keysColumn = node.TryGetProperty("keys_column", out var kc) ? kc.GetString() ?? "" : "";
-                return filters.JoinKeyValues(keysColumn);
+                var left = node.GetProperty("left");
+                var right = node.GetProperty("right");
+                if (IsColumn(left, column) && right.GetProperty("node").GetString() == "literal")
+                {
+                    return [filters.ValueRef(right.GetProperty("value_ref").GetUInt64())];
+                }
+
+                if (IsColumn(right, column) && left.GetProperty("node").GetString() == "literal")
+                {
+                    return [filters.ValueRef(left.GetProperty("value_ref").GetUInt64())];
+                }
+
+                return null;
+            case "in" when IsColumn(node.GetProperty("expression"), column):
+                var set = node.GetProperty("set");
+                return set.GetProperty("kind").GetString() == "literal"
+                    ? filters.LiteralSet(set.GetProperty("value_ref").GetUInt64())
+                    : filters.ExternalSet(set.GetProperty("batch_index").GetInt32(),
+                        set.GetProperty("column_index").GetInt32(), set.GetProperty("column_name").GetString()!);
             case "and":
                 foreach (var child in Children(node))
                 {
@@ -176,6 +182,10 @@ public sealed class ValuePruneFunction : ITableFunction
                 return null;
         }
     }
+
+    private static bool IsColumn(JsonElement node, string column) =>
+        node.TryGetProperty("node", out var kind) && kind.GetString() == "column_ref" &&
+        node.TryGetProperty("column_name", out var name) && name.GetString() == column;
 
     private static IEnumerable<JsonElement> Children(JsonElement node) =>
         node.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array

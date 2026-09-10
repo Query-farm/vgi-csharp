@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Types;
@@ -5,50 +6,9 @@ using DuckDB.NET.Data;
 
 namespace QueryFarm.Vgi.Internal;
 
-/// <summary>
-/// Evaluates a <see cref="DecodedFilters"/> tree — including genuine <c>"expression"</c> nodes
-/// (arbitrary function-call/spatial predicates DuckDB pushed down, per
-/// <c>Table.ITableFunction.SupportedExpressionFilters</c>) — against a whole <see cref="RecordBatch"/>
-/// at once, returning a boolean keep-mask.
-///
-/// <para><b>Why an embedded DuckDB engine.</b> An <c>"expression"</c> node is a recursive bound
-/// expression tree (<c>column_ref</c>/<c>constant</c>/<c>function</c>/<c>comparison</c>/<c>conjunction</c>
-/// — see <c>SerializeExpression</c> in <c>~/Development/vgi/src/vgi_table_function_impl.cpp</c>)
-/// naming an arbitrary DuckDB function by string (<c>list_contains</c>, <c>starts_with</c>,
-/// <c>&amp;&amp;</c>, <c>st_intersects_extent</c>, ...). Reimplementing each such function in C# would
-/// mean re-deriving DuckDB/spatial semantics function-by-function and staying in sync forever.
-/// vgi-python (<c>vgi/table_filter_pushdown.py</c>'s <c>ExpressionFilter.evaluate</c>) and vgi-go
-/// (<c>vgi/expression_filter.go</c>) both instead render the tree back to SQL text and hand it to a
-/// real embedded DuckDB connection — delegating ALL function semantics (including spatial ones, via
-/// the <c>spatial</c> extension) to DuckDB itself. This mirrors that architecture using
-/// <c>DuckDB.NET.Data.Full</c>.</para>
-///
-/// <para><b>Per-node, not per-batch.</b> Every node in <see cref="DecodedFilters"/>'s top-level array
-/// — and every node inside an <c>"and"</c>/<c>"or"</c>/<c>"expression"</c> subtree — is anchored to
-/// exactly ONE column (<c>SerializeFilterInto</c> in the C++ extension always propagates the same
-/// <c>column_name</c>/<c>column_index</c> down through conjunction children, and <c>column_ref</c>
-/// nodes inside an expression tree always resolve to that same anchor column — v1 has no
-/// multi-column expression filters). So each top-level node is evaluated independently: its one
-/// anchor column is loaded into a single DuckDB list parameter (<c>UNNEST($1)</c>), the node's
-/// subtree is rendered to a SQL boolean expression referencing that unnested value, and the
-/// per-node boolean results are ANDed together row-wise across all top-level nodes.</para>
-///
-/// <para><b>Constants are bound as real parameters</b>, not inlined SQL literals (unlike
-/// vgi-python's <c>_arrow_scalar_to_sql</c>) — DuckDB.NET supports typed positional parameters
-/// natively, so there's no literal-formatting/escaping surface to get wrong for strings, floats, or
-/// binary/WKB values.</para>
-///
-/// <para><b>Spatial (WKB) columns/constants</b> are raw <c>binary</c> Arrow data on the wire (see
-/// <c>ExampleWorker.Table.SpatialFilterExampleFunction</c>'s <c>geoarrow.wkb</c>-tagged <c>geom</c>
-/// field); this evaluator does not use DuckDB's Arrow-extension-aware ingestion (it never loads a
-/// whole Arrow batch into DuckDB — only per-node <c>List&lt;T&gt;</c> parameters), so it detects
-/// <c>ARROW:extension:name=geoarrow.wkb</c> metadata itself (on the anchor column's
-/// <see cref="Field"/> and, via <see cref="DecodedFilters.ValueField"/>, on each constant's field —
-/// the latter set by the C++ extension's <c>ArrowTypeExtensionData::GetExtensionTypes</c> when a
-/// pushed constant is itself a spatial <c>GEOMETRY</c> value, e.g. a constant-folded
-/// <c>ST_MakeEnvelope(...)</c>) and wraps the corresponding SQL reference in
-/// <c>ST_GeomFromWKB(...)</c>.</para>
-/// </summary>
+/// <summary>Applies the strict Filter Encoding v2 row evaluator to every row of an Arrow batch and
+/// provides the companion batch-mask operation used by fixture producers. Column and recursively
+/// nested struct values are materialized by name before evaluating each predicate.</summary>
 public static class ExpressionFilterEvaluator
 {
     /// <summary>A cached, best-effort spatial-loaded DuckDB connection, created lazily (so a worker
@@ -69,21 +29,49 @@ public static class ExpressionFilterEvaluator
     {
         var mask = new bool[batch.Length];
         System.Array.Fill(mask, true);
-        if (filters is null || filters.Root.ValueKind != JsonValueKind.Array)
+        if (filters is null)
         {
             return mask;
         }
 
-        foreach (var node in filters.Root.EnumerateArray())
+        for (var rowIndex = 0; rowIndex < batch.Length; rowIndex++)
         {
-            var nodeMask = EvaluateTopLevelNode(node, filters, batch, schema);
-            for (var i = 0; i < mask.Length; i++)
+            var row = new Dictionary<string, object?>(StringComparer.Ordinal);
+            for (var columnIndex = 0; columnIndex < batch.ColumnCount; columnIndex++)
             {
-                mask[i] &= nodeMask[i];
+                row[schema.GetFieldByIndex(columnIndex).Name] = ReadValue(batch.Column(columnIndex), rowIndex);
             }
+
+            mask[rowIndex] = PushdownFilterEvaluator.Matches(filters, row);
         }
 
         return mask;
+    }
+
+    private static object? ReadValue(IArrowArray array, int index)
+    {
+        if (array.IsNull(index))
+        {
+            return null;
+        }
+
+        if (array is ListArray list)
+        {
+            var offsets = list.ValueOffsets;
+            return Enumerable.Range(offsets[index], offsets[index + 1] - offsets[index])
+                .Select(child => ReadValue(list.Values, child)).ToList();
+        }
+
+        if (array is StructArray structure)
+        {
+            var type = (StructType)structure.Data.DataType;
+            return Enumerable.Range(0, structure.Fields.Count).ToDictionary(
+                child => type.Fields[child].Name,
+                child => ReadValue(structure.Fields[child], index),
+                StringComparer.Ordinal);
+        }
+
+        return ScalarArgCodec.ReadScalar(array, index);
     }
 
     private static bool[] EvaluateTopLevelNode(JsonElement node, DecodedFilters filters, RecordBatch batch, Schema schema)
@@ -455,7 +443,7 @@ public static class ExpressionFilterEvaluator
     /// binding as a single DuckDB list parameter (<c>UNNEST($1)</c>) — the per-row values of the
     /// filter's anchor column, in row order. Covers the Arrow types this repo's fixtures actually
     /// emit on a pushdown-filterable column; add a case here before declaring
-    /// <see cref="Table.ITableFunction.SupportedExpressionFilters"/> on a function whose anchor
+    /// <see cref="Table.ITableFunction.AdditionalFilterFunctions"/> on a function whose anchor
     /// column uses some other Arrow type.</summary>
     private static object ToListParameter(IArrowArray array) => array switch
     {
@@ -528,5 +516,18 @@ public static class ExpressionFilterEvaluator
 
         s_connection = conn;
         return conn;
+    }
+
+    internal static bool SpatialIntersectsExtent(byte[] left, byte[] right)
+    {
+        using var command = GetConnection().CreateCommand();
+        command.CommandText = "SELECT ST_GeomFromWKB($1) && ST_GeomFromWKB($2)";
+        var leftParameter = command.CreateParameter();
+        leftParameter.Value = left;
+        command.Parameters.Add(leftParameter);
+        var rightParameter = command.CreateParameter();
+        rightParameter.Value = right;
+        command.Parameters.Add(rightParameter);
+        return Convert.ToBoolean(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 }

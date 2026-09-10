@@ -1,28 +1,22 @@
+using System.Collections;
+using System.Globalization;
 using System.Text.Json;
 
 namespace QueryFarm.Vgi.Internal;
 
-/// <summary>
-/// Evaluates a <see cref="DecodedFilters"/> tree against one candidate row's column values —
-/// discovered empirically (against the real C++ extension, via <c>filter_echo.test</c>) that a
-/// function declaring <see cref="Table.ITableFunction.FilterPushdown"/> is trusted UNCONDITIONALLY:
-/// DuckDB does not install its own residual post-scan filter for a pushdown-capable function
-/// regardless of <see cref="Table.ITableFunction.FiltersExactlyApplied"/>, so a function that
-/// advertises filter pushdown MUST actually apply the pushed filters itself or rows will leak
-/// through unfiltered.
-/// </summary>
+/// <summary>Exact row evaluator for the capability-gated core of VGI Filter Encoding v2.</summary>
 public static class PushdownFilterEvaluator
 {
     public static bool Matches(DecodedFilters? filters, IReadOnlyDictionary<string, object?> row)
     {
-        if (filters is null || filters.Root.ValueKind != JsonValueKind.Array)
+        if (filters is null)
         {
             return true;
         }
 
-        foreach (var node in filters.Root.EnumerateArray())
+        foreach (var predicate in filters.Predicates)
         {
-            if (!Eval(node, filters, row))
+            if (!MatchesPredicate(filters, predicate, row))
             {
                 return false;
             }
@@ -31,101 +25,317 @@ public static class PushdownFilterEvaluator
         return true;
     }
 
-    private static bool Eval(JsonElement node, DecodedFilters filters, IReadOnlyDictionary<string, object?> row)
+    internal static bool MatchesPredicate(DecodedFilters filters, DecodedPredicate predicate,
+        IReadOnlyDictionary<string, object?> row)
     {
-        var type = node.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
-        switch (type)
+        try
         {
-            case "constant":
-                return EvalConstant(node, filters, row);
-            case "is_null":
-                return !row.TryGetValue(ColumnName(node), out var v1) || v1 is null;
-            case "is_not_null":
-                return row.TryGetValue(ColumnName(node), out var v2) && v2 is not null;
-            case "and":
-                return Children(node).All(c => Eval(c, filters, row));
-            case "or":
-                return Children(node).Any(c => Eval(c, filters, row));
-            case "in":
-            case "in_list":
-                return EvalIn(node, filters, row);
-            case "join_keys":
-                return EvalJoinKeys(node, filters, row);
-            default:
-                // Unknown node shape — fail open (don't drop rows we don't understand how to check;
-                // DuckDB never installs its own residual filter for a pushdown-capable function, so
-                // failing closed here would silently under-return instead of over-return).
-                return true;
+            return Evaluate(predicate.Expression, filters, row) is true;
+        }
+        catch (Exception exception) when (predicate.Mode == "advisory" &&
+            exception is NotSupportedException or InvalidCastException or OverflowException or DivideByZeroException)
+        {
+            return true;
         }
     }
 
-    private static bool EvalConstant(JsonElement node, DecodedFilters filters, IReadOnlyDictionary<string, object?> row)
+    private static bool? Evaluate(JsonElement expression, DecodedFilters filters,
+        IReadOnlyDictionary<string, object?> row)
     {
-        var op = node.TryGetProperty("op", out var opProp) ? opProp.GetString() : "eq";
-        var target = node.TryGetProperty("value_ref", out var vr) ? filters.ValueRef(vr.GetInt32()) : null;
-        row.TryGetValue(ColumnName(node), out var actual);
-
-        var cmp = Compare(actual, target);
-        return op switch
+        var node = expression.GetProperty("node").GetString();
+        return node switch
         {
-            "eq" => cmp == 0,
-            "ne" => cmp != 0,
-            "gt" => cmp > 0,
-            "ge" => cmp >= 0,
-            "lt" => cmp < 0,
-            "le" => cmp <= 0,
-            _ => true,
+            "comparison" => CompareExpression(expression, filters, row),
+            "and" => And(expression.GetProperty("children").EnumerateArray().Select(c => Evaluate(c, filters, row))),
+            "or" => Or(expression.GetProperty("children").EnumerateArray().Select(c => Evaluate(c, filters, row))),
+            "not" => Not(Evaluate(expression.GetProperty("expression"), filters, row)),
+            "is_null" => (Value(expression.GetProperty("expression"), filters, row) is null) ^
+                         expression.GetProperty("negated").GetBoolean(),
+            "in" => In(expression, filters, row),
+            _ => Value(expression, filters, row) as bool?,
         };
     }
 
-    private static bool EvalIn(JsonElement node, DecodedFilters filters, IReadOnlyDictionary<string, object?> row)
+    private static object? Value(JsonElement expression, DecodedFilters filters,
+        IReadOnlyDictionary<string, object?> row)
     {
-        row.TryGetValue(ColumnName(node), out var actual);
-        IEnumerable<JsonElement> refs = node.TryGetProperty("value_refs", out var r1) && r1.ValueKind == JsonValueKind.Array
-            ? r1.EnumerateArray()
-            : node.TryGetProperty("values", out var r2) && r2.ValueKind == JsonValueKind.Array
-                ? r2.EnumerateArray()
-                : [];
+        var node = expression.GetProperty("node").GetString();
+        switch (node)
+        {
+            case "column_ref":
+                var name = expression.GetProperty("column_name").GetString()!;
+                if (!row.TryGetValue(name, out var column))
+                {
+                    throw new InvalidDataException($"Row has no filter column '{name}'.");
+                }
 
-        return refs.Any(r => Compare(actual, filters.ValueRef(r.GetInt32())) == 0);
+                return column;
+            case "field_ref":
+                return Field(Value(expression.GetProperty("expression"), filters, row),
+                    expression.GetProperty("field_name").GetString()!);
+            case "literal":
+                return filters.ValueRef(expression.GetProperty("value_ref").GetUInt64());
+            case "comparison":
+            case "and":
+            case "or":
+            case "not":
+            case "is_null":
+            case "in":
+                return Evaluate(expression, filters, row);
+            case "cast":
+                // The DuckDB 1.5 producer admits only context-independent casts. Numeric CLR
+                // normalization is sufficient for the exact comparison/arithmetic evaluator.
+                return Numeric(Value(expression.GetProperty("expression"), filters, row));
+            case "negate":
+                var negated = Numeric(Value(expression.GetProperty("expression"), filters, row));
+                return negated is null ? null : -negated.Value;
+            case "arithmetic":
+                return Arithmetic(expression, filters, row);
+            case "call":
+                return Call(expression, filters, row);
+            default:
+                throw new NotSupportedException($"Unsupported v2 expression node '{node}'.");
+        }
     }
 
-    private static bool EvalJoinKeys(JsonElement node, DecodedFilters filters, IReadOnlyDictionary<string, object?> row)
+    private static object? Field(object? value, string name)
     {
-        row.TryGetValue(ColumnName(node), out var actual);
-        var keysColumn = node.TryGetProperty("keys_column", out var kc) ? kc.GetString() ?? "" : "";
-        return filters.JoinKeyValues(keysColumn).Any(v => Compare(actual, v) == 0);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (value is IReadOnlyDictionary<string, object?> readOnly && readOnly.TryGetValue(name, out var result))
+        {
+            return result;
+        }
+
+        if (value is IDictionary dictionary && dictionary.Contains(name))
+        {
+            return dictionary[name];
+        }
+
+        var property = value.GetType().GetProperty(name);
+        return property is not null
+            ? property.GetValue(value)
+            : throw new InvalidDataException($"Struct value has no field '{name}'.");
     }
 
-    private static IEnumerable<JsonElement> Children(JsonElement node) =>
-        node.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array
-            ? children.EnumerateArray()
-            : [];
-
-    private static string ColumnName(JsonElement node) =>
-        node.TryGetProperty("column_name", out var name) ? name.GetString() ?? "" : "";
-
-    private static int Compare(object? actual, object? target)
+    private static bool? CompareExpression(JsonElement expression, DecodedFilters filters,
+        IReadOnlyDictionary<string, object?> row)
     {
-        if (actual is null || target is null)
+        var left = Value(expression.GetProperty("left"), filters, row);
+        var right = Value(expression.GetProperty("right"), filters, row);
+        var op = expression.GetProperty("op").GetString();
+        if (op == "distinct_from")
         {
-            return actual is null && target is null ? 0 : -2;
+            return left is null ? right is not null : right is null || Compare(left, right) != 0;
         }
 
-        if (actual is string sa && target is string sb)
+        if (op == "not_distinct_from")
         {
-            return string.CompareOrdinal(sa, sb);
+            return left is null ? right is null : right is not null && Compare(left, right) == 0;
         }
 
-        try
+        if (left is null || right is null)
         {
-            var da = Convert.ToDouble(actual);
-            var db = Convert.ToDouble(target);
-            return da.CompareTo(db);
+            return null;
         }
-        catch
+
+        var comparison = Compare(left, right);
+        return op switch
         {
-            return Equals(actual, target) ? 0 : -2;
-        }
+            "eq" => comparison == 0,
+            "ne" => comparison != 0,
+            "lt" => comparison < 0,
+            "le" => comparison <= 0,
+            "gt" => comparison > 0,
+            "ge" => comparison >= 0,
+            _ => throw new NotSupportedException($"Unsupported comparison '{op}'."),
+        };
     }
+
+    private static bool? In(JsonElement expression, DecodedFilters filters,
+        IReadOnlyDictionary<string, object?> row)
+    {
+        var candidate = Value(expression.GetProperty("expression"), filters, row);
+        if (candidate is null)
+        {
+            return null;
+        }
+
+        var set = expression.GetProperty("set");
+        IReadOnlyList<object?> values = set.GetProperty("kind").GetString() switch
+        {
+            "literal" => filters.LiteralSet(set.GetProperty("value_ref").GetUInt64()),
+            "external" => filters.ExternalSet(set.GetProperty("batch_index").GetInt32(),
+                set.GetProperty("column_index").GetInt32(), set.GetProperty("column_name").GetString()!),
+            var kind => throw new NotSupportedException($"Unsupported IN set '{kind}'."),
+        };
+        var foundNull = false;
+        foreach (var item in values)
+        {
+            if (item is null)
+            {
+                foundNull = true;
+            }
+            else if (Compare(candidate, item) == 0)
+            {
+                return !expression.GetProperty("negated").GetBoolean();
+            }
+        }
+
+        bool? result = foundNull ? null : false;
+        return expression.GetProperty("negated").GetBoolean() ? Not(result) : result;
+    }
+
+    private static decimal? Arithmetic(JsonElement expression, DecodedFilters filters,
+        IReadOnlyDictionary<string, object?> row)
+    {
+        var left = Numeric(Value(expression.GetProperty("left"), filters, row));
+        var right = Numeric(Value(expression.GetProperty("right"), filters, row));
+        if (left is null || right is null)
+        {
+            return null;
+        }
+
+        return expression.GetProperty("op").GetString() switch
+        {
+            "add" => left + right,
+            "subtract" => left - right,
+            "multiply" => left * right,
+            "divide" => left / right,
+            "modulo" => left % right,
+            var op => throw new NotSupportedException($"Unsupported arithmetic '{op}'."),
+        };
+    }
+
+    private static bool? Call(JsonElement expression, DecodedFilters filters,
+        IReadOnlyDictionary<string, object?> row)
+    {
+        var arguments = expression.GetProperty("arguments").EnumerateArray()
+            .Select(argument => Value(argument, filters, row)).ToList();
+        if (arguments.Any(argument => argument is null))
+        {
+            return null;
+        }
+
+        var functionElement = expression.GetProperty("function");
+        if (functionElement.ValueKind == JsonValueKind.Object)
+        {
+            var ns = functionElement.GetProperty("namespace").GetString();
+            var name = functionElement.GetProperty("name").GetString();
+            var version = functionElement.GetProperty("version").GetUInt64();
+            if (ns == "duckdb.spatial" && name == "intersects_extent" && version == 1 &&
+                arguments is [byte[] left, byte[] right])
+            {
+                return ExpressionFilterEvaluator.SpatialIntersectsExtent(left, right);
+            }
+
+            throw new NotSupportedException($"Unsupported extension filter function '{ns}/{name}@{version}'.");
+        }
+
+        return functionElement.GetString() switch
+        {
+            "starts_with" when arguments is [string value, string prefix] => value.StartsWith(prefix, StringComparison.Ordinal),
+            "ends_with" when arguments is [string value, string suffix] => value.EndsWith(suffix, StringComparison.Ordinal),
+            "contains" when arguments is [string value, string needle] => value.Contains(needle, StringComparison.Ordinal),
+            "list_contains" when arguments is [IEnumerable values, object needle] =>
+                values.Cast<object?>().Any(item => item is not null && Compare(item, needle) == 0),
+            var function => throw new NotSupportedException($"Unsupported standard filter function '{function}'."),
+        };
+    }
+
+    private static bool? And(IEnumerable<bool?> values)
+    {
+        var hasNull = false;
+        foreach (var value in values)
+        {
+            if (value is false)
+            {
+                return false;
+            }
+
+            hasNull |= value is null;
+        }
+
+        return hasNull ? null : true;
+    }
+
+    private static bool? Or(IEnumerable<bool?> values)
+    {
+        var hasNull = false;
+        foreach (var value in values)
+        {
+            if (value is true)
+            {
+                return true;
+            }
+
+            hasNull |= value is null;
+        }
+
+        return hasNull ? null : false;
+    }
+
+    private static bool? Not(bool? value) => value is null ? null : !value.Value;
+
+    private static int Compare(object left, object right)
+    {
+        if (left is string leftString && right is string rightString)
+        {
+            return string.CompareOrdinal(leftString, rightString);
+        }
+
+        if (left is byte[] leftBytes && right is byte[] rightBytes)
+        {
+            return leftBytes.AsSpan().SequenceCompareTo(rightBytes);
+        }
+
+        if (IsNumeric(left) && IsNumeric(right) && (left is float or double || right is float or double))
+        {
+            var leftFloat = Convert.ToDouble(left, CultureInfo.InvariantCulture);
+            var rightFloat = Convert.ToDouble(right, CultureInfo.InvariantCulture);
+            if (double.IsNaN(leftFloat))
+            {
+                return double.IsNaN(rightFloat) ? 0 : 1;
+            }
+
+            if (double.IsNaN(rightFloat))
+            {
+                return -1;
+            }
+
+            return leftFloat.CompareTo(rightFloat);
+        }
+
+        var leftNumber = Numeric(left);
+        var rightNumber = Numeric(right);
+        if (leftNumber is not null && rightNumber is not null)
+        {
+            return leftNumber.Value.CompareTo(rightNumber.Value);
+        }
+
+        if (left.GetType() == right.GetType() && left is IComparable comparable)
+        {
+            return comparable.CompareTo(right);
+        }
+
+        return Equals(left, right) ? 0 : throw new InvalidCastException("Filter values are not comparable.");
+    }
+
+    private static decimal? Numeric(object? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        return IsNumeric(value)
+            ? Convert.ToDecimal(value, CultureInfo.InvariantCulture)
+            : null;
+    }
+
+    private static bool IsNumeric(object value) =>
+        value is sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal;
 }

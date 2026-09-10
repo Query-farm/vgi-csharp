@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Internal;
+using QueryFarm.Vgi.Protocol;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -34,16 +35,9 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// struct cast path further — no other language port exercises it, so there's no working reference
 /// to diff against, and the WKB path is proven.</para>
 ///
-/// <para><b>Genuine expression-filter pushdown.</b> Declares <see cref="SupportedExpressionFilters"/>
-/// for <c>&amp;&amp;</c> (the spatial-extension bbox-intersection operator) and
-/// <c>st_intersects_extent</c>, matching vgi-python's reference fixture. The DuckDB optimizer then
-/// pushes a bound <c>geom &amp;&amp; ST_MakeEnvelope(...)</c>/<c>st_intersects_extent(geom, ...)</c>
-/// predicate down as an <c>"expression"</c> pushdown-filter node (see
-/// <see cref="Internal.ExpressionFilterEvaluator"/>'s doc comment for how it's evaluated — an
-/// embedded DuckDB connection with the <c>spatial</c> extension loaded, not hand-written C#
-/// geometry math), and — because pushdown is genuinely applied — DuckDB leaves no residual
-/// <c>FILTER</c> node in the physical plan (<c>table/expression_filter.test</c>'s EXPLAIN
-/// assertions).</para>
+/// <para><b>Expression-filter pushdown.</b> This fixture advertises the exact versioned
+/// <c>duckdb.spatial/intersects_extent@1</c> identity and evaluates it through embedded DuckDB's
+/// spatial extension against the same GeoArrow WKB representation.</para>
 /// </summary>
 public sealed class SpatialFilterExampleFunction : ITableFunction
 {
@@ -76,12 +70,14 @@ public sealed class SpatialFilterExampleFunction : ITableFunction
 
     public bool FiltersExactlyApplied => true;
 
-    public IReadOnlyList<string> SupportedExpressionFilters => ["&&", "st_intersects_extent"];
+    public IReadOnlyList<FilterFunctionCapability> AdditionalFilterFunctions =>
+        [new() { Namespace = "duckdb.spatial", Name = "intersects_extent", Version = 1 }];
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema,
+            AdditionalFilterFunctions);
         return new Producer(count, initParams.OutputSchema, decoded);
     }
 

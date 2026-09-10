@@ -81,6 +81,14 @@ public interface ITableBufferingFunction
     /// unfiltered.</summary>
     bool? FilterPushdown => null;
 
+    IReadOnlyList<string> FilterSemanticProfiles => FilterPushdown is true ? ["vgi.duckdb.standard.v1"] : [];
+
+    IReadOnlyList<FilterFunctionCapability> AdditionalFilterFunctions => [];
+
+    IReadOnlyList<RuntimeFilterAlgorithmCapability> RuntimeFilterAlgorithms => [];
+
+    IReadOnlyList<EvaluationContextCapability> FilterEvaluationContexts => [];
+
     int? MaxWorkers => null;
 
     /// <summary>Forces ordered, single-threaded Sink ingest (<c>ParallelSink=false</c> on the C++

@@ -1588,7 +1588,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         FilterPushdown = function.FilterPushdown,
         SamplingPushdown = function.SamplingPushdown,
         LateMaterialization = function.LateMaterialization,
-        SupportedExpressionFilters = function.SupportedExpressionFilters.ToList(),
+        FilterSemanticProfiles = ValidateFilterSemanticProfiles(function.FilterSemanticProfiles),
+        AdditionalFilterFunctions = ValidateExtensionFilterCapabilities(function.AdditionalFilterFunctions),
+        RuntimeFilterAlgorithms = RejectUnsupportedFilterCapabilities(function.RuntimeFilterAlgorithms, "runtime filter algorithms"),
+        FilterEvaluationContexts = RejectUnsupportedFilterCapabilities(function.FilterEvaluationContexts, "evaluation contexts"),
         OrderPreservation = function.OrderPreservation,
         MaxWorkers = function.MaxWorkers,
         SupportsBatchIndex = function.SupportsBatchIndex,
@@ -1644,6 +1647,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Categories = function.Categories.ToList(),
         ProjectionPushdown = function.ProjectionPushdown,
         FilterPushdown = function.FilterPushdown,
+        FilterSemanticProfiles = ValidateFilterSemanticProfiles(function.FilterSemanticProfiles),
+        AdditionalFilterFunctions = ValidateExtensionFilterCapabilities(function.AdditionalFilterFunctions),
+        RuntimeFilterAlgorithms = RejectUnsupportedFilterCapabilities(function.RuntimeFilterAlgorithms, "runtime filter algorithms"),
+        FilterEvaluationContexts = RejectUnsupportedFilterCapabilities(function.FilterEvaluationContexts, "evaluation contexts"),
         MaxWorkers = function.MaxWorkers,
         SourceOrderDependent = function.SourceOrderDependent,
         SinkOrderDependent = function.SinkOrderDependent,
@@ -1651,6 +1658,45 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         RequiredSettings = function.RequiredSettings.ToList(),
         RequiredSecrets = function.RequiredSecrets.ToList(),
     };
+
+    private static List<T> RejectUnsupportedFilterCapabilities<T>(IReadOnlyList<T> capabilities, string kind)
+    {
+        if (capabilities.Count != 0)
+        {
+            throw new InvalidOperationException(
+                $"Cannot advertise {kind}: this C# SDK has no registered evaluator for them.");
+        }
+
+        return [];
+    }
+
+    private static List<FilterFunctionCapability> ValidateExtensionFilterCapabilities(
+        IReadOnlyList<FilterFunctionCapability> capabilities)
+    {
+        foreach (var capability in capabilities)
+        {
+            if (capability.Namespace != "duckdb.spatial" || capability.Name != "intersects_extent" ||
+                capability.Version != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot advertise extension filter function {capability.Namespace}/{capability.Name}@{capability.Version}: " +
+                    "this C# SDK has no registered evaluator for it.");
+            }
+        }
+
+        return capabilities.ToList();
+    }
+
+    private static List<string> ValidateFilterSemanticProfiles(IReadOnlyList<string> profiles)
+    {
+        if (profiles.Any(profile => profile != PushdownFilterCodec.SemanticsName))
+        {
+            throw new InvalidOperationException(
+                $"The C# SDK supports only the {PushdownFilterCodec.SemanticsName} filter semantic profile.");
+        }
+
+        return profiles.ToList();
+    }
 
     private static FunctionInfo BuildFunctionInfo(IAggregateFunction function) => new()
     {

@@ -142,7 +142,7 @@ public sealed class CacheFilteredMainFunction : ITableFunction
         // back the bare data.cache_filtered table (called with no args at all; see
         // CacheDataTables.All's doc comment on the instance-sharing pattern).
         var rows = initParams.Arguments.Int64Named("rows", 100);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         return new Producer(rows, decoded, initParams.OutputSchema);
     }
 

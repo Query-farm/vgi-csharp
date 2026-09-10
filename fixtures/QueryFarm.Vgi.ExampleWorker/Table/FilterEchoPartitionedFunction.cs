@@ -40,7 +40,7 @@ public sealed class FilterEchoPartitionedFunction : ITableFunction
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var filterText = PushdownFilterFormatter.Format(decoded);
         var key = Convert.ToHexString(initParams.ExecutionId ?? []);
         return new Producer(key, count, decoded, filterText, initParams.ProjectedSchema, initParams.ProjectionIds);

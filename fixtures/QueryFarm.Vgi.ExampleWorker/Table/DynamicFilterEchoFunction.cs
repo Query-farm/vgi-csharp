@@ -53,8 +53,8 @@ public sealed class DynamicFilterEchoFunction : ITableFunction
     {
         var count = initParams.Arguments.Int64(0);
         var batchSize = initParams.Arguments.Int64Named("batch_size", 2048);
-        var staticDecoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
-        return new Producer(count, Math.Max(1, batchSize), staticDecoded, initParams.OutputSchema);
+        var staticDecoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
+        return new Producer(count, Math.Max(1, batchSize), staticDecoded, initParams.OutputSchema, initParams.JoinKeys);
     }
 
     /// <summary>See <see cref="Splits.SplitDynamicFilterFunction"/>'s doc comment on the same
@@ -62,11 +62,13 @@ public sealed class DynamicFilterEchoFunction : ITableFunction
     /// base64-encoded pushdown-filter blob under.</summary>
     private const string DynamicFilterMetadataKey = "vgi_pushdown_filters";
 
-    private sealed class Producer(long count, long batchSize, DecodedFilters? staticDecoded, Schema outputSchema)
+    private sealed class Producer(long count, long batchSize, DecodedFilters? staticDecoded, Schema outputSchema,
+        IReadOnlyList<byte[]>? joinKeys)
         : ITableFunctionProducer
     {
         private long _next;
         private readonly Dictionary<string, object?> _row = new(1);
+        private readonly PushdownFilterState? _filterState = staticDecoded is null ? null : new(staticDecoded);
 
         public void Produce(OutputCollector output)
         {
@@ -74,7 +76,13 @@ public sealed class DynamicFilterEchoFunction : ITableFunction
             if (output.InputMetadata is { } meta
                 && meta.TryGetValue(DynamicFilterMetadataKey, out var base64) && !string.IsNullOrEmpty(base64))
             {
-                var dynamicDecoded = PushdownFilterCodec.Decode(Convert.FromBase64String(base64));
+                var dynamicDecoded = PushdownFilterCodec.Decode(Convert.FromBase64String(base64), joinKeys, outputSchema);
+                if (_filterState is null || dynamicDecoded is null)
+                {
+                    throw new InvalidDataException("Dynamic filter delta received without an initial snapshot.");
+                }
+
+                _filterState.ApplyDelta(dynamicDecoded);
                 dynamicText = DynamicFilterFormatter.Format(dynamicDecoded);
             }
 
@@ -93,7 +101,7 @@ public sealed class DynamicFilterEchoFunction : ITableFunction
                 {
                     var n = count - 1 - (start + i);
                     _row["n"] = n;
-                    if (PushdownFilterEvaluator.Matches(staticDecoded, _row))
+                    if (_filterState?.Matches(_row) ?? true)
                     {
                         ns.Add(n);
                     }
@@ -143,19 +151,20 @@ internal static class DynamicFilterFormatter
 {
     public static string Format(DecodedFilters? filters)
     {
-        if (filters is null || filters.Root.ValueKind != JsonValueKind.Array || filters.Root.GetArrayLength() == 0)
+        if (filters is null || filters.Predicates.Count == 0)
         {
             return "(none)";
         }
 
-        var node = filters.Root.EnumerateArray().First();
-        var type = node.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
-        if (type != "constant")
+        var node = filters.Predicates[0].Expression;
+        if (node.TryGetProperty("node", out var typeProp) && typeProp.GetString() != "comparison")
         {
             return "(none)";
         }
 
-        var column = node.TryGetProperty("column_name", out var name) ? name.GetString() ?? "?" : "?";
+        var left = node.GetProperty("left");
+        var right = node.GetProperty("right");
+        var column = left.TryGetProperty("column_name", out var name) ? name.GetString() ?? "?" : "?";
         var op = node.TryGetProperty("op", out var opProp) ? opProp.GetString() : "eq";
         var opSymbol = op switch
         {
@@ -168,7 +177,7 @@ internal static class DynamicFilterFormatter
             _ => op ?? "=",
         };
 
-        var value = node.TryGetProperty("value_ref", out var vr) ? filters.ValueRef(vr.GetInt32()) : null;
+        var value = right.TryGetProperty("value_ref", out var vr) ? filters.ValueRef(vr.GetUInt64()) : null;
         var valueText = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "NULL";
         return $"ConstantFilter({column} {opSymbol} {valueText})";
     }

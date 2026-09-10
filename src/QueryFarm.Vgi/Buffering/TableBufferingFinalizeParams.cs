@@ -40,7 +40,8 @@ public sealed class TableBufferingFinalizeParams
     /// <summary>Raw embedded-IPC pushdown-filter bytes (<c>InitRequest.PushdownFilters</c>) —
     /// <see langword="null"/> when DuckDB pushed no filters down. Only meaningful when this
     /// function advertised <see cref="ITableBufferingFunction.FilterPushdown"/>. Decode with
-    /// <see cref="Internal.PushdownFilterCodec"/>. Mirrors <see cref="Table.TableInitParams.PushdownFilters"/>.</summary>
+    /// <see cref="Internal.PushdownFilterCodec"/>. Protocol 2.0 accepts only
+    /// <c>vgi.filters.v2</c>. Mirrors <see cref="Table.TableInitParams.PushdownFilters"/>.</summary>
     public byte[]? PushdownFilters { get; init; }
 
     /// <summary>One embedded-IPC single-column batch per IN-filter/join-key column

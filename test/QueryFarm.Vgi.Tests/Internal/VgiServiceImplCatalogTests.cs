@@ -41,6 +41,73 @@ public class VgiServiceImplCatalogTests
     }
 
     [Fact]
+    public async Task CatalogFunctionMetadata_RejectsCapabilitiesWithoutAnEvaluator()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("unsupported_filter", additionalFilterFunctions:
+        [
+            new FilterFunctionCapability { Namespace = "acme.filters", Name = "overlaps", Version = 1 },
+        ]));
+        var service = new VgiServiceImpl(registry);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CatalogSchemaContentsFunctionsAsync([], ["main"], SchemaObjectType.TableFunction, null));
+        Assert.Contains("no registered evaluator", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CatalogFunctionMetadata_RejectsRuntimeAlgorithmsWithoutAnEvaluator()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("unsupported_runtime", runtimeFilterAlgorithms:
+        [
+            new RuntimeFilterAlgorithmCapability { Namespace = "acme.runtime", Name = "bloom", Version = 1 },
+        ]));
+        var service = new VgiServiceImpl(registry);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CatalogSchemaContentsFunctionsAsync([], ["main"], SchemaObjectType.TableFunction, null));
+        Assert.Contains("no registered evaluator", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CatalogFunctionMetadata_RejectsUnknownSemanticProfiles()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("unsupported_semantics",
+            filterSemanticProfiles: ["example.unknown.v1"]));
+        var service = new VgiServiceImpl(registry);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CatalogSchemaContentsFunctionsAsync([], ["main"], SchemaObjectType.TableFunction, null));
+        Assert.Contains("supports only", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CatalogFunctionMetadata_AllowsTheRegisteredSpatialExtensionIdentity()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("spatial_filter", additionalFilterFunctions:
+        [
+            new FilterFunctionCapability
+            {
+                Namespace = "duckdb.spatial",
+                Name = "intersects_extent",
+                Version = 1,
+            },
+        ]));
+        var service = new VgiServiceImpl(registry);
+
+        var response = await service.CatalogSchemaContentsFunctionsAsync(
+            [], ["main"], SchemaObjectType.TableFunction, null);
+        var function = Assert.Single(response.Items.Select(EmbeddedIpc.Decode<FunctionInfo>));
+        var capability = Assert.Single(function.AdditionalFilterFunctions);
+        Assert.Equal("duckdb.spatial", capability.Namespace);
+        Assert.Equal("intersects_extent", capability.Name);
+        Assert.Equal((ulong)1, capability.Version);
+    }
+
+    [Fact]
     public async Task CatalogAttach_TwoAttachesOfTheSameName_StillRouteToTheSameRegisteredSchemas()
     {
         // The per-attach random suffix EncodeIdentity mints must not break DecodeIdentity's ability
@@ -117,7 +184,12 @@ public class VgiServiceImplCatalogTests
     }
 }
 
-file sealed class StubTableFunction(string name, string schemaName = "main") : ITableFunction
+file sealed class StubTableFunction(
+    string name,
+    string schemaName = "main",
+    IReadOnlyList<FilterFunctionCapability>? additionalFilterFunctions = null,
+    IReadOnlyList<RuntimeFilterAlgorithmCapability>? runtimeFilterAlgorithms = null,
+    IReadOnlyList<string>? filterSemanticProfiles = null) : ITableFunction
 {
     public string Name => name;
 
@@ -126,6 +198,12 @@ file sealed class StubTableFunction(string name, string schemaName = "main") : I
     public Schema ArgumentsSchema { get; } = new([], metadata: null);
 
     public Schema OutputSchema { get; } = new([new Field("n", Int64Type.Default, nullable: true)], metadata: null);
+
+    public IReadOnlyList<FilterFunctionCapability> AdditionalFilterFunctions => additionalFilterFunctions ?? [];
+
+    public IReadOnlyList<RuntimeFilterAlgorithmCapability> RuntimeFilterAlgorithms => runtimeFilterAlgorithms ?? [];
+
+    public IReadOnlyList<string> FilterSemanticProfiles => filterSemanticProfiles ?? [];
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams) =>
         throw new NotSupportedException("Not exercised by these tests.");

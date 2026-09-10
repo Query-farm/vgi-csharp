@@ -9,7 +9,7 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// <summary>
 /// The backing scan for the <c>example.data.filter_echo_table</c> catalog table — a fixed, no-arg
 /// twin of <see cref="FilterEchoFunction"/> (100 rows: <c>n</c> in 0..99, <c>s</c> = <c>"row_&lt;n&gt;"</c>)
-/// that additionally advertises <see cref="SupportedExpressionFilters"/> so a constant-prefix
+/// that additionally advertises the standard v2 semantic profile so a constant-prefix
 /// <c>LIKE</c>/<c>starts_with</c> predicate on <c>s</c> can be exercised. Backs
 /// <c>table/filter_pushdown_through_view.test</c> — a table (not a bare function call) is required
 /// there specifically to exercise pushdown surviving through a catalog VIEW wrapping it.
@@ -37,11 +37,9 @@ public sealed class FilterEchoTableScanFunction : ITableFunction
 
     public bool? ProjectionPushdown => true;
 
-    public IReadOnlyList<string> SupportedExpressionFilters => ["prefix", "starts_with"];
-
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
-        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys);
+        var decoded = PushdownFilterCodec.Decode(initParams.PushdownFilters, initParams.JoinKeys, initParams.OutputSchema);
         var filterText = PushdownFilterFormatter.Format(decoded);
         return new Producer(filterText, decoded, initParams.ProjectedSchema, initParams.ProjectionIds);
     }

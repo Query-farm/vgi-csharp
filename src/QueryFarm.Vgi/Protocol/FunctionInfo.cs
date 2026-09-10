@@ -5,7 +5,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// reusable for <see cref="CatalogAttachResult.GlobalFunctions"/>). The C++ extension validates
 /// each item's embedded-IPC schema with STRICT <c>arrow::Schema::Equals</c> against its generated
 /// <c>FunctionInfoSchema()</c> — property declaration order is LOAD-BEARING and must match that
-/// 36-field schema exactly, field-for-field, even though individual value reads on the C++ side
+/// 39-field schema exactly, field-for-field, even though individual value reads on the C++ side
 /// are by name.
 /// </summary>
 public sealed class FunctionInfo
@@ -47,7 +47,13 @@ public sealed class FunctionInfo
 
     public bool? LateMaterialization { get; set; }
 
-    public List<string> SupportedExpressionFilters { get; set; } = [];
+    public List<string> FilterSemanticProfiles { get; set; } = [];
+
+    public List<FilterFunctionCapability> AdditionalFilterFunctions { get; set; } = [];
+
+    public List<RuntimeFilterAlgorithmCapability> RuntimeFilterAlgorithms { get; set; } = [];
+
+    public List<EvaluationContextCapability> FilterEvaluationContexts { get; set; } = [];
 
     public VgiOrderPreservation? OrderPreservation { get; set; }
 
@@ -86,6 +92,31 @@ public sealed class FunctionInfo
     public List<string> RequiredSettings { get; set; } = [];
 
     public List<RequiredSecret> RequiredSecrets { get; set; } = [];
+}
+
+public sealed class FilterFunctionCapability
+{
+    public string Namespace { get; set; } = "";
+
+    public string Name { get; set; } = "";
+
+    public ulong Version { get; set; }
+}
+
+public sealed class RuntimeFilterAlgorithmCapability
+{
+    public string Namespace { get; set; } = "";
+
+    public string Name { get; set; } = "";
+
+    public ulong Version { get; set; }
+}
+
+public sealed class EvaluationContextCapability
+{
+    public string Profile { get; set; } = "";
+
+    public string? ProviderFingerprint { get; set; }
 }
 
 /// <summary>Nested struct inside <see cref="FunctionInfo.Examples"/>. Property order matches the

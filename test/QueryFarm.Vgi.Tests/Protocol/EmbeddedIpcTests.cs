@@ -66,6 +66,10 @@ public class EmbeddedIpcTests
             Description = "uppercases a string",
             Examples = [new FunctionExample { Sql = "SELECT upper_case('a')", Description = "ex", ExpectedOutput = "A" }],
             Categories = ["string"],
+            FilterSemanticProfiles = ["vgi.duckdb.standard.v1"],
+            AdditionalFilterFunctions = [new FilterFunctionCapability { Namespace = "acme.filters", Name = "overlaps", Version = 1 }],
+            RuntimeFilterAlgorithms = [new RuntimeFilterAlgorithmCapability { Namespace = "acme.runtime", Name = "bloom", Version = 2 }],
+            FilterEvaluationContexts = [new EvaluationContextCapability { Profile = "vgi.duckdb.session.v1", ProviderFingerprint = "duckdb-1.5" }],
             RequiredSettings = [],
             RequiredSecrets = [new RequiredSecret { SecretType = "s3", Scope = null, SecretName = null }],
         };
@@ -83,6 +87,16 @@ public class EmbeddedIpcTests
         Assert.Equal("s3", decoded.RequiredSecrets[0].SecretType);
         Assert.Equal(VgiPartitionKind.NotPartitioned, decoded.PartitionKind);
         Assert.Equal(AggregateOrderDependent.NotOrderDependent, decoded.OrderDependent);
+        Assert.Equal(["vgi.duckdb.standard.v1"], decoded.FilterSemanticProfiles);
+        Assert.Equal("overlaps", Assert.Single(decoded.AdditionalFilterFunctions).Name);
+        Assert.Equal((ulong)2, Assert.Single(decoded.RuntimeFilterAlgorithms).Version);
+        Assert.Equal("duckdb-1.5", Assert.Single(decoded.FilterEvaluationContexts).ProviderFingerprint);
+
+        var schema = SchemaDerivation.InnerSchemaFor(typeof(FunctionInfo));
+        Assert.Equal(39, schema.FieldsList.Count);
+        Assert.Equal([
+            "filter_semantic_profiles", "additional_filter_functions", "runtime_filter_algorithms", "filter_evaluation_contexts",
+        ], schema.FieldsList.Skip(16).Take(4).Select(field => field.Name));
     }
 
     [Fact]
@@ -176,7 +190,7 @@ public class EmbeddedIpcTests
             NativeFormats = ["arrow_stream"],
             Catalogs = ["memory", "vgi"],
             CanStream = true,
-            FilterEncodings = ["substrait"],
+            FilterEncodings = ["vgi.filters.v2"],
         };
         var decodedCapabilities = EmbeddedIpc.Decode<ClientCapabilities>(EmbeddedIpc.Encode(capabilities));
         Assert.Equal(capabilities.Engine, decodedCapabilities.Engine);
