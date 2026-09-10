@@ -14,7 +14,8 @@ await worker.RunHttpAsync(
 
 `RunFromArgsAsync` accepts the common `--iroh-raw-upstream`, `--iroh-issuer`,
 `--iroh-trusted-proxy`, and `--iroh-observe` flags; `--http` plus an issuer
-enables the HTTP bridge identity provider. The RPC client packages provide
+enables the HTTP bridge identity provider. `--http --host 127.0.0.1 --port
+9401 --iroh-issuer production` is the Python-compatible fixed-port form; the
+older `--http 9401` shorthand remains supported. The RPC client packages provide
 native `iroh://` and `httpi://` transports and expose private relay, direct
 address, stable key, cancellation, and timeout options.
-
