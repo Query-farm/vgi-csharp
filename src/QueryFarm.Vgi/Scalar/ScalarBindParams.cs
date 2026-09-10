@@ -34,4 +34,6 @@ public sealed class ScalarBindParams
     /// for a zero-argument function or a pre-bind catalog probe. Needed by an ANY-typed function to
     /// derive its actual (promoted) output type — see <see cref="IScalarFunction.ResolveOutputSchema"/>.</summary>
     public Schema? InputSchema { get; init; }
+
+    public IReadOnlyList<string?>? ArgumentNames { get; init; }
 }

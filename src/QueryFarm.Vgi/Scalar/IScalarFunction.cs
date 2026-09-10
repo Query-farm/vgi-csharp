@@ -33,9 +33,8 @@ public interface IScalarFunction
     /// (<see cref="Protocol.FunctionInfo.Tags"/>). Empty (the default) reports no tags.</summary>
     IReadOnlyDictionary<string, string> Tags => new Dictionary<string, string>();
 
-    /// <summary>Describes the function's positional arguments. Field NAMES are cosmetic — DuckDB
-    /// only inspects field TYPES/nullability/count/metadata (<c>vgi_const</c>/<c>vgi_varargs</c>/
-    /// <c>vgi_type=any</c>) when registering the function's signature.</summary>
+    /// <summary>Describes the function's arguments. Fixed argument fields retain their declared
+    /// parameter names; <c>vgi_arg=named</c> marks table-function-style named-only options.</summary>
     Schema ArgumentsSchema { get; }
 
     /// <summary>The function's STATIC/declared return schema (exactly one field) — used for
@@ -44,6 +43,10 @@ public interface IScalarFunction
     /// <c>vgi_type=any</c> metadata; the REAL per-call type comes from
     /// <see cref="ResolveOutputSchema"/>.</summary>
     Schema OutputSchema { get; }
+
+    /// <summary>Authoritative typed parameter defaults. Exactly one row, containing only defaulted
+    /// parameters in signature order; a present null is an explicit NULL default.</summary>
+    RecordBatch? ParameterDefaultValues => null;
 
     /// <summary>Optional stability hint (defaults to CONSISTENT server-side when omitted) —
     /// override to VOLATILE for a non-deterministic function (disables input dedup/caching on the

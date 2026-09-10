@@ -78,6 +78,8 @@ public interface IAggregateFunction
     /// override <see cref="ResolveOutputSchema"/> to resolve the concrete per-call type.</summary>
     Schema OutputSchema { get; }
 
+    RecordBatch? ParameterDefaultValues => null;
+
     FunctionStability? Stability => null;
 
     IReadOnlyList<string> RequiredSettings => [];

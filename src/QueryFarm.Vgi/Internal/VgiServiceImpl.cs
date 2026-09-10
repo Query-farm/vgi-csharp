@@ -151,6 +151,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             FunctionName = bindRequest.FunctionName,
             ArgumentsBytes = bindRequest.Arguments,
             Arguments = arguments,
+            ArgumentNames = bindRequest.ArgumentNames,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
             InputSchema = inputSchema,
@@ -255,6 +256,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             FunctionName = bindRequest.FunctionName,
             ArgumentsBytes = bindRequest.Arguments,
             Arguments = TableArgCodec.Decode(bindRequest.Arguments),
+            ArgumentNames = bindRequest.ArgumentNames,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
             InputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes ? SchemaIpc.ReadSchemaOnly(schemaBytes) : null,
@@ -290,6 +292,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             FunctionName = bindRequest.FunctionName,
             ArgumentsBytes = bindRequest.Arguments,
             Arguments = TableArgCodec.Decode(bindRequest.Arguments),
+            ArgumentNames = bindRequest.ArgumentNames,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
             InputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes ? SchemaIpc.ReadSchemaOnly(schemaBytes) : null,
@@ -342,6 +345,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             FunctionName = bindRequest.FunctionName,
             ArgumentsBytes = bindRequest.Arguments,
             Arguments = TableArgCodec.Decode(bindRequest.Arguments),
+            ArgumentNames = bindRequest.ArgumentNames,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
             InputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes ? SchemaIpc.ReadSchemaOnly(schemaBytes) : null,
@@ -486,6 +490,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             FunctionName = request.FunctionName,
             Arguments = arguments,
             InputSchema = inputSchema,
+            ArgumentNames = request.ArgumentNames,
             Settings = request.Settings,
             Secrets = request.Secrets,
         };
@@ -660,6 +665,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Settings = request.Settings,
             Secrets = request.Secrets,
             InputSchema = inputSchema,
+            ArgumentNames = request.ArgumentNames,
         });
 
         return function.ResolveOutputSchema(inputSchema);
@@ -709,6 +715,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Settings = request.Settings,
             Secrets = new SecretsAccessor(request.Secrets, request.ResolvedSecretsProvided),
             InputSchema = inputSchema,
+            ArgumentNames = request.ArgumentNames,
             AttachOpaqueData = request.AttachOpaqueData ?? [],
             TransactionOpaqueData = request.TransactionOpaqueData ?? [],
             CopyFrom = request.CopyFrom,
@@ -820,6 +827,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Settings = request.Settings,
             Secrets = new SecretsAccessor(request.Secrets, request.ResolvedSecretsProvided),
             InputSchema = inputSchema,
+            ArgumentNames = request.ArgumentNames,
             AttachOpaqueData = request.AttachOpaqueData ?? [],
             CopyTo = request.CopyTo,
         };
@@ -861,6 +869,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
             InputSchema = inputSchema,
+            ArgumentNames = bindRequest.ArgumentNames,
             AttachOpaqueData = bindRequest.AttachOpaqueData ?? [],
             TransactionOpaqueData = bindRequest.TransactionOpaqueData ?? [],
             CopyFrom = bindRequest.CopyFrom,
@@ -949,6 +958,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
             InputSchema = inputSchema,
+            ArgumentNames = bindRequest.ArgumentNames,
             AttachOpaqueData = bindRequest.AttachOpaqueData ?? [],
             CopyTo = bindRequest.CopyTo,
         };
@@ -1024,6 +1034,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 Settings = bindRequest.Settings,
                 Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
                 InputSchema = inputSchema,
+                ArgumentNames = bindRequest.ArgumentNames,
             };
             var outputSchema = function.ResolveOutputSchema(bindParams);
             var finalizeStateId = request.FinalizeStateId ?? [];
@@ -1564,6 +1575,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         FunctionType = FunctionType.Scalar,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
+        ParameterDefaultValues = EncodeParameterDefaults(function.ParameterDefaultValues, function.ArgumentsSchema),
         Stability = function.Stability,
         NullHandling = function.NullHandling,
         Description = function.Description,
@@ -1580,6 +1592,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         FunctionType = FunctionType.Table,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
+        ParameterDefaultValues = EncodeParameterDefaults(function.ParameterDefaultValues, function.ArgumentsSchema),
         Stability = function.Stability,
         NullHandling = null,
         Description = function.Description,
@@ -1617,6 +1630,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         FunctionType = FunctionType.Table,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
+        ParameterDefaultValues = EncodeParameterDefaults(function.ParameterDefaultValues, function.ArgumentsSchema),
         Stability = function.Stability,
         NullHandling = null,
         Description = function.Description,
@@ -1641,6 +1655,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         FunctionType = FunctionType.TableBuffering,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
+        ParameterDefaultValues = EncodeParameterDefaults(function.ParameterDefaultValues, function.ArgumentsSchema),
         Stability = function.Stability,
         NullHandling = null,
         Description = function.Description,
@@ -1707,6 +1722,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         FunctionType = FunctionType.Aggregate,
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
+        ParameterDefaultValues = EncodeParameterDefaults(function.ParameterDefaultValues, function.ArgumentsSchema),
         Stability = function.Stability,
         NullHandling = null,
         Description = function.Description,
@@ -1716,6 +1732,48 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         RequiredSettings = function.RequiredSettings.ToList(),
         RequiredSecrets = function.RequiredSecrets.ToList(),
     };
+
+    private static byte[]? EncodeParameterDefaults(RecordBatch? defaults, Schema argumentsSchema)
+    {
+        if (defaults is null)
+        {
+            return null;
+        }
+
+        if (defaults.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"ParameterDefaultValues must contain exactly one row, got {defaults.Length}.");
+        }
+
+        var argumentIndex = 0;
+        foreach (var defaultField in defaults.Schema.FieldsList)
+        {
+            while (argumentIndex < argumentsSchema.FieldsList.Count &&
+                   argumentsSchema.FieldsList[argumentIndex].Name != defaultField.Name)
+            {
+                argumentIndex++;
+            }
+
+            if (argumentIndex == argumentsSchema.FieldsList.Count)
+            {
+                throw new InvalidOperationException(
+                    $"ParameterDefaultValues field '{defaultField.Name}' is not in argument signature order.");
+            }
+
+            var argumentField = argumentsSchema.FieldsList[argumentIndex];
+            if (!argumentField.DataType.Equals(defaultField.DataType))
+            {
+                throw new InvalidOperationException(
+                    $"ParameterDefaultValues field '{defaultField.Name}' has type {defaultField.DataType}, " +
+                    $"expected {argumentField.DataType}.");
+            }
+
+            argumentIndex++;
+        }
+
+        return RecordBatchIpc.Write(defaults);
+    }
 
     /// <summary>Builds a schema's <see cref="ItemsResponse"/> item, including an accurate
     /// per-kind <see cref="SchemaInfo.EstimatedObjectCount"/> — the C++ extension treats a

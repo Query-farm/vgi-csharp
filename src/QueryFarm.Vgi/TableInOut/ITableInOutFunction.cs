@@ -52,6 +52,8 @@ public interface ITableInOutFunction
     /// placeholder; the REAL per-call schema comes from <see cref="ResolveOutputSchema"/>.</summary>
     Schema OutputSchema { get; }
 
+    RecordBatch? ParameterDefaultValues => null;
+
     FunctionStability? Stability => null;
 
     IReadOnlyList<string> RequiredSettings => [];

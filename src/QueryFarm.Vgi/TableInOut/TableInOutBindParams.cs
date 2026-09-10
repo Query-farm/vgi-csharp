@@ -30,6 +30,8 @@ public sealed class TableInOutBindParams
     /// — dynamic, since callers can pass any query as the TABLE argument).</summary>
     public required Schema InputSchema { get; init; }
 
+    public IReadOnlyList<string?>? ArgumentNames { get; init; }
+
     /// <summary>Raw <c>BindRequest.AttachOpaqueData</c> — see
     /// <see cref="Table.TableBindParams.AttachOpaqueData"/>'s doc comment.</summary>
     public byte[] AttachOpaqueData { get; init; } = [];
