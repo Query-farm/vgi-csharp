@@ -113,6 +113,7 @@ var worker = new Worker()
     // Core arithmetic / numeric-promotion fixtures.
     .RegisterScalar(new UpperCaseFunction())
     .RegisterScalar(new AddValuesFunction())
+    .RegisterScalar(new ArgumentNamesProbeFunction())
     .RegisterScalar(new DoubleFunction())
     .RegisterScalar(new SumValuesFunction())
     // Const-parameter / settings / varargs fixtures.
@@ -265,6 +266,7 @@ var worker = new Worker()
     .RegisterTableBuffering(new ExceptionFinalizeFunction())
     .RegisterTableBuffering(new ExceptionFinalizeFunction("crash_on_finalize"))
     .RegisterTableBuffering(new CrashOnCombineFunction())
+    .RegisterTableBuffering(new CrashOnProcessFunction())
     .RegisterTableBuffering(new SameNameBufferedFunction("main", "Schema-disambiguation probe; the main-schema table-buffering"))
     .RegisterTableBuffering(new SameNameBufferedFunction("data", "Schema-disambiguation probe; the data-schema table-buffering"))
     // Table-buffering (global Sink+Combine+Source) coverage cluster —

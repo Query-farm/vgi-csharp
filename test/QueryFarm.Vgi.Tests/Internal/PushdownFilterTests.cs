@@ -41,6 +41,20 @@ public class PushdownFilterTests
     }
 
     [Fact]
+    public void Snapshot_Comparison_BindsDictionaryColumnToLogicalValueType()
+    {
+        var dictionaryType = new DictionaryType(Int8Type.Default, StringType.Default, ordered: false);
+        var schema = new Schema([new Field("s", dictionaryType, true)], null);
+        var expression = $"{{\"node\":\"comparison\",\"op\":\"eq\",\"left\":{Column("s", 0)},\"right\":{Literal(0)}}}";
+        var strings = new StringArray.Builder().Append("green").Build();
+
+        var decoded = Decode(Filter(Snapshot(Predicate("dictionary", "required", expression)),
+            (new Field("value_0", StringType.Default, true), strings)), outputSchema: schema);
+
+        Assert.NotNull(decoded);
+    }
+
+    [Fact]
     public void Snapshot_ArbitrarilyNestedFieldRef_IsEvaluated()
     {
         var nested = $"{{\"node\":\"field_ref\",\"expression\":{{\"node\":\"field_ref\",\"expression\":{Column("outer", 0)},\"field_index\":0,\"field_name\":\"middle\"}},\"field_index\":0,\"field_name\":\"leaf\"}}";
