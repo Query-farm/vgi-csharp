@@ -61,6 +61,8 @@ public interface ITableBufferingFunction
 
     Schema OutputSchema { get; }
 
+    RecordBatch? ParameterDefaultValues => null;
+
     FunctionStability? Stability => null;
 
     IReadOnlyList<string> RequiredSettings => [];

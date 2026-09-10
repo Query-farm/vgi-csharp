@@ -36,6 +36,8 @@ public sealed class TableBindParams
     /// <see langword="null"/> when the call site declared no such dynamic arguments.</summary>
     public Schema? InputSchema { get; init; }
 
+    public IReadOnlyList<string?>? ArgumentNames { get; init; }
+
     /// <summary>Raw <see cref="Protocol.BindRequest.AttachOpaqueData"/> — echoed back verbatim by
     /// the C++ extension for every RPC belonging to ONE <c>ATTACH</c>'s lifetime, so (unlike
     /// <see cref="CatalogRegistry.DefaultIdentity"/>'s name-derived, deterministic-per-name routing

@@ -5,7 +5,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// reusable for <see cref="CatalogAttachResult.GlobalFunctions"/>). The C++ extension validates
 /// each item's embedded-IPC schema with STRICT <c>arrow::Schema::Equals</c> against its generated
 /// <c>FunctionInfoSchema()</c> — property declaration order is LOAD-BEARING and must match that
-/// 39-field schema exactly, field-for-field, even though individual value reads on the C++ side
+/// 40-field schema exactly, field-for-field, even though individual value reads on the C++ side
 /// are by name.
 /// </summary>
 public sealed class FunctionInfo
@@ -20,14 +20,19 @@ public sealed class FunctionInfo
 
     public FunctionType FunctionType { get; set; }
 
-    /// <summary>Serialized (schema-only) Arrow IPC bytes describing the function's positional
-    /// arguments — field NAMES are cosmetic; only field TYPES/order/nullability matter to the
-    /// C++ side's DuckDB signature registration.</summary>
+    /// <summary>Serialized (schema-only) Arrow IPC bytes describing the function's arguments.
+    /// Fixed argument fields retain their declared parameter names; <c>vgi_arg=named</c> marks
+    /// table-function-style named-only options.</summary>
     public byte[] Arguments { get; set; } = [];
 
     /// <summary>Serialized (schema-only) Arrow IPC bytes describing the return value: exactly one
     /// field.</summary>
     public byte[] OutputSchema { get; set; } = [];
+
+    /// <summary>Serialized authoritative typed defaults: a one-row record batch containing only
+    /// defaulted parameters in signature order. A present null cell is an explicit NULL default.
+    /// <c>vgi_default</c> argument metadata remains discovery-only.</summary>
+    public byte[]? ParameterDefaultValues { get; set; }
 
     public FunctionStability? Stability { get; set; }
 

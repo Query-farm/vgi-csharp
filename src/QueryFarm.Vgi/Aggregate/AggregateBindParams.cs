@@ -19,6 +19,8 @@ public sealed class AggregateBindParams
     /// truly nullary aggregate with zero declared Param columns (e.g. <c>vgi_count()</c>).</summary>
     public Schema? InputSchema { get; init; }
 
+    public IReadOnlyList<string?>? ArgumentNames { get; init; }
+
     public byte[]? Settings { get; init; }
 
     public byte[]? Secrets { get; init; }
