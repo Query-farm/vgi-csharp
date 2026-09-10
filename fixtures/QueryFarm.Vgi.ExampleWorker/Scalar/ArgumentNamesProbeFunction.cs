@@ -12,6 +12,19 @@ public sealed class ArgumentNamesProbeFunction : ScalarFn
 
     public override string Description => "Checks VGI 2.0 bind-time argument names";
 
+    public override Schema ArgumentsSchema { get; } = new(
+        [
+            new Field("left", Int64Type.Default, nullable: true, new Dictionary<string, string> { ["vgi_doc"] = "Left value" }),
+            new Field("right", Int64Type.Default, nullable: true, new Dictionary<string, string> { ["vgi_doc"] = "Right value" }),
+            new Field("scale", Int64Type.Default, nullable: true, new Dictionary<string, string>
+            {
+                ["vgi_const"] = "true",
+                ["vgi_default"] = "2",
+                ["vgi_doc"] = "Scale factor",
+            }),
+        ],
+        metadata: null);
+
     public override RecordBatch ParameterDefaultValues { get; } = new(
         new Schema([new Field("scale", Int64Type.Default, nullable: false)], metadata: null),
         [new Int64Array.Builder().Append(2).Build()],
@@ -31,9 +44,9 @@ public sealed class ArgumentNamesProbeFunction : ScalarFn
     }
 
     private void Compute(
-        [Param] Int64Array left,
-        [Param] Int64Array right,
-        [ConstParam] long scale,
+        [Param(Doc = "Left value")] Int64Array left,
+        [Param(Doc = "Right value")] Int64Array right,
+        [ConstParam(Doc = "Scale factor")] long scale,
         Int64Array.Builder result)
     {
         for (var i = 0; i < left.Length; i++)

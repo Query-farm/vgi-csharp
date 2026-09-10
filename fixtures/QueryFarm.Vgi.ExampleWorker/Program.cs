@@ -97,19 +97,6 @@ var worker = new Worker()
             new Field("timeout", DoubleType.Default, nullable: true),
         ],
         metadata: null))
-    // scalar/function_registration.test — CONFIRMED reference-drift, not a C#-side gap: expects
-    // exactly 55 scalar functions; this worker registers 52. Verified by running the SAME test
-    // file against the canonical vgi-python reference worker (`python -m vgi._test_fixtures.worker`,
-    // this machine's ~/Development/vgi-python checkout) via the C++ unittest binary directly — it
-    // ALSO reports 52, an IDENTICAL failure (`Mismatch ... 52 <> 55`), and a full class-hierarchy
-    // diff of every registered scalar function name between this worker and that python worker
-    // (filtering `s.functions` for `ScalarFunction`/`ScalarFunctionGenerator` bases across all
-    // schemas) found ZERO differences — both workers register the exact same 52 names. The test's
-    // expected 55 refers to 3 scalar functions that don't exist in either implementation available
-    // here, so there is no reference to port them from; this is either a stale/ahead-of-checkout
-    // test expectation or an upstream vgi-python addition not yet present in this checkout, not
-    // something fixable by adding fixtures to this port. Deferred.
-    //
     // Core arithmetic / numeric-promotion fixtures.
     .RegisterScalar(new UpperCaseFunction())
     .RegisterScalar(new AddValuesFunction())
