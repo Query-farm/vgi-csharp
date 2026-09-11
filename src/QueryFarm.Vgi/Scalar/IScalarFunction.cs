@@ -58,6 +58,10 @@ public interface IScalarFunction
     /// SPECIAL for a function that wants to see/handle NULL rows itself.</summary>
     FunctionNullHandling? NullHandling => null;
 
+    /// <summary>Optional monotonicity claims in <see cref="ArgumentsSchema"/> declaration order.
+    /// A present list has exactly one entry per field; a vararg declaration is one field.</summary>
+    IReadOnlyList<ArgumentMonotonicity>? ArgumentMonotonicity => null;
+
     /// <summary>Setting names (<c>SET &lt;key&gt; = ...</c>) this function needs resolved and
     /// shipped on every bind — advertised so the C++ extension bothers looking them up at all.</summary>
     IReadOnlyList<string> RequiredSettings => [];

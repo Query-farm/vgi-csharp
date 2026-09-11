@@ -5,7 +5,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// reusable for <see cref="CatalogAttachResult.GlobalFunctions"/>). The C++ extension validates
 /// each item's embedded-IPC schema with STRICT <c>arrow::Schema::Equals</c> against its generated
 /// <c>FunctionInfoSchema()</c> — property declaration order is LOAD-BEARING and must match that
-/// 40-field schema exactly, field-for-field, even though individual value reads on the C++ side
+/// 41-field schema exactly, field-for-field, even though individual value reads on the C++ side
 /// are by name.
 /// </summary>
 public sealed class FunctionInfo
@@ -37,6 +37,10 @@ public sealed class FunctionInfo
     public FunctionStability? Stability { get; set; }
 
     public FunctionNullHandling? NullHandling { get; set; }
+
+    /// <summary>Scalar-only uppercase claims aligned with argument declaration slots.
+    /// <see langword="null"/> makes no claims; a vararg declaration occupies one slot.</summary>
+    public List<string>? ArgumentMonotonicity { get; set; }
 
     public string Description { get; set; } = "";
 

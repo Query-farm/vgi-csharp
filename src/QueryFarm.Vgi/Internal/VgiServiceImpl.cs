@@ -1578,10 +1578,39 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         ParameterDefaultValues = EncodeParameterDefaults(function.ParameterDefaultValues, function.ArgumentsSchema),
         Stability = function.Stability,
         NullHandling = function.NullHandling,
+        ArgumentMonotonicity = ValidateArgumentMonotonicity(
+            function.ArgumentMonotonicity, function.ArgumentsSchema),
         Description = function.Description,
         RequiredSettings = function.RequiredSettings.ToList(),
         RequiredSecrets = function.RequiredSecrets.ToList(),
     };
+
+    private static List<string>? ValidateArgumentMonotonicity(
+        IReadOnlyList<ArgumentMonotonicity>? values, Schema argumentsSchema)
+    {
+        if (values is null)
+        {
+            return null;
+        }
+
+        if (values.Count != argumentsSchema.FieldsList.Count)
+        {
+            throw new InvalidOperationException(
+                $"ArgumentMonotonicity has {values.Count} entries, expected " +
+                $"{argumentsSchema.FieldsList.Count} declaration slots.");
+        }
+
+        return values.Select(value => value switch
+        {
+            ArgumentMonotonicity.Unknown => "UNKNOWN",
+            ArgumentMonotonicity.Constant => "CONSTANT",
+            ArgumentMonotonicity.NonDecreasing => "NON_DECREASING",
+            ArgumentMonotonicity.StrictlyIncreasing => "STRICTLY_INCREASING",
+            ArgumentMonotonicity.NonIncreasing => "NON_INCREASING",
+            ArgumentMonotonicity.StrictlyDecreasing => "STRICTLY_DECREASING",
+            _ => throw new InvalidOperationException($"Unknown ArgumentMonotonicity value {value}."),
+        }).ToList();
+    }
 
     private static FunctionInfo BuildFunctionInfo(ITableFunction function) => new()
     {

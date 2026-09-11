@@ -20,6 +20,9 @@ public sealed class NullHandlingFunction : ScalarFn
 
     public override FunctionNullHandling? NullHandling => Protocol.FunctionNullHandling.Special;
 
+    public override IReadOnlyList<ArgumentMonotonicity>? ArgumentMonotonicity =>
+        [Protocol.ArgumentMonotonicity.StrictlyIncreasing];
+
     private void Compute([Param] Int64Array value, Int64Array.Builder result)
     {
         for (var i = 0; i < value.Length; i++)

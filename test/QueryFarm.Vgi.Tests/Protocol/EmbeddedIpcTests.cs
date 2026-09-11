@@ -66,6 +66,7 @@ public class EmbeddedIpcTests
             Arguments = [1, 2],
             OutputSchema = [3, 4],
             ParameterDefaultValues = [5, 6],
+            ArgumentMonotonicity = ["STRICTLY_INCREASING", "CONSTANT"],
             Description = "uppercases a string",
             Examples = [new FunctionExample { Sql = "SELECT upper_case('a')", Description = "ex", ExpectedOutput = "A" }],
             Categories = ["string"],
@@ -83,6 +84,7 @@ public class EmbeddedIpcTests
         Assert.Equal(original.Name, decoded.Name);
         Assert.Equal(original.FunctionType, decoded.FunctionType);
         Assert.Equal([5, 6], decoded.ParameterDefaultValues);
+        Assert.Equal(["STRICTLY_INCREASING", "CONSTANT"], decoded.ArgumentMonotonicity);
         Assert.Equal("v", decoded.Tags["k"]);
         Assert.Single(decoded.Examples);
         Assert.Equal("ex", decoded.Examples[0].Description);
@@ -97,10 +99,11 @@ public class EmbeddedIpcTests
         Assert.Equal("duckdb-1.5", Assert.Single(decoded.FilterEvaluationContexts).ProviderFingerprint);
 
         var schema = SchemaDerivation.InnerSchemaFor(typeof(FunctionInfo));
-        Assert.Equal(40, schema.FieldsList.Count);
+        Assert.Equal(41, schema.FieldsList.Count);
+        Assert.Equal("argument_monotonicity", schema.GetFieldByIndex(10).Name);
         Assert.Equal([
             "filter_semantic_profiles", "additional_filter_functions", "runtime_filter_algorithms", "filter_evaluation_contexts",
-        ], schema.FieldsList.Skip(17).Take(4).Select(field => field.Name));
+        ], schema.FieldsList.Skip(18).Take(4).Select(field => field.Name));
     }
 
     [Fact]

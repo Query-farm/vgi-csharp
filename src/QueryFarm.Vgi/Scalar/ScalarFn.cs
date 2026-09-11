@@ -48,6 +48,8 @@ public abstract class ScalarFn : IScalarFunction
 
     public virtual FunctionNullHandling? NullHandling => null;
 
+    public virtual IReadOnlyList<ArgumentMonotonicity>? ArgumentMonotonicity => null;
+
     public virtual IReadOnlyList<string> RequiredSettings => _plan.RequiredSettingNames;
 
     public virtual IReadOnlyList<RequiredSecret> RequiredSecrets => _plan.RequiredSecretsList;

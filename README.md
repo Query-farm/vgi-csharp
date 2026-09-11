@@ -85,6 +85,13 @@ public sealed class UpperCaseFunction : ScalarFn
 `ScalarFn` reflects `Compute`'s parameters once per subclass and dispatches per batch — no manual
 Arrow-schema bookkeeping needed for the common case.
 
+Scalar functions can override `ArgumentMonotonicity` with an
+`IReadOnlyList<ArgumentMonotonicity>`. The optional list is in
+`ArgumentsSchema` declaration order and must have exactly one entry per field.
+Fixed, defaulted, and constant arguments each occupy one slot; a vararg
+declaration occupies one slot regardless of call-time expansion. Named SQL
+invocation order does not reorder the claims; `null` makes no claims.
+
 **3. Build it (`dotnet build -c Release`), then call it from a DuckDB engine that has the `vgi`
 extension.** The `vgi` extension currently ships with Query Farm's
 [Haybarn](https://github.com/Query-farm-haybarn/haybarn) DuckDB distribution, which starts with no

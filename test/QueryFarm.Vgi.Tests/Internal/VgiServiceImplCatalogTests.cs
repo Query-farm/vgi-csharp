@@ -1,9 +1,11 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using QueryFarm.Vgi.Attributes;
 using QueryFarm.Vgi.Buffering;
 using QueryFarm.Vgi.Catalog;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
+using QueryFarm.Vgi.Scalar;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 using Xunit;
@@ -17,6 +19,49 @@ namespace QueryFarm.Vgi.Tests.Internal;
 public class VgiServiceImplCatalogTests
 {
     private static VgiServiceImpl NewService() => new(new CatalogRegistry());
+
+    private sealed class MonotonicScalar(IReadOnlyList<ArgumentMonotonicity> monotonicity) : ScalarFn
+    {
+        public override string Name => "monotonic_scalar";
+
+        public override IReadOnlyList<ArgumentMonotonicity>? ArgumentMonotonicity => monotonicity;
+
+        private void Compute([Param] Int64Array value, Int64Array.Builder result)
+        {
+            for (var row = 0; row < value.Length; row++)
+            {
+                result.Append(value.GetValue(row));
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CatalogFunctionMetadata_TransportsArgumentMonotonicity()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterScalar(new MonotonicScalar([ArgumentMonotonicity.StrictlyIncreasing]));
+        var service = new VgiServiceImpl(registry);
+
+        var response = await service.CatalogSchemaContentsFunctionsAsync(
+            [], ["main"], SchemaObjectType.ScalarFunction, null);
+        var function = Assert.Single(response.Items.Select(EmbeddedIpc.Decode<FunctionInfo>));
+
+        Assert.Equal(["STRICTLY_INCREASING"], function.ArgumentMonotonicity);
+    }
+
+    [Fact]
+    public async Task CatalogFunctionMetadata_RejectsMisalignedArgumentMonotonicity()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterScalar(new MonotonicScalar([]));
+        var service = new VgiServiceImpl(registry);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CatalogSchemaContentsFunctionsAsync(
+                [], ["main"], SchemaObjectType.ScalarFunction, null));
+
+        Assert.Contains("expected 1 declaration slots", exception.Message, StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task CatalogAttach_MintsADifferentAttachOpaqueData_ForEveryCall_EvenWithTheSameName()
