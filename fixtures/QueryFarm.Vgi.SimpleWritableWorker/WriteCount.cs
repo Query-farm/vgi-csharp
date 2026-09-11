@@ -4,7 +4,7 @@ using Apache.Arrow.Types;
 namespace QueryFarm.Vgi.SimpleWritableWorker;
 
 /// <summary>The <c>(count BIGINT)</c> shape a writable-table delegate function emits when the
-/// caller did NOT request RETURNING (<c>write_options.return_chunks == false</c>) — see
+/// caller requested <c>write_options.result_mode == "count"</c> — see
 /// <c>ReadCountFromBatch</c> in <c>vgi_physical_write.cpp</c>.</summary>
 public static class WriteCount
 {

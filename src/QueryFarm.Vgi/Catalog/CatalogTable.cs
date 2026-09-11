@@ -56,7 +56,7 @@ public sealed class CatalogTable
     public IReadOnlyList<CatalogForeignKey> ForeignKeys { get; init; } = [];
 
     /// <summary>The row-identity column for UPDATE/DELETE (<see cref="Internal.VgiRowIdMetadata"/>).
-    /// Required when <see cref="SupportsUpdate"/> or <see cref="SupportsDelete"/> is set.</summary>
+    /// Required when <see cref="WriteResultModes"/> declares update or delete.</summary>
     public string? RowIdColumn { get; init; }
 
     /// <summary>The read path — a normal table function (also independently registered under this
@@ -121,16 +121,9 @@ public sealed class CatalogTable
     /// query.</summary>
     public long? StatisticsCacheMaxAgeSeconds { get; init; }
 
-    public bool SupportsInsert { get; init; }
-
-    public bool SupportsUpdate { get; init; }
-
-    public bool SupportsDelete { get; init; }
-
-    /// <summary>Whether INSERT/UPDATE/DELETE ... RETURNING is allowed — independent per-operation
-    /// support flags aren't part of the wire protocol, so this applies to whichever of
-    /// insert/update/delete IS supported.</summary>
-    public bool SupportsReturning { get; init; }
+    /// <summary>Maximum result mode for each supported write operation.</summary>
+    public IReadOnlyDictionary<string, string> WriteResultModes { get; init; } =
+        new Dictionary<string, string>();
 
     public ITableInOutFunction? InsertFunction { get; init; }
 

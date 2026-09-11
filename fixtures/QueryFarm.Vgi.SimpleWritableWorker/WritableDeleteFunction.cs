@@ -24,19 +24,19 @@ public sealed class WritableDeleteFunction(string name, Schema visibleSchema, Ro
     public Schema OutputSchema => visibleSchema;
 
     public Schema ResolveOutputSchema(TableInOutBindParams bindParams) =>
-        WriteOptions.Decode(bindParams.Arguments).ReturnChunks ? visibleSchema : WriteCount.Schema;
+        WriteResults.Schema(WriteOptions.Decode(bindParams.Arguments).ResultMode, visibleSchema);
 
     public ITableInOutProcessor CreateProcessor(TableInOutInitParams initParams)
     {
-        var returnChunks = WriteOptions.Decode(initParams.Arguments).ReturnChunks;
-        return new Processor(visibleSchema, store, returnChunks, initParams.AttachOpaqueData);
+        var mode = WriteOptions.Decode(initParams.Arguments).ResultMode;
+        return new Processor(visibleSchema, store, mode, initParams.AttachOpaqueData);
     }
 
-    private sealed class Processor(Schema visibleSchema, RowStore store, bool returnChunks, byte[] attachOpaqueData) : ITableInOutProcessor
+    private sealed class Processor(Schema visibleSchema, RowStore store, string mode, byte[] attachOpaqueData) : ITableInOutProcessor
     {
         public void Process(RecordBatch input, OutputCollector output)
         {
-            var returnedRows = new List<IReadOnlyDictionary<string, object?>>(returnChunks ? input.Length : 0);
+            var returnedRows = new List<IReadOnlyDictionary<string, object?>>(input.Length);
             long deleted = 0;
             for (var i = 0; i < input.Length; i++)
             {
@@ -53,13 +53,19 @@ public sealed class WritableDeleteFunction(string name, Schema visibleSchema, Ro
 
                 store.Delete(attachOpaqueData, rowId);
                 deleted++;
-                if (returnChunks)
-                {
-                    returnedRows.Add(RowCodec.ReadRow(existing, 0));
-                }
+                returnedRows.Add(RowCodec.ReadRow(existing, 0));
             }
 
-            output.Emit(returnChunks ? RowCodec.BuildBatch(visibleSchema, returnedRows) : WriteCount.Batch(deleted));
+            if (mode == "count")
+            {
+                output.Emit(WriteCount.Batch(deleted));
+                return;
+            }
+            output.Emit(WriteResults.Batch(
+                mode,
+                visibleSchema,
+                returnedRows.Cast<IReadOnlyDictionary<string, object?>?>().ToList(),
+                Enumerable.Repeat<IReadOnlyDictionary<string, object?>?>(null, returnedRows.Count).ToList()));
         }
     }
 }

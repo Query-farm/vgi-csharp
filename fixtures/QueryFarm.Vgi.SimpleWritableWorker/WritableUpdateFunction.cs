@@ -26,21 +26,22 @@ public sealed class WritableUpdateFunction(string name, Schema visibleSchema, Sc
     public Schema OutputSchema => visibleSchema;
 
     public Schema ResolveOutputSchema(TableInOutBindParams bindParams) =>
-        WriteOptions.Decode(bindParams.Arguments).ReturnChunks ? visibleSchema : WriteCount.Schema;
+        WriteResults.Schema(WriteOptions.Decode(bindParams.Arguments).ResultMode, visibleSchema);
 
     public ITableInOutProcessor CreateProcessor(TableInOutInitParams initParams)
     {
-        var returnChunks = WriteOptions.Decode(initParams.Arguments).ReturnChunks;
-        return new Processor(visibleSchema, fullSchema, rowIdColumn, store, returnChunks, initParams.AttachOpaqueData);
+        var mode = WriteOptions.Decode(initParams.Arguments).ResultMode;
+        return new Processor(visibleSchema, fullSchema, rowIdColumn, store, mode, initParams.AttachOpaqueData);
     }
 
     private sealed class Processor(
-        Schema visibleSchema, Schema fullSchema, string rowIdColumn, RowStore store, bool returnChunks, byte[] attachOpaqueData)
+        Schema visibleSchema, Schema fullSchema, string rowIdColumn, RowStore store, string mode, byte[] attachOpaqueData)
         : ITableInOutProcessor
     {
         public void Process(RecordBatch input, OutputCollector output)
         {
-            var returnedRows = new List<IReadOnlyDictionary<string, object?>>(returnChunks ? input.Length : 0);
+            var oldRows = new List<IReadOnlyDictionary<string, object?>>(input.Length);
+            var returnedRows = new List<IReadOnlyDictionary<string, object?>>(input.Length);
             for (var i = 0; i < input.Length; i++)
             {
                 var changed = RowCodec.ReadRow(input, i);
@@ -52,6 +53,7 @@ public sealed class WritableUpdateFunction(string name, Schema visibleSchema, Sc
                 var existing = store.Get(attachOpaqueData, rowId)
                     ?? throw new InvalidOperationException($"UPDATE targeted a row-id that no longer exists in the store.");
                 var merged = RowCodec.ReadRow(existing, 0);
+                oldRows.Add(new Dictionary<string, object?>(merged, StringComparer.Ordinal));
                 foreach (var (column, value) in changed)
                 {
                     if (!string.Equals(column, rowIdColumn, StringComparison.Ordinal))
@@ -61,13 +63,14 @@ public sealed class WritableUpdateFunction(string name, Schema visibleSchema, Sc
                 }
 
                 store.Put(attachOpaqueData, rowId, RowCodec.BuildRow(fullSchema, merged));
-                if (returnChunks)
-                {
-                    returnedRows.Add(merged);
-                }
+                returnedRows.Add(merged);
             }
 
-            output.Emit(returnChunks ? RowCodec.BuildBatch(visibleSchema, returnedRows) : WriteCount.Batch(input.Length));
+            output.Emit(WriteResults.Batch(
+                mode,
+                visibleSchema,
+                oldRows.Cast<IReadOnlyDictionary<string, object?>?>().ToList(),
+                returnedRows.Cast<IReadOnlyDictionary<string, object?>?>().ToList()));
         }
     }
 }

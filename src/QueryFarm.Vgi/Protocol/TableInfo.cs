@@ -4,9 +4,9 @@ namespace QueryFarm.Vgi.Protocol;
 /// One item of a <c>catalog_table_get</c>/<c>catalog_schema_contents_tables</c> <see cref="ItemsResponse"/>.
 /// The C++ extension validates each item's embedded-IPC schema with STRICT <c>arrow::Schema::Equals</c>
 /// against its generated <c>TableInfoSchema()</c> — property declaration order matters and must match
-/// that 24-field schema exactly: comment, tags, name, schema_path, columns, not_null_constraints,
+/// that 21-field schema exactly: comment, tags, name, schema_path, columns, not_null_constraints,
 /// unique_constraints, check_constraints, primary_key_constraints, foreign_key_constraints,
-/// supports_insert, supports_update, supports_delete, supports_returning, supports_column_statistics,
+/// write_result_modes, supports_column_statistics,
 /// scan_function, insert_function, update_function, delete_function, cardinality_estimate,
 /// cardinality_max, column_statistics, bind_result, required_filters.
 /// </summary>
@@ -43,13 +43,9 @@ public sealed class TableInfo
     /// <summary>Each element an <see cref="Internal.EmbeddedIpc"/>-encoded <see cref="ForeignKeyInfo"/>.</summary>
     public List<byte[]> ForeignKeyConstraints { get; set; } = [];
 
-    public bool SupportsInsert { get; set; }
-
-    public bool SupportsUpdate { get; set; }
-
-    public bool SupportsDelete { get; set; }
-
-    public bool SupportsReturning { get; set; }
+    /// <summary>Maximum result mode for each supported operation. Missing means unsupported;
+    /// values are ordered <c>count &lt; rows &lt; changes</c>.</summary>
+    public Dictionary<string, string> WriteResultModes { get; set; } = [];
 
     public bool SupportsColumnStatistics { get; set; }
 

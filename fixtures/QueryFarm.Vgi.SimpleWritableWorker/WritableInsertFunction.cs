@@ -24,40 +24,47 @@ public sealed class WritableInsertFunction(string name, Schema visibleSchema, Sc
 
     public Schema OutputSchema => visibleSchema;
 
-    public Schema ResolveOutputSchema(TableInOutBindParams bindParams) =>
-        !brokenReturning && WriteOptions.Decode(bindParams.Arguments).ReturnChunks ? visibleSchema : WriteCount.Schema;
+    public Schema ResolveOutputSchema(TableInOutBindParams bindParams)
+    {
+        var mode = brokenReturning ? "count" : WriteOptions.Decode(bindParams.Arguments).ResultMode;
+        return WriteResults.Schema(mode, visibleSchema);
+    }
 
     public ITableInOutProcessor CreateProcessor(TableInOutInitParams initParams)
     {
-        var returnChunks = !brokenReturning && WriteOptions.Decode(initParams.Arguments).ReturnChunks;
-        return new Processor(visibleSchema, fullSchema, store, returnChunks, brokenReturning, initParams.AttachOpaqueData);
+        var mode = brokenReturning ? "count" : WriteOptions.Decode(initParams.Arguments).ResultMode;
+        return new Processor(visibleSchema, fullSchema, store, mode, brokenReturning, initParams.AttachOpaqueData);
     }
 
     private sealed class Processor(
-        Schema visibleSchema, Schema fullSchema, RowStore store, bool returnChunks, bool brokenReturning, byte[] attachOpaqueData)
+        Schema visibleSchema, Schema fullSchema, RowStore store, string mode, bool brokenReturning, byte[] attachOpaqueData)
         : ITableInOutProcessor
     {
         public void Process(RecordBatch input, OutputCollector output)
         {
-            var returnedRows = new List<IReadOnlyDictionary<string, object?>>(returnChunks ? input.Length : 0);
+            var returnedRows = new List<IReadOnlyDictionary<string, object?>>(input.Length);
             for (var i = 0; i < input.Length; i++)
             {
                 var values = RowCodec.ReadRow(input, i);
                 var rowId = store.NextRowId(attachOpaqueData);
                 var full = new Dictionary<string, object?>(values, StringComparer.Ordinal) { [WritableTableFixture.RowIdColumn] = rowId };
                 store.Put(attachOpaqueData, rowId, RowCodec.BuildRow(fullSchema, full));
-                if (returnChunks)
-                {
-                    returnedRows.Add(values);
-                }
+                returnedRows.Add(values);
             }
 
-            // items_broken_returning: a broken worker that advertises supports_returning but always
+            // items_broken_returning advertises rows but always
             // emits the count shape regardless — the C++ side must catch the mismatch when RETURNING
             // was actually requested (test/sql/integration/simple_writable/returning_validation.test).
-            output.Emit(!brokenReturning && returnChunks
-                ? RowCodec.BuildBatch(visibleSchema, returnedRows)
-                : WriteCount.Batch(input.Length));
+            if (brokenReturning)
+            {
+                output.Emit(WriteCount.Batch(input.Length));
+                return;
+            }
+            output.Emit(WriteResults.Batch(
+                mode,
+                visibleSchema,
+                Enumerable.Repeat<IReadOnlyDictionary<string, object?>?>(null, returnedRows.Count).ToList(),
+                returnedRows.Cast<IReadOnlyDictionary<string, object?>?>().ToList()));
         }
     }
 }
