@@ -64,13 +64,21 @@ public static class WritableTableFixture
             NotNullColumns = notNullColumns,
             RowIdColumn = RowIdColumn,
             ScanFunction = new RowStoreScanFunction(name, fullSchema, store),
-            SupportsInsert = supportsInsert,
-            SupportsUpdate = supportsUpdate,
-            SupportsDelete = supportsDelete,
-            SupportsReturning = supportsReturning,
+            WriteResultModes = BuildModes(supportsInsert, supportsUpdate, supportsDelete, supportsReturning, brokenReturning),
             InsertFunction = insert,
             UpdateFunction = update,
             DeleteFunction = delete,
         };
+    }
+
+    private static IReadOnlyDictionary<string, string> BuildModes(
+        bool insert, bool update, bool delete, bool returning, bool brokenReturning)
+    {
+        var maximum = returning ? (brokenReturning ? "rows" : "changes") : "count";
+        var result = new Dictionary<string, string>();
+        if (insert) result["insert"] = maximum;
+        if (update) result["update"] = maximum;
+        if (delete) result["delete"] = maximum;
+        return result;
     }
 }

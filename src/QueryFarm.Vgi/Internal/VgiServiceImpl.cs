@@ -1954,10 +1954,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 ReferencedSchemaPath = fk.ReferencedSchemaPath?.ToList()
                     ?? (fk.ReferencedSchema is { } referencedSchema ? [referencedSchema] : table.EffectiveSchemaPath.ToList()),
             })).ToList(),
-            SupportsInsert = table.SupportsInsert,
-            SupportsUpdate = table.SupportsUpdate,
-            SupportsDelete = table.SupportsDelete,
-            SupportsReturning = table.SupportsReturning,
+            WriteResultModes = new Dictionary<string, string>(table.WriteResultModes),
             SupportsColumnStatistics = table.Statistics.Count > 0,
             ScanFunction = table.ScanFunction is { } scan && table.InlineScanFunction
                 ? BuildInlineScanFunction(scan.Name, scan.SchemaPath, table.ScanArguments, table.ScanNamedArguments)

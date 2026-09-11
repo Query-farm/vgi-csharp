@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+    <ProjectReference Include="../../fixtures/QueryFarm.Vgi.SimpleWritableWorker/QueryFarm.Vgi.SimpleWritableWorker.csproj" />
   </ItemGroup>
 
   <!-- WorkerUnixSocketTests.cs drives Worker.RunUnixSocketAsync with a real client — needs
