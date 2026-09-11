@@ -3,9 +3,9 @@
 # example worker, using a prebuilt standalone `haybarn-unittest` and the signed
 # community vgi extension — no C++ build from source. See ci/README.md.
 #
-# Ported from vgi-go's ci/run-integration.sh, trimmed to a single (stdio)
-# transport lane for this first version — vgi-go's version additionally covers
-# launch:/shm/http lanes with a skip-reason allowlist and an executed-case
+# Ported from vgi-go's ci/run-integration.sh, trimmed to a single launcher
+# transport lane — vgi-go's version additionally covers stdio/shm/http lanes
+# with a skip-reason allowlist and an executed-case
 # floor to catch silent whole-suite skips; that hardening is a natural
 # follow-up here once this lane is proven green in real CI (see ci/README.md).
 #
@@ -95,9 +95,15 @@ mkdir -p "$STAGE/test/support"
 install -m 0755 "$DATABASE_WORKER_FIXTURE" \
   "$STAGE/test/support/database_worker_fixture.sh"
 
-# Matches scripts/run_tests.sh's SUBPROCESS=1 lane — the default DuckDB
-# `LOCATION` subprocess transport, no launcher/AF_UNIX pooling.
-export VGI_TEST_WORKER="$WORKER"
+# Pool the main worker behind DuckDB's AF_UNIX launcher. The suite opens many
+# connections and ATTACHes the same worker repeatedly; a bare path starts a new
+# .NET process for each connection, while launch: reuses one warm process.
+export VGI_TEST_WORKER="launch:$WORKER"
+export VGI_REQUIRE_LAUNCHER_TRANSPORT=1
+
+# Keep the small stateful and deliberately-incompatible fixtures isolated.
+# They account for only a handful of tests, and process isolation prevents
+# their mutable/error state from contaminating the shared main worker.
 export VGI_SIMPLE_WRITABLE_WORKER="$SIMPLE_WRITABLE"
 export VGI_BAD_PROTOCOL_WORKER="$BAD_PROTOCOL"
 

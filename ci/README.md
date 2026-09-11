@@ -24,15 +24,15 @@ from):
    [`preprocess-require.awk`](preprocess-require.awk) rewrites each `require <ext>` into an
    explicit signed `INSTALL <ext> FROM {community,core}; LOAD <ext>;`. `require-env` and
    everything else pass through.
-5. **Run** — [`run-integration.sh`](run-integration.sh) stages the preprocessed tree, wires
-   `VGI_TEST_WORKER`/`VGI_SIMPLE_WRITABLE_WORKER`/`VGI_BAD_PROTOCOL_WORKER` at the three built
-   binaries, `FORCE INSTALL`s the vgi extension (so the run uses what users can install today),
-   then runs the suite in a single `haybarn-unittest` invocation.
+5. **Run** — [`run-integration.sh`](run-integration.sh) stages the preprocessed tree and places
+   the main worker behind DuckDB's `launch:` AF_UNIX pool, so repeated ATTACHes reuse one warm
+   .NET process. The small stateful and incompatible-protocol fixture workers remain isolated
+   subprocesses. The harness `FORCE INSTALL`s the vgi extension (so the run uses what users can
+   install today), then runs the suite in a single `haybarn-unittest` invocation.
 
 ## Scope of this version
 
-This is deliberately a **single lane** (the default subprocess transport, matching
-`scripts/run_tests.sh`'s `SUBPROCESS=1` mode) with no coverage collection, no skip-reason
+This is deliberately a **single launcher lane** with no coverage collection, no skip-reason
 allowlist, and no executed-case floor — unlike `vgi-go`'s CI, which covers stdio/launch/shm/http
 lanes and guards against a whole-suite silent skip (a failed `require`/`require-env` is a *skip*,
 not a failure, so "all tests passed" alone isn't proof anything ran). That hardening is a natural
