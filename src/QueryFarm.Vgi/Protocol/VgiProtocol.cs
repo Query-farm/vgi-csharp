@@ -1,5 +1,3 @@
-using System.Reflection;
-
 namespace QueryFarm.Vgi.Protocol;
 
 /// <summary>
@@ -23,11 +21,15 @@ public static class VgiProtocol
     /// (<c>VgiProtocol.protocol_name</c>) and emitted by the DuckDB C++ extension.
     /// </summary>
     /// <remarks>
-    /// The major version is in the name deliberately: an incompatible major becomes a
+    /// The one place this string is written down. It reaches the transport as
+    /// <c>[ProtocolName]</c> on <see cref="IVgiService"/>, which is what both the server (hosting)
+    /// and a typed client (addressing) resolve through, so the two cannot drift.
+    ///
+    /// <para>The major version is in the name deliberately: an incompatible major becomes a
     /// <em>different</em> name and therefore a 404 — an answer every proxy and load balancer
     /// understands without an Arrow parser — and <c>vgi.v2</c> can be served beside a future
     /// <c>vgi.v3</c> while clients migrate. That matters for this consumer specifically: the
-    /// extension ships to users and cannot be flag-dayed.
+    /// extension ships to users and cannot be flag-dayed.</para>
     ///
     /// <para>The VGI <em>secret</em> protocol (<c>vgi.secret.v1</c> in vgi-python) is a separate
     /// name on a separate major, and this port does not host it — nothing here serves the
@@ -35,26 +37,4 @@ public static class VgiProtocol
     /// secrets through its own bind response, which rides the VGI protocol below.</para>
     /// </remarks>
     public const string Name = "vgi.v2";
-
-    /// <summary>
-    /// The contract type to hand <c>QueryFarm.VgiRpc.Server.RpcServer</c> so it hosts
-    /// <see cref="IVgiService"/> under <see cref="Name"/> rather than under the C# type's own name.
-    /// </summary>
-    /// <remarks>
-    /// <c>RpcServer</c> takes its protocol name from <c>WireNaming.ForProtocol(serviceInterface)</c>,
-    /// i.e. from <c>Type.Name</c>, and QueryFarm.VgiRpc 0.10.0 exposes no server-side override
-    /// (only the client side has one, <c>RpcClientOptions.Protocol</c>). A wire name containing a
-    /// dot is not expressible as a C# identifier, so the name is declared by handing the server a
-    /// <see cref="TypeDelegator"/> over the real contract — every reflection query the transport
-    /// makes (methods, parameters, attributes) still resolves against <see cref="IVgiService"/>
-    /// itself; only the name it is published under differs. Should a future QueryFarm.VgiRpc grow
-    /// an explicit server-side protocol name, this is the single call site to move to it.
-    /// </remarks>
-    public static Type ServiceContract { get; } = new DeclaredProtocolName(typeof(IVgiService), Name);
-
-    /// <summary>A contract type that reports a declared wire name in place of its C# type name.</summary>
-    private sealed class DeclaredProtocolName(Type contract, string wireName) : TypeDelegator(contract)
-    {
-        public override string Name { get; } = wireName;
-    }
 }

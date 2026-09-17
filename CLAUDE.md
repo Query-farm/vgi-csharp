@@ -86,14 +86,16 @@ here" error.
   either direction's field order wrong and it fails at runtime, not at compile time.
 - **Packed vs. flat RPC methods**: packed = single `request: binary` embedded-IPC param; flat =
   params map 1:1 by name to method parameters.
-- **The protocol's wire name is declared, not derived**: `vgi.v2`, in
-  `src/QueryFarm.Vgi/Protocol/VgiProtocol.cs`, and it is a cross-port contract (vgi-python
-  declares the same string; the DuckDB extension sends it as the `vgi_rpc.protocol` routing key).
-  QueryFarm.VgiRpc would otherwise name the protocol after the C# contract type (`VgiService`),
-  which is how six implementations of one protocol ended up with four different names. Build every
-  server through `Worker.NewRpcServer()` so a new transport inherits the name; address it from a
-  client with `RpcClientOptions.Protocol = VgiProtocol.Name` (`RpcConnection<T>` otherwise derives
-  the wrong one). This port does not host the VGI *secret* protocol (`vgi.secret.v1`).
+- **The protocol's wire name is declared, not derived**: `vgi.v2`, and it is a cross-port contract
+  (vgi-python declares the same string; the DuckDB extension sends it as the `vgi_rpc.protocol`
+  routing key). QueryFarm.VgiRpc would otherwise name the protocol after the C# contract type
+  (`VgiService`), which is how six implementations of one protocol ended up with four different
+  names. The declaration is `[ProtocolName(VgiProtocol.Name)]` on `IVgiService` itself (the string
+  lives in `src/QueryFarm.Vgi/Protocol/VgiProtocol.cs`), so it rides the *contract*, not the
+  hosting site: every `new RpcServer(typeof(IVgiService), ...)` hosts `vgi.v2` whether or not it
+  went through `Worker.NewRpcServer()`, and a typed client (`RpcConnection<IVgiService>`) resolves
+  the same name without being told. Requires QueryFarm.VgiRpc >= 0.10.1. This port does not host
+  the VGI *secret* protocol (`vgi.secret.v1`).
 
 ## Testing against the canonical sqllogictest suite
 

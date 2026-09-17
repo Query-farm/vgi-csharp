@@ -368,14 +368,17 @@ public sealed class Worker
     }
 
     /// <summary>
-    /// The one place this worker's RPC server is built, for every transport. Centralized so the
-    /// protocol's wire name cannot drift: <see cref="VgiProtocol.ServiceContract"/> is what hosts
-    /// this worker under <see cref="VgiProtocol.Name"/> instead of under the C# contract type's
-    /// own name, and a transport added later inherits that by construction rather than by
-    /// remembering to repeat it.
+    /// The one place this worker's RPC server is built, for every transport, so a transport added
+    /// later inherits the wiring rather than repeating it.
     /// </summary>
+    /// <remarks>
+    /// The protocol's wire name rides on the contract type itself — <see cref="IVgiService"/>
+    /// carries <c>[ProtocolName]</c>, so this is hosted under <see cref="VgiProtocol.Name"/> and
+    /// not under the C# type's own name, and any other site that hosts the same interface gets
+    /// the same name whether or not it went through here.
+    /// </remarks>
     private RpcServer NewRpcServer() =>
-        new(VgiProtocol.ServiceContract, new VgiServiceImpl(_catalog), expectedProtocolVersion: _protocolVersion);
+        new(typeof(IVgiService), new VgiServiceImpl(_catalog), expectedProtocolVersion: _protocolVersion);
 
     /// <summary>Serves over stdin/stdout until the client disconnects.</summary>
     public Task RunStdioAsync(CancellationToken cancellationToken = default)

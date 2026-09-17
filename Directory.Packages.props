@@ -16,8 +16,8 @@
          on IArrowArray/Array), fixed in vgi-rpc-csharp 0.4.0 (see that repo's
          third_party/apache-arrow-dotnet/README.md's "Published as QueryFarm.Arrow" section). This
          package's own NuGet publish must not happen before 0.4.0 is live on nuget.org. -->
-    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.10.0" />
-    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.10.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.10.1" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.10.1" />
 
     <!-- Same sibling-source-vs-NuGet split as QueryFarm.VgiRpc above; only used when the
          vgi-rpc-csharp checkout isn't present. QueryFarm.VgiRpc.Client's first-ever NuGet publish
@@ -25,13 +25,17 @@
          own version history — nuget.org has no 0.7.0 or earlier for it), and it depends on
          QueryFarm.VgiRpc >= its own version, so the two pins must move together and neither may
          be older than 0.8.0 — confirmed via nuget.org's flat-container version index for both
-         packages, not assumed. All three now sit on the 0.10.0 family, which is wire-breaking
+         packages, not assumed. All three now sit on the 0.10.x family, which is wire-breaking
          against 0.9.x (Reflection.v1 replaces __describe__, the `vgi_rpc.protocol` routing key is
          required on raw transports, RFC 8785 canonical JSON moved the protocol hash, and the
-         protocol name lost C#'s `I` prefix). A worker built on 0.9.x cannot talk to a 0.10.0
-         peer, so these do not float independently. The derived name is moot here either way:
-         this port declares its own wire name, `vgi.v2` — see Protocol/VgiProtocol.cs. -->
-    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.10.0" />
+         protocol name lost C#'s `I` prefix). A worker built on 0.9.x cannot talk to a 0.10.x
+         peer, so these do not float independently.
+         MUST be >= 0.10.1, not 0.10.0: 0.10.1 adds `[ProtocolName]`, the server-side wire-name
+         declaration this port's `vgi.v2` needs (IVgiService carries it). 0.10.0 derived the
+         server's name from the C# type and offered no override at all, so against it this repo
+         does not compile. The bump is additive on the wire — a contract that declares nothing
+         keeps the name it already answered to. -->
+    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.10.1" />
 
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
 

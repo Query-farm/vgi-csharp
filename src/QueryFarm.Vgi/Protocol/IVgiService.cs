@@ -1,4 +1,5 @@
 using QueryFarm.Vgi.Internal;
+using QueryFarm.VgiRpc.Attributes;
 using QueryFarm.VgiRpc.Server;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -24,6 +25,16 @@ namespace QueryFarm.Vgi.Protocol;
 /// Every default-interface-method body below returns a safe, do-nothing/empty answer — a worker
 /// that registers no table/view/macro content is unaffected by them ever being invoked.
 /// </summary>
+/// <remarks>
+/// The <c>[ProtocolName]</c> declaration is the whole of this port's wire identity: both the
+/// server (which hosts under the name) and a typed client (which addresses it) resolve it from
+/// here through <c>WireNaming.ForProtocol</c>, so no hosting site has to remember to say
+/// <c>vgi.v2</c> and none can drift. Without it the name would be this C# type's own, minus the
+/// <c>I</c> — <c>VgiService</c> — which is not what the DuckDB extension sends and no C#
+/// identifier could be made to spell, a dot not being legal in one. See
+/// <see cref="VgiProtocol.Name"/> for why the name is what it is.
+/// </remarks>
+[ProtocolName(VgiProtocol.Name)]
 public interface IVgiService
 {
     Task<BindResponse> BindAsync(BindRequest request, ICallContext? ctx = null);

@@ -34,9 +34,9 @@ registry.RegisterScalar(new SimpleDoubleFunction());
 var real = new VgiServiceImpl(registry);
 var decorated = new BadEnumVgiService(real);
 
-// VgiProtocol.ServiceContract, not typeof(IVgiService): the protocol's wire name is declared
-// (`vgi.v2`), and a fixture that hosts IVgiService directly would silently publish it under the
-// C# type's name instead — refused at routing, before it could ever deliver the bad enum value
-// this fixture exists to test.
-var server = new RpcServer(VgiProtocol.ServiceContract, decorated, expectedProtocolVersion: Worker.DefaultProtocolVersion);
+// The wire name comes from [ProtocolName] on IVgiService itself, so this second server-building
+// site publishes `vgi.v2` exactly like Worker.NewRpcServer does. It did NOT always: when the name
+// could only be declared at the hosting site, this fixture published it under the C# type's name
+// and was refused at routing, before it could ever deliver the bad enum value it exists to test.
+var server = new RpcServer(typeof(IVgiService), decorated, expectedProtocolVersion: Worker.DefaultProtocolVersion);
 await server.ServeAsync(new StdioTransport(), CancellationToken.None);

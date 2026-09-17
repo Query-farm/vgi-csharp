@@ -47,11 +47,10 @@ public sealed class WorkerUnixSocketTests
             Assert.True(File.Exists(path), "Worker did not bind its AF_UNIX socket in time.");
 
             using var clientTransport = (SocketTransport)await SocketTransport.ConnectUnixAsync(path);
-            // Addressed by the protocol's DECLARED wire name, not the one RpcConnection<T> would
-            // derive from the contract type (`VgiService`) — the server hosts `vgi.v2`, so a
-            // client that derives the name is refused before it ever reaches the version gate.
-            var connection = new RpcConnection<IVgiService>(
-                clientTransport, new RpcClientOptions { Protocol = VgiProtocol.Name });
+            // No explicit RpcClientOptions.Protocol: the name is declared on the contract, so the
+            // client resolves the same `vgi.v2` the server hosts under. Reaching the version gate
+            // below is what proves they agreed — a disagreement is refused one step earlier.
+            var connection = new RpcConnection<IVgiService>(clientTransport);
             var client = connection.CreateProxy();
 
             // Expected to fail with ProtocolVersionException (see comment above) — reaching that
@@ -93,8 +92,13 @@ public sealed class WorkerUnixSocketTests
             Assert.True(File.Exists(path), "Worker did not bind its AF_UNIX socket in time.");
 
             using var clientTransport = (SocketTransport)await SocketTransport.ConnectUnixAsync(path);
-            var derivedName = WireNaming.ForProtocol(typeof(IVgiService));
+            // Spelled literally, not computed: `WireNaming.ForProtocol(typeof(IVgiService))` now
+            // returns the DECLARED name, so asking it what the type would have derived would be
+            // asking the declaration to confirm itself. This is the name the C# interface's own
+            // identifier produces, and the point is that it is no longer what gets hosted.
+            const string derivedName = "VgiService";
             Assert.NotEqual(VgiProtocol.Name, derivedName);
+            Assert.Equal(VgiProtocol.Name, WireNaming.ForProtocol(typeof(IVgiService)));
 
             var connection = new RpcConnection<IVgiService>(
                 clientTransport, new RpcClientOptions { Protocol = derivedName });
