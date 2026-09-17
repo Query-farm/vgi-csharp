@@ -847,7 +847,20 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         };
 
         var state = new ScalarStreamState(function, outputSchema, bindRequest.Arguments, bindRequest.Settings, bindRequest.Secrets);
-        return new RpcStream<StreamState>(outputSchema, state, InputSchema: null, Header: header);
+
+        // InputSchema MUST be the bound argument-column schema, never null: a scalar call is an
+        // EXCHANGE stream (DuckDB pushes one batch of argument columns per turn), and the wire
+        // contract's only marker for "exchange, not producer" is a non-empty InputSchema — the
+        // canonical Python worker sets exactly this (`input_schema = request.bind_call.input_schema`
+        // in Worker._init_stream's ScalarFunctionGenerator branch). Declaring null here made every
+        // scalar call read as a producer on the HTTP transport, where vgi-rpc folds a producer's
+        // first tick into /init and hands the state a zero-COLUMN tick batch: the function then
+        // indexed Column(0) on it and threw ArgumentOutOfRangeException before DuckDB had sent a
+        // single argument row — 26 integration files failed there first, across scalar/,
+        // settings/, global_functions/, overload/, aggregate/, cache/, connection_string.test and
+        // unary_error_propagation.test. The pipe/launcher transport never ticks — it only delivers
+        // batches the client actually sent — which is why the launch lane stayed green and hid it.
+        return new RpcStream<StreamState>(outputSchema, state, InputSchema: inputSchema, Header: header);
     }
 
     private RpcStream<StreamState> InitTable(ITableFunction function, BindRequest bindRequest, InitRequest request)
