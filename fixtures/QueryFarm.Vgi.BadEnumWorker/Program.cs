@@ -34,5 +34,9 @@ registry.RegisterScalar(new SimpleDoubleFunction());
 var real = new VgiServiceImpl(registry);
 var decorated = new BadEnumVgiService(real);
 
-var server = new RpcServer(typeof(IVgiService), decorated, expectedProtocolVersion: Worker.DefaultProtocolVersion);
+// VgiProtocol.ServiceContract, not typeof(IVgiService): the protocol's wire name is declared
+// (`vgi.v2`), and a fixture that hosts IVgiService directly would silently publish it under the
+// C# type's name instead — refused at routing, before it could ever deliver the bad enum value
+// this fixture exists to test.
+var server = new RpcServer(VgiProtocol.ServiceContract, decorated, expectedProtocolVersion: Worker.DefaultProtocolVersion);
 await server.ServeAsync(new StdioTransport(), CancellationToken.None);

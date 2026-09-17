@@ -367,11 +367,20 @@ public sealed class Worker
         return this;
     }
 
+    /// <summary>
+    /// The one place this worker's RPC server is built, for every transport. Centralized so the
+    /// protocol's wire name cannot drift: <see cref="VgiProtocol.ServiceContract"/> is what hosts
+    /// this worker under <see cref="VgiProtocol.Name"/> instead of under the C# contract type's
+    /// own name, and a transport added later inherits that by construction rather than by
+    /// remembering to repeat it.
+    /// </summary>
+    private RpcServer NewRpcServer() =>
+        new(VgiProtocol.ServiceContract, new VgiServiceImpl(_catalog), expectedProtocolVersion: _protocolVersion);
+
     /// <summary>Serves over stdin/stdout until the client disconnects.</summary>
     public Task RunStdioAsync(CancellationToken cancellationToken = default)
     {
-        var impl = new VgiServiceImpl(_catalog);
-        var server = new RpcServer(typeof(IVgiService), impl, expectedProtocolVersion: _protocolVersion);
+        var server = NewRpcServer();
         return server.ServeAsync(new StdioTransport(), cancellationToken);
     }
 
@@ -389,8 +398,7 @@ public sealed class Worker
     /// </summary>
     public async Task RunUnixSocketAsync(string path, double idleTimeoutSeconds = 300, CancellationToken cancellationToken = default)
     {
-        var impl = new VgiServiceImpl(_catalog);
-        var server = new RpcServer(typeof(IVgiService), impl, expectedProtocolVersion: _protocolVersion);
+        var server = NewRpcServer();
 
         using var shutdownCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var activeConnections = 0;
@@ -491,8 +499,7 @@ public sealed class Worker
             throw new ArgumentException("Iroh bridge upstream must bind loopback.", nameof(host));
         ArgumentException.ThrowIfNullOrWhiteSpace(issuer);
 
-        var impl = new VgiServiceImpl(_catalog);
-        var server = new RpcServer(typeof(IVgiService), impl, expectedProtocolVersion: _protocolVersion);
+        var server = NewRpcServer();
         var options = new TcpServerOptions
         {
             ProxyProtocolV2Required = true,
@@ -531,8 +538,7 @@ public sealed class Worker
         if (irohBridge is not null && !IsLoopbackHost(host))
             throw new ArgumentException("Iroh HTTP bridge upstream must bind loopback.", nameof(host));
 
-        var impl = new VgiServiceImpl(_catalog);
-        var rpc = new RpcServer(typeof(IVgiService), impl, expectedProtocolVersion: _protocolVersion);
+        var rpc = NewRpcServer();
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls($"http://{FormatHostForUrl(host)}:{port}");
         var app = builder.Build();

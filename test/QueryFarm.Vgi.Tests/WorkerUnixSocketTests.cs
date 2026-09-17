@@ -1,5 +1,6 @@
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.VgiRpc.Client;
+using QueryFarm.VgiRpc.Reflection;
 using QueryFarm.VgiRpc.Transport;
 using Xunit;
 
@@ -46,7 +47,11 @@ public sealed class WorkerUnixSocketTests
             Assert.True(File.Exists(path), "Worker did not bind its AF_UNIX socket in time.");
 
             using var clientTransport = (SocketTransport)await SocketTransport.ConnectUnixAsync(path);
-            var connection = new RpcConnection<IVgiService>(clientTransport);
+            // Addressed by the protocol's DECLARED wire name, not the one RpcConnection<T> would
+            // derive from the contract type (`VgiService`) — the server hosts `vgi.v2`, so a
+            // client that derives the name is refused before it ever reaches the version gate.
+            var connection = new RpcConnection<IVgiService>(
+                clientTransport, new RpcClientOptions { Protocol = VgiProtocol.Name });
             var client = connection.CreateProxy();
 
             // Expected to fail with ProtocolVersionException (see comment above) — reaching that
@@ -62,6 +67,53 @@ public sealed class WorkerUnixSocketTests
         }
 
         Assert.False(File.Exists(path), "Socket file should be unlinked once the accept loop ends.");
+    }
+
+    [Fact]
+    public async Task RunUnixSocketAsync_HostsTheDeclaredProtocolNameNotTheContractTypeName()
+    {
+        // The wire name is a cross-port contract (vgi-python declares it, the DuckDB extension
+        // sends it), not a by-product of what this port called its C# interface. Addressing the
+        // name RpcConnection<T> would DERIVE from the contract type must be refused, and the
+        // refusal must name what is actually hosted — which is what makes this a guard rather
+        // than a restatement of the declaration.
+        var worker = new Worker().CatalogName("test_catalog").DefaultSchema("main");
+        var path = NewSocketPath();
+        using var cts = new CancellationTokenSource();
+        var serveTask = worker.RunUnixSocketAsync(path, idleTimeoutSeconds: 30, cts.Token);
+
+        try
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!File.Exists(path) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.True(File.Exists(path), "Worker did not bind its AF_UNIX socket in time.");
+
+            using var clientTransport = (SocketTransport)await SocketTransport.ConnectUnixAsync(path);
+            var derivedName = WireNaming.ForProtocol(typeof(IVgiService));
+            Assert.NotEqual(VgiProtocol.Name, derivedName);
+
+            var connection = new RpcConnection<IVgiService>(
+                clientTransport, new RpcClientOptions { Protocol = derivedName });
+            var client = connection.CreateProxy();
+
+            // A remote refusal arrives as a plain RpcException carrying the server's error type
+            // and text (the typed subclasses are raised server-side, not reconstructed by the
+            // client), so the assertion is on that payload.
+            var error = await Assert.ThrowsAsync<QueryFarm.VgiRpc.Errors.RpcException>(
+                () => client.CatalogAttachAsync(new CatalogAttachRequest { Name = "example" }));
+            Assert.Equal("ProtocolNotSupportedError", error.ErrorType);
+            Assert.Contains($"does not host protocol '{derivedName}'", error.ErrorMessage, StringComparison.Ordinal);
+            Assert.Contains(VgiProtocol.Name, error.ErrorMessage, StringComparison.Ordinal);
+        }
+        finally
+        {
+            cts.Cancel();
+            await serveTask;
+        }
     }
 
     [Fact]
