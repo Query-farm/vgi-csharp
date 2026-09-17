@@ -16,8 +16,8 @@
          on IArrowArray/Array), fixed in vgi-rpc-csharp 0.4.0 (see that repo's
          third_party/apache-arrow-dotnet/README.md's "Published as QueryFarm.Arrow" section). This
          package's own NuGet publish must not happen before 0.4.0 is live on nuget.org. -->
-    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.10.1" />
-    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.10.1" />
+    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.10.2" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.10.2" />
 
     <!-- Same sibling-source-vs-NuGet split as QueryFarm.VgiRpc above; only used when the
          vgi-rpc-csharp checkout isn't present. QueryFarm.VgiRpc.Client's first-ever NuGet publish
@@ -34,8 +34,17 @@
          declaration this port's `vgi.v2` needs (IVgiService carries it). 0.10.0 derived the
          server's name from the C# type and offered no override at all, so against it this repo
          does not compile. The bump is additive on the wire — a contract that declares nothing
-         keeps the name it already answered to. -->
-    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.10.1" />
+         keeps the name it already answered to.
+         MUST be >= 0.10.2, and this one is a CORRECTNESS floor rather than a compile floor: on
+         0.10.1 and earlier, HTTP dispatch never read `OutputCollector.EmittedMetadata`, so every
+         per-batch key this worker emits — the whole `vgi.cache.*` family,
+         `vgi_partition_values#b64`, `vgi_batch_index`, `vgi_rpc.parent_row#b64` — was silently
+         dropped over HTTP and the extension rejected the batches that declared those features;
+         `ValueCodec.EmptyRow` also threw (500) for FixedSizeBinary/Union/Interval columns and for
+         any ENUM whose dictionary index was not Int16. This repo builds and its unit tests pass
+         against 0.10.1; it is the HTTP integration lane that does not, which is precisely why
+         that lane now exists (ci/README.md). Do not lower this pin to make a restore resolve. -->
+    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.10.2" />
 
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
 
