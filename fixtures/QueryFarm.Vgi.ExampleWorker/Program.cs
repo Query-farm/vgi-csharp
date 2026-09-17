@@ -243,6 +243,9 @@ var worker = new Worker()
     .RegisterTableInOut(new BlendedExplodeFunction())
     .RegisterTableInOut(new ProjectableBlendedFunction())
     .RegisterTableInOut(new HostileProvenanceFunction())
+    // ANY-typed blended input columns — blended_any.test.
+    .RegisterTableInOut(new BlendedAnyFunction())
+    .RegisterTableInOut(new BlendedAnyVarargsFunction())
     // M4: table-buffering (Sink+Source) functions.
     .RegisterTableBuffering(new SumAllColumnsFunction("sum_all_columns"))
     .RegisterTableBuffering(new SumAllColumnsFunction(

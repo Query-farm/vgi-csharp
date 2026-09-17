@@ -45,6 +45,20 @@ public static class TableArgFields
             [VgiWireMetadata.DocKey] = doc,
         });
 
+    /// <summary>An ANY-typed positional field — <c>vgi_type=any</c> metadata on a
+    /// <see cref="NullType"/> placeholder (the field's own Arrow type never round-trips: the C++
+    /// side maps the marker to <c>LogicalType::ANY</c>), the fixed-arity sibling of
+    /// <see cref="AnyVarargs"/>. For a blended (<see cref="TableInOut.ITableInOutFunction.InputFromArgs"/>)
+    /// function this makes the per-row input column's type whatever DuckDB resolved for the call
+    /// site — read it from <see cref="TableInOut.TableInOutBindParams.InputSchema"/> (e.g. to type
+    /// the output from it in <see cref="TableInOut.ITableInOutFunction.ResolveOutputSchema"/>),
+    /// never from this declaration.</summary>
+    public static Field PositionalAny(string name) => new(
+        name,
+        NullType.Default,
+        nullable: true,
+        new Dictionary<string, string> { [VgiWireMetadata.TypeKey] = VgiWireMetadata.TypeAnyValue });
+
     /// <summary>An ANY-typed varargs field (e.g. <c>constant_columns</c>'s trailing arguments) —
     /// <c>vgi_type=any</c> + <c>vgi_varargs=true</c> metadata.</summary>
     public static Field AnyVarargs(string name) => new(

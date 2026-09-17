@@ -10,7 +10,7 @@ namespace QueryFarm.Vgi.ExampleWorker.TableInOut;
 /// <summary>
 /// "Blended" (a.k.a. vgi-python's <c>RowTransformFunction</c>) table-in-out functions — see
 /// <see cref="ITableInOutFunction.InputFromArgs"/>'s doc comment for the wire-level contract. Backs
-/// <c>table_in_out/{blended,lateral_batch,lateral_dedup}.test</c>. Every function here declares
+/// <c>table_in_out/{blended,blended_any,lateral_batch,lateral_dedup}.test</c>. Every function here declares
 /// ONLY plain typed positional/named args (no <see cref="TableArgFields.Table"/> field) and sets
 /// <see cref="ITableInOutFunction.InputFromArgs"/> = <see langword="true"/>; its POSITIONAL
 /// (non-named, non-varargs) args become the per-row input batch's columns, read back
@@ -484,5 +484,91 @@ public sealed class HostileProvenanceFunction : ITableInOutFunction
             var metadata = new Dictionary<string, string> { ["vgi_rpc.parent_row#b64"] = payload };
             output.Emit(new RecordBatch(outputSchema, [hvBuilder.Build()], n), metadata);
         }
+    }
+}
+
+/// <summary><c>ex.blended_any(value ANY)</c> — blended 1-&gt;1 echo of a single ANY-typed input
+/// column (<see cref="TableArgFields.PositionalAny"/>). Proves a blended positional arg may be
+/// declared ANY: the declaration names no concrete Arrow type, so the client builds the worker's
+/// input schema from the type DuckDB actually resolved for the call (a STRUCT built per row, a
+/// whole-row struct, a LIST, a plain VARCHAR ...). The output column <c>value</c> is bound to that
+/// resolved input type (<see cref="ResolveOutputSchema"/>) and the column is passed through
+/// untouched — nulls included, so a NULL struct and a struct with a NULL field stay distinct.
+/// Backs <c>table_in_out/blended_any.test</c>.</summary>
+public sealed class BlendedAnyFunction : ITableInOutFunction
+{
+    public string Name => "blended_any";
+
+    public string SchemaName => "main";
+
+    public string Description => "Blended 1->1 echo of one ANY-typed input column (output typed from the input)";
+
+    public IReadOnlyList<string> Categories => ["blended", "test"];
+
+    public bool InputFromArgs => true;
+
+    public Schema ArgumentsSchema { get; } = new([TableArgFields.PositionalAny("value")], metadata: null);
+
+    /// <summary>Placeholder only — the real per-call schema comes from
+    /// <see cref="ResolveOutputSchema"/> (the output type IS the resolved input type).</summary>
+    public Schema OutputSchema { get; } = new([], metadata: null);
+
+    public Schema ResolveOutputSchema(TableInOutBindParams bindParams)
+    {
+        var input = bindParams.InputSchema;
+        if (input.FieldsList.Count != 1)
+        {
+            throw new InvalidOperationException($"blended_any: expected exactly 1 input column, got {input.FieldsList.Count}.");
+        }
+
+        return new Schema([new Field("value", input.GetFieldByIndex(0).DataType, nullable: true)], metadata: null);
+    }
+
+    public ITableInOutProcessor CreateProcessor(TableInOutInitParams initParams) => new Processor(initParams.OutputSchema);
+
+    private sealed class Processor(Schema outputSchema) : ITableInOutProcessor
+    {
+        // 1->1 identity map: no provenance needed (the operator assumes identity).
+        public void Process(RecordBatch input, OutputCollector output) =>
+            output.Emit(new RecordBatch(outputSchema, [input.Column(0)], input.Length));
+    }
+}
+
+/// <summary><c>ex.blended_any_varargs(values ANY...)</c> — the VARARGS counterpart of
+/// <see cref="BlendedAnyFunction"/> (<see cref="TableArgFields.AnyVarargs"/>): every runtime
+/// column may resolve to a different concrete type, so the client takes each column's type from
+/// the call rather than from the (ANY) vararg element type. Output columns are
+/// <c>col0..colN-1</c>, each bound to its own resolved input type, and every input column is
+/// passed through untouched.</summary>
+public sealed class BlendedAnyVarargsFunction : ITableInOutFunction
+{
+    public string Name => "blended_any_varargs";
+
+    public string SchemaName => "main";
+
+    public string Description => "Blended 1->1 echo of N ANY-typed varargs input columns (col0..colN-1)";
+
+    public IReadOnlyList<string> Categories => ["blended", "test"];
+
+    public bool InputFromArgs => true;
+
+    public Schema ArgumentsSchema { get; } = new([TableArgFields.AnyVarargs("values")], metadata: null);
+
+    /// <summary>Placeholder only — see <see cref="ResolveOutputSchema"/>.</summary>
+    public Schema OutputSchema { get; } = new([], metadata: null);
+
+    public Schema ResolveOutputSchema(TableInOutBindParams bindParams) => new(
+        bindParams.InputSchema.FieldsList.Select((f, i) => new Field($"col{i}", f.DataType, nullable: true)),
+        metadata: null);
+
+    public ITableInOutProcessor CreateProcessor(TableInOutInitParams initParams) => new Processor(initParams.OutputSchema);
+
+    private sealed class Processor(Schema outputSchema) : ITableInOutProcessor
+    {
+        public void Process(RecordBatch input, OutputCollector output) =>
+            output.Emit(new RecordBatch(
+                outputSchema,
+                Enumerable.Range(0, input.ColumnCount).Select(input.Column).ToList(),
+                input.Length));
     }
 }
