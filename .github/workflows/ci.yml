@@ -53,12 +53,17 @@ jobs:
       # projects and needs no such exclusion.
       - run: dotnet format vgi-csharp.slnx --verify-no-changes
 
-  # See ci/README.md: a single (subprocess) lane against a prebuilt haybarn-unittest + the
-  # signed community vgi extension, no C++ build from source. First-pass, not yet run against
-  # a real haybarn-unittest binary — see that doc's "Scope of this first version" section.
+  # See ci/README.md: runs the canonical suite against a prebuilt haybarn-unittest + the signed
+  # community vgi extension, no C++ build from source. BOTH transports, because they are two
+  # separate dispatch implementations that have diverged in production: a launcher-only lane
+  # reported 333/334 green while 81 files were red over HTTP.
   integration:
     runs-on: ubuntu-latest
     needs: build-test
+    strategy:
+      fail-fast: false
+      matrix:
+        transport: [launch, http]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -100,7 +105,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Run integration suite
+      - name: Run integration suite (${{ matrix.transport }})
         run: ci/run-integration.sh
         env:
           VGI_SRC: ${{ github.workspace }}/vgi-upstream
+          TRANSPORT: ${{ matrix.transport }}
