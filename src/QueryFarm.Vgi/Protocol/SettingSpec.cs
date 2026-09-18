@@ -11,7 +11,7 @@ namespace QueryFarm.Vgi.Protocol;
 /// (<c>vgi_catalog_metadata.hpp</c>): 4 columns, <c>name</c>/<c>description</c> plain strings,
 /// <c>type</c> a schema-only IPC blob for a single field named <c>"value"</c> (see
 /// <see cref="Internal.SchemaIpc.WriteSchemaOnly"/>), <c>default_value</c> a full one-row IPC batch
-/// for that same single <c>"value"</c> column (see <see cref="Internal.RecordBatchIpc.Write"/>) —
+/// for that same single <c>"value"</c> column (see <see cref="Internal.RecordBatchIpc.Write(Apache.Arrow.RecordBatch)"/>) —
 /// <see langword="null"/> when the setting has no default. Each <see cref="SettingSpec"/> is itself
 /// embedded-IPC-encoded (<see cref="Internal.EmbeddedIpc.Encode{T}"/>) before being placed in
 /// <see cref="CatalogAttachResult.Settings"/>'s <c>list(binary)</c>.

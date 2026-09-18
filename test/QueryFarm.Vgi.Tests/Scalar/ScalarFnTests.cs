@@ -1,5 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Attributes;
 using QueryFarm.Vgi.Internal;
@@ -120,15 +119,6 @@ public class ScalarFnTests
 
         var argsSchema = new Schema([new Field("args", structType, nullable: false)], metadata: null);
         var argsBatch = new RecordBatch(argsSchema, [structArray], 1);
-
-        using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, argsSchema, leaveOpen: true))
-        {
-            writer.WriteStart();
-            writer.WriteRecordBatch(argsBatch);
-            writer.WriteEnd();
-        }
-
-        return stream.ToArray();
+        return RecordBatchIpc.Write(argsBatch);
     }
 }

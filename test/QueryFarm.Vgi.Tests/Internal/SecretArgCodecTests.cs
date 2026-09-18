@@ -1,5 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Internal;
 using Xunit;
@@ -24,16 +23,7 @@ public class SecretArgCodecTests
     {
         var schema = new Schema(columns.Select(c => new Field(c.ColumnName, c.Secret.Data.DataType, nullable: true)).ToList(), metadata: null);
         var batch = new RecordBatch(schema, columns.Select(c => (IArrowArray)c.Secret).ToList(), 1);
-
-        using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, schema, leaveOpen: true))
-        {
-            writer.WriteStart();
-            writer.WriteRecordBatch(batch);
-            writer.WriteEnd();
-        }
-
-        return stream.ToArray();
+        return RecordBatchIpc.Write(batch);
     }
 
     [Fact]

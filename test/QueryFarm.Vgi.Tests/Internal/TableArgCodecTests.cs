@@ -1,5 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Internal;
 using Xunit;
@@ -15,16 +14,7 @@ public class TableArgCodecTests
     {
         var schema = new Schema([new Field("args", argsStruct.Data.DataType, nullable: false)], metadata: null);
         var batch = new RecordBatch(schema, [argsStruct], 1);
-
-        using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, schema, leaveOpen: true))
-        {
-            writer.WriteStart();
-            writer.WriteRecordBatch(batch);
-            writer.WriteEnd();
-        }
-
-        return stream.ToArray();
+        return RecordBatchIpc.Write(batch);
     }
 
     [Fact]

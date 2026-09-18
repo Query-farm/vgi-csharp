@@ -1,5 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 
 namespace QueryFarm.Vgi.Internal;
@@ -109,7 +108,7 @@ public static class ColumnStatisticsCodec
         var maxArray = new SparseUnionArray(
             ValueUnionType, rows.Count, maxChildren.Build(), new ArrowBuffer.Builder<byte>().AppendRange(maxTypeIds).Build());
 
-        var batch = new RecordBatch(
+        using var batch = new RecordBatch(
             BatchSchema,
             [
                 nameBuilder.Build(),
@@ -124,21 +123,12 @@ public static class ColumnStatisticsCodec
             rows.Count);
 
         using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, BatchSchema, leaveOpen: true))
-        {
-            writer.WriteStart();
-            if (cacheMaxAgeSeconds is { } ttl)
-            {
-                writer.WriteRecordBatch(batch, new Dictionary<string, string> { ["cache_max_age_seconds"] = ttl.ToString(System.Globalization.CultureInfo.InvariantCulture) });
-            }
-            else
-            {
-                writer.WriteRecordBatch(batch);
-            }
-
-            writer.WriteEnd();
-        }
-
+        RecordBatchIpc.Write(
+            stream,
+            batch,
+            cacheMaxAgeSeconds is { } ttl
+                ? new Dictionary<string, string> { ["cache_max_age_seconds"] = ttl.ToString(System.Globalization.CultureInfo.InvariantCulture) }
+                : null);
         return stream.ToArray();
     }
 

@@ -34,17 +34,10 @@ public static class EmbeddedIpc
             rowValues[i] = property.GetValue(value);
         }
 
-        var row = ValueCodec.BuildRow(innerSchema, rowValues);
-
-        using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, innerSchema, leaveOpen: true))
-        {
-            writer.WriteStart();
-            writer.WriteRecordBatch(row);
-            writer.WriteEnd();
-        }
-
-        return stream.ToArray();
+        // Disposed (so reachable) until the write is complete — see RecordBatchIpc.Write — and
+        // its native buffers go straight back to the pool rather than waiting for a finalizer.
+        using var row = ValueCodec.BuildRow(innerSchema, rowValues);
+        return RecordBatchIpc.Write(row);
     }
 
     public static T Decode<T>(byte[] bytes) where T : class, new()
@@ -53,7 +46,9 @@ public static class EmbeddedIpc
         var innerSchema = SchemaDerivation.InnerSchemaFor(clrType);
         using var stream = new MemoryStream(bytes);
         using var reader = new ArrowStreamReader(stream);
-        var row = reader.ReadNextRecordBatch()
+        // ExtractRow copies every value out, so the batch can be released as soon as it returns;
+        // until then it must stay reachable (see RecordBatchIpc.Write).
+        using var row = reader.ReadNextRecordBatch()
             ?? throw new InvalidOperationException($"Embedded record for '{clrType}' had no data batch.");
 
         var properties = new System.Reflection.PropertyInfo[innerSchema.FieldsList.Count];

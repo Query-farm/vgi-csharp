@@ -1,4 +1,4 @@
-using Apache.Arrow.Ipc;
+using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.VgiRpc.Reflection;
 
@@ -41,16 +41,9 @@ internal static class BadEnumFunctionInfoEncoder
                 : clrType.GetProperty(propertyName)!.GetValue(value);
         }
 
-        var row = ValueCodec.BuildRow(innerSchema, rowValues);
-
-        using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, innerSchema, leaveOpen: true))
-        {
-            writer.WriteStart();
-            writer.WriteRecordBatch(row);
-            writer.WriteEnd();
-        }
-
-        return stream.ToArray();
+        // Written through RecordBatchIpc.Write, which keeps the row reachable until its body is
+        // written (see that method's summary).
+        using var row = ValueCodec.BuildRow(innerSchema, rowValues);
+        return RecordBatchIpc.Write(row);
     }
 }

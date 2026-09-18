@@ -1,5 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Internal;
 using Xunit;
@@ -41,16 +40,7 @@ public class OverloadResolverTests
 
         var schema = new Schema([new Field("args", structType, nullable: false)], metadata: null);
         var batch = new RecordBatch(schema, [structArray], 1);
-
-        using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, schema, leaveOpen: true))
-        {
-            writer.WriteStart();
-            writer.WriteRecordBatch(batch);
-            writer.WriteEnd();
-        }
-
-        return stream.ToArray();
+        return RecordBatchIpc.Write(batch);
     }
 
     private static IArrowArray BuildScalarArray((IArrowType Type, object? Value) v) => v.Type switch

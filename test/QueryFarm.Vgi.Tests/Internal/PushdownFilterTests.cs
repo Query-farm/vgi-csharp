@@ -1,5 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
@@ -344,15 +343,5 @@ public class PushdownFilterTests
     private static RecordBatch Batch(Schema schema, params IArrowArray[] arrays) =>
         new(schema, arrays, arrays.Length == 0 ? 0 : arrays[0].Length);
 
-    private static byte[] Write(RecordBatch batch)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, batch.Schema, leaveOpen: true))
-        {
-            writer.WriteRecordBatch(batch);
-            writer.WriteEnd();
-        }
-
-        return stream.ToArray();
-    }
+    private static byte[] Write(RecordBatch batch) => RecordBatchIpc.Write(batch);
 }

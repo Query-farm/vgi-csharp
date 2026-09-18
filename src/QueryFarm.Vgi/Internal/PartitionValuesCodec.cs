@@ -1,5 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 
 namespace QueryFarm.Vgi.Internal;
 
@@ -201,17 +200,8 @@ public static class PartitionValuesCodec
 
     private static byte[] EncodeBatch(Schema partitionSchema, IArrowArray[] arrays)
     {
-        var batch = new RecordBatch(partitionSchema, arrays, 2);
-
-        using var stream = new MemoryStream();
-        using (var writer = new ArrowStreamWriter(stream, partitionSchema, leaveOpen: true))
-        {
-            writer.WriteStart();
-            writer.WriteRecordBatch(batch);
-            writer.WriteEnd();
-        }
-
-        return stream.ToArray();
+        using var batch = new RecordBatch(partitionSchema, arrays, 2);
+        return RecordBatchIpc.Write(batch);
     }
 
     private static IArrowArray BuildRangeArray(Field field, object? min, object? max)
