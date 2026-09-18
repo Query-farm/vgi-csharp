@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Apache.Arrow;
 using QueryFarm.Vgi.Aggregate;
@@ -1177,18 +1178,26 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// <see cref="FunctionInfo"/> via the same per-kind builder every schema-discovery RPC uses —
     /// global publication reuses the identical wire shape, just delivered on the attach result
     /// instead of a <c>catalog_schema_contents_functions</c> item.</summary>
-    private List<byte[]> BuildGlobalFunctionInfos() =>
-        catalog.GlobalFunctions.Select(fn => fn switch
+    private List<byte[]> BuildGlobalFunctionInfos()
+    {
+        var version = catalog.FunctionsVersion;
+        var cached = _globalFunctionInfos;
+        if (cached is null || cached.FunctionsVersion != version)
         {
-            IScalarFunction f => BuildFunctionInfo(f),
-            ITableInOutFunction f => BuildFunctionInfo(f),
-            ITableBufferingFunction f => BuildFunctionInfo(f),
-            ITableFunction f => BuildFunctionInfo(f),
-            IAggregateFunction f => BuildFunctionInfo(f),
-            _ => throw new InvalidOperationException($"RegisterGlobalFunction: unsupported function kind '{fn.GetType()}'."),
-        })
-        .Select(EmbeddedIpc.Encode)
-        .ToList();
+            cached = new EncodedListing(version, catalog.GlobalFunctions.Select(fn => fn switch
+            {
+                IScalarFunction f => EncodedFunctionInfo(f),
+                ITableInOutFunction f => EncodedFunctionInfo(f),
+                ITableBufferingFunction f => EncodedFunctionInfo(f),
+                ITableFunction f => EncodedFunctionInfo(f),
+                IAggregateFunction f => EncodedFunctionInfo(f),
+                _ => throw new InvalidOperationException($"RegisterGlobalFunction: unsupported function kind '{fn.GetType()}'."),
+            }).ToArray());
+            _globalFunctionInfos = cached;
+        }
+
+        return [.. cached.Items];
+    }
 
     public Task CatalogDetachAsync(byte[] attachOpaqueData, ICallContext? ctx = null) => Task.CompletedTask;
 
@@ -1430,36 +1439,98 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-
-        IEnumerable<byte[]> items = type switch
+        var version = catalog.FunctionsVersion;
+        var key = (identity, CatalogRegistry.PathKey(path), type);
+        if (!_functionListings.TryGetValue(key, out var listing) || listing.FunctionsVersion != version)
         {
-            SchemaObjectType.ScalarFunction => catalog.ScalarFunctionsFor(identity)
-                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
-                .Select(BuildFunctionInfo)
-                .Select(EmbeddedIpc.Encode),
-            // DuckDB's catalog doesn't distinguish a plain source table function from a streaming
-            // table-in-out function or a table-buffering function at this level — all three are
-            // "table functions" from the client's point of view (the TABLE-typed argument, present
-            // only on the latter two, is what makes the C++ side register them differently).
-            SchemaObjectType.TableFunction => catalog.TableFunctionsFor(identity)
-                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
-                .Select(BuildFunctionInfo)
-                .Concat(catalog.TableInOutFunctionsFor(identity)
-                    .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
-                    .Select(BuildFunctionInfo))
-                .Concat(catalog.TableBufferingFunctionsFor(identity)
-                    .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
-                    .Select(BuildFunctionInfo))
-                .Select(EmbeddedIpc.Encode),
-            SchemaObjectType.AggregateFunction => catalog.AggregateFunctionsFor(identity)
-                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
-                .Select(BuildFunctionInfo)
-                .Select(EmbeddedIpc.Encode),
-            _ => [],
-        };
+            listing = new EncodedListing(version, BuildFunctionListing(identity, path, type));
+            if (_functionListings.Count >= MaxCachedFunctionListings)
+            {
+                // The key is client-chosen (any attach name, any path), so bound the cache rather
+                // than let a client grow it; real listings are rebuilt on their next request.
+                _functionListings.Clear();
+            }
 
-        return Task.FromResult(new ItemsResponse { Items = items.ToList() });
+            _functionListings[key] = listing;
+        }
+
+        // A fresh list per response: the cached one is shared, the byte[] items are never written.
+        return Task.FromResult(new ItemsResponse { Items = [.. listing.Items] });
     }
+
+    private byte[][] BuildFunctionListing(string identity, List<string> path, SchemaObjectType type) => type switch
+    {
+        SchemaObjectType.ScalarFunction => catalog.ScalarFunctionsFor(identity)
+            .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
+            .Select(EncodedFunctionInfo)
+            .ToArray(),
+        // DuckDB's catalog doesn't distinguish a plain source table function from a streaming
+        // table-in-out function or a table-buffering function at this level — all three are
+        // "table functions" from the client's point of view (the TABLE-typed argument, present
+        // only on the latter two, is what makes the C++ side register them differently).
+        SchemaObjectType.TableFunction => catalog.TableFunctionsFor(identity)
+            .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
+            .Select(EncodedFunctionInfo)
+            .Concat(catalog.TableInOutFunctionsFor(identity)
+                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
+                .Select(EncodedFunctionInfo))
+            .Concat(catalog.TableBufferingFunctionsFor(identity)
+                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
+                .Select(EncodedFunctionInfo))
+            .ToArray(),
+        SchemaObjectType.AggregateFunction => catalog.AggregateFunctionsFor(identity)
+            .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
+            .Select(EncodedFunctionInfo)
+            .ToArray(),
+        _ => [],
+    };
+
+    /// <summary>Upper bound on <see cref="_functionListings"/>; far above the handful of (attach
+    /// identity, schema, listing type) combinations a worker really serves.</summary>
+    private const int MaxCachedFunctionListings = 1024;
+
+    /// <summary>
+    /// Encoded <c>catalog_schema_contents_functions</c> items per (attach identity, schema path,
+    /// listing type), built on the first request for each. A listing depends only on what is
+    /// registered, and on each function's static metadata, yet it used to be rebuilt on every
+    /// request — every function turned into a <see cref="FunctionInfo"/> and Arrow-encoded again,
+    /// about 1 ms per function: ~170 ms for the example worker's main-schema table-function
+    /// listing, paid again on every ATTACH that loads it. An entry is rebuilt when
+    /// <see cref="CatalogRegistry.FunctionsVersion"/> has moved since it was built.
+    /// </summary>
+    private readonly ConcurrentDictionary<(string Identity, string Path, SchemaObjectType Type), EncodedListing> _functionListings = new();
+
+    private sealed record EncodedListing(long FunctionsVersion, byte[][] Items);
+
+    /// <summary>ATTACH's global functions, encoded — same rebuild rule as
+    /// <see cref="_functionListings"/>.</summary>
+    private EncodedListing? _globalFunctionInfos;
+
+    /// <summary>Each registered function's encoded <see cref="FunctionInfo"/>, by function
+    /// instance, so a function is described and encoded once however many listings and ATTACH
+    /// responses carry it. One table per kind: an object registered as two kinds is described
+    /// differently by each. Assumes, as the reference Python worker does, that a registered
+    /// function's metadata does not change after registration.</summary>
+    private readonly ConditionalWeakTable<IScalarFunction, byte[]> _scalarInfos = new();
+    private readonly ConditionalWeakTable<ITableFunction, byte[]> _tableInfos = new();
+    private readonly ConditionalWeakTable<ITableInOutFunction, byte[]> _tableInOutInfos = new();
+    private readonly ConditionalWeakTable<ITableBufferingFunction, byte[]> _tableBufferingInfos = new();
+    private readonly ConditionalWeakTable<IAggregateFunction, byte[]> _aggregateInfos = new();
+
+    private byte[] EncodedFunctionInfo(IScalarFunction function) =>
+        _scalarInfos.GetValue(function, static f => EmbeddedIpc.Encode(BuildFunctionInfo(f)));
+
+    private byte[] EncodedFunctionInfo(ITableFunction function) =>
+        _tableInfos.GetValue(function, static f => EmbeddedIpc.Encode(BuildFunctionInfo(f)));
+
+    private byte[] EncodedFunctionInfo(ITableInOutFunction function) =>
+        _tableInOutInfos.GetValue(function, static f => EmbeddedIpc.Encode(BuildFunctionInfo(f)));
+
+    private byte[] EncodedFunctionInfo(ITableBufferingFunction function) =>
+        _tableBufferingInfos.GetValue(function, static f => EmbeddedIpc.Encode(BuildFunctionInfo(f)));
+
+    private byte[] EncodedFunctionInfo(IAggregateFunction function) =>
+        _aggregateInfos.GetValue(function, static f => EmbeddedIpc.Encode(BuildFunctionInfo(f)));
 
     /// <summary>Decodes <c>BindRequest.InputSchema</c> — the concrete per-call argument shape
     /// DuckDB's binder resolved for this call site, used both to feed

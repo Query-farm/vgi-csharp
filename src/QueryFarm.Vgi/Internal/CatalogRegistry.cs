@@ -110,6 +110,7 @@ public sealed class CatalogRegistry
         if (exclusive)
         {
             _exclusiveIdentities.Add(info.Name);
+            FunctionsChanged();
         }
     }
 
@@ -123,13 +124,28 @@ public sealed class CatalogRegistry
     /// <see cref="RegisterCatalog"/> for such an identity instead would leak it into
     /// <c>vgi_catalogs()</c> discovery as a spurious extra catalog, which is exactly what this
     /// avoids.</summary>
-    public void MarkIdentityExclusive(string identity) => _exclusiveIdentities.Add(identity);
+    public void MarkIdentityExclusive(string identity)
+    {
+        _exclusiveIdentities.Add(identity);
+        FunctionsChanged();
+    }
 
     public IReadOnlyList<Protocol.CatalogInfo> Catalogs => _catalogs;
 
+    private long _functionsVersion;
+
+    /// <summary>Moves on every change to what a function listing or an ATTACH's global functions
+    /// can contain — a function registration of any kind, a global-function registration, or an
+    /// identity becoming exclusive. <see cref="VgiServiceImpl"/> caches both encoded, and rebuilds
+    /// a cached one when this has moved since it was built, so a registration made after serving
+    /// has started is still advertised.</summary>
+    internal long FunctionsVersion => Interlocked.Read(ref _functionsVersion);
+
+    private void FunctionsChanged() => Interlocked.Increment(ref _functionsVersion);
+
     private bool FallsBackToDefault(string identity) => identity != DefaultIdentity && !_exclusiveIdentities.Contains(identity);
 
-    private static string PathKey(IReadOnlyList<string> path) =>
+    internal static string PathKey(IReadOnlyList<string> path) =>
         string.Concat(path.Select(component => $"{component.Length}:{component}"));
 
     internal static bool PathsEqual(IReadOnlyList<string> left, IReadOnlyList<string> right) =>
@@ -202,7 +218,11 @@ public sealed class CatalogRegistry
     /// advertisement order.</summary>
     private readonly List<object> _globalFunctions = [];
 
-    public void RegisterGlobalFunction(object function) => _globalFunctions.Add(function);
+    public void RegisterGlobalFunction(object function)
+    {
+        _globalFunctions.Add(function);
+        FunctionsChanged();
+    }
 
     public IReadOnlyList<object> GlobalFunctions => _globalFunctions;
 
@@ -210,10 +230,11 @@ public sealed class CatalogRegistry
     /// published name — <c>""</c> (the default) publishes bare names.</summary>
     public string GlobalFunctionPrefix { get; set; } = "";
 
-    private static void Add<T>(
+    private void Add<T>(
         Dictionary<(string Identity, string SchemaName, string Name), List<T>> store,
         string identity, IReadOnlyList<string> schemaPath, string name, T function)
     {
+        FunctionsChanged();
         var key = (identity, PathKey(schemaPath), name);
         if (!store.TryGetValue(key, out var list))
         {

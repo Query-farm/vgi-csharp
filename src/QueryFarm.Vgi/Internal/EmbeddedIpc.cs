@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using QueryFarm.VgiRpc.Reflection;
@@ -22,50 +24,67 @@ namespace QueryFarm.Vgi.Internal;
 /// </summary>
 public static class EmbeddedIpc
 {
+    /// <summary>A type's inner schema and the CLR property behind each of its fields, in field
+    /// order. Resolving a field's property scans every property of the type
+    /// (<see cref="ValueCodec.FindClrPropertyName"/>), so doing it per field per call made an
+    /// encode quadratic in the type's width — a <see cref="Protocol.FunctionInfo"/> has 41 fields,
+    /// and a function listing encodes one per function.</summary>
+    private sealed class Layout
+    {
+        public Layout(Type clrType)
+        {
+            Schema = SchemaDerivation.InnerSchemaFor(clrType);
+            Properties = new PropertyInfo[Schema.FieldsList.Count];
+            ClrTypes = new Type[Properties.Length];
+            for (var i = 0; i < Properties.Length; i++)
+            {
+                Properties[i] = clrType.GetProperty(ValueCodec.FindClrPropertyName(clrType, Schema.GetFieldByIndex(i)))!;
+                ClrTypes[i] = Properties[i].PropertyType;
+            }
+        }
+
+        public Schema Schema { get; }
+
+        public PropertyInfo[] Properties { get; }
+
+        public Type[] ClrTypes { get; }
+    }
+
+    private static readonly ConcurrentDictionary<Type, Layout> s_layouts = new();
+
+    private static Layout LayoutFor(Type clrType) => s_layouts.GetOrAdd(clrType, static type => new Layout(type));
+
     public static byte[] Encode<T>(T value) where T : class, new()
     {
-        var clrType = typeof(T);
-        var innerSchema = SchemaDerivation.InnerSchemaFor(clrType);
-        var rowValues = new object?[innerSchema.FieldsList.Count];
+        var layout = LayoutFor(typeof(T));
+        var rowValues = new object?[layout.Properties.Length];
         for (var i = 0; i < rowValues.Length; i++)
         {
-            var field = innerSchema.GetFieldByIndex(i);
-            var property = clrType.GetProperty(ValueCodec.FindClrPropertyName(clrType, field))!;
-            rowValues[i] = property.GetValue(value);
+            rowValues[i] = layout.Properties[i].GetValue(value);
         }
 
         // Disposed (so reachable) until the write is complete — see RecordBatchIpc.Write — and
         // its native buffers go straight back to the pool rather than waiting for a finalizer.
-        using var row = ValueCodec.BuildRow(innerSchema, rowValues);
+        using var row = ValueCodec.BuildRow(layout.Schema, rowValues);
         return RecordBatchIpc.Write(row);
     }
 
     public static T Decode<T>(byte[] bytes) where T : class, new()
     {
-        var clrType = typeof(T);
-        var innerSchema = SchemaDerivation.InnerSchemaFor(clrType);
+        var layout = LayoutFor(typeof(T));
         using var stream = new MemoryStream(bytes);
         using var reader = new ArrowStreamReader(stream);
         // ExtractRow copies every value out, so the batch can be released as soon as it returns;
         // until then it must stay reachable (see RecordBatchIpc.Write).
         using var row = reader.ReadNextRecordBatch()
-            ?? throw new InvalidOperationException($"Embedded record for '{clrType}' had no data batch.");
+            ?? throw new InvalidOperationException($"Embedded record for '{typeof(T)}' had no data batch.");
 
-        var properties = new System.Reflection.PropertyInfo[innerSchema.FieldsList.Count];
-        var clrTypes = new Type[properties.Length];
-        for (var i = 0; i < properties.Length; i++)
-        {
-            var field = innerSchema.GetFieldByIndex(i);
-            properties[i] = clrType.GetProperty(ValueCodec.FindClrPropertyName(clrType, field))!;
-            clrTypes[i] = properties[i].PropertyType;
-        }
-
-        var values = ValueCodec.ExtractRow(row, clrTypes);
+        var values = ValueCodec.ExtractRow(row, layout.ClrTypes);
 
         var instance = new T();
-        for (var i = 0; i < properties.Length; i++)
+        for (var i = 0; i < layout.Properties.Length; i++)
         {
-            properties[i].SetValue(instance, values[i]);
+            layout.Properties[i].SetValue(instance, values[i]);
         }
 
         return instance;
