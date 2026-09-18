@@ -22,7 +22,13 @@ public sealed class FilterEchoPartitionedFunction : ITableFunction
 
     public string Description => "Multi-worker partitioned sequence that echoes pushed-down filters";
 
-    public int? MaxWorkers => 8;
+    private const int MaxReaders = 8;
+
+    public int? MaxWorkers => MaxReaders;
+
+    /// <summary>No more readers than chunks — see <see cref="PartitionedSequenceFunction.MaxWorkersForCall"/>.</summary>
+    public int? MaxWorkersForCall(TableInitParams initParams) =>
+        PartitionedSequenceFunction.ChunkCount(initParams.Arguments.Int64(0), ChunkSize, MaxReaders);
 
     public bool? FilterPushdown => true;
 

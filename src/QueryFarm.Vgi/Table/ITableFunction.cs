@@ -87,7 +87,18 @@ public interface ITableFunction
 
     VgiOrderPreservation? OrderPreservation => null;
 
+    /// <summary>The most parallel readers DuckDB may open for one call, as declared in the
+    /// function's catalog entry; <see langword="null"/> (the default) means one. The value a call
+    /// actually gets is <see cref="MaxWorkersForCall"/>'s.</summary>
     int? MaxWorkers => null;
+
+    /// <summary>The most parallel readers DuckDB may open for THIS call — the <c>max_workers</c> of
+    /// the stream header <c>init</c> returns, which is what DuckDB sizes its readers by (only the
+    /// primary connection's answer is used). Defaults to <see cref="MaxWorkers"/>. Override to size
+    /// it to the call: a scan that divides its output into work items should declare no more
+    /// readers than it has items, since every reader past that is an <c>init</c> plus a drain that
+    /// finds the queue empty.</summary>
+    int? MaxWorkersForCall(TableInitParams initParams) => MaxWorkers;
 
     bool SupportsBatchIndex => false;
 

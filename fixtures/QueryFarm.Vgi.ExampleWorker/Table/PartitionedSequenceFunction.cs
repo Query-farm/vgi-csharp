@@ -25,7 +25,19 @@ public sealed class PartitionedSequenceFunction : ITableFunction
 
     public string Description => "Generates a partitioned sequence for multi-worker execution";
 
-    public int? MaxWorkers => 8;
+    private const int MaxReaders = 8;
+
+    public int? MaxWorkers => MaxReaders;
+
+    /// <summary>No more readers than chunks: a 10,000-row call is one chunk, and used to get eight
+    /// readers, seven of which found the queue empty. Same rule as the reference Python fixture,
+    /// which declares <c>max_workers</c> equal to its work items.</summary>
+    public int? MaxWorkersForCall(TableInitParams initParams) =>
+        ChunkCount(initParams.Arguments.Int64(0), ChunkSize, MaxReaders);
+
+    /// <summary><c>ceil(count / chunkSize)</c>, clamped to <c>[1, cap]</c>.</summary>
+    internal static int ChunkCount(long count, long chunkSize, int cap) =>
+        (int)Math.Clamp((Math.Max(0, count) + chunkSize - 1) / chunkSize, 1, cap);
 
     public Schema ArgumentsSchema { get; } = new(
         [

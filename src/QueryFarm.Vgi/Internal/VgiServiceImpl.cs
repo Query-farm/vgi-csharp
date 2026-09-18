@@ -936,7 +936,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         {
             ExecutionId = executionId,
             OpaqueData = null,
-            MaxWorkers = function.MaxWorkers ?? 1,
+            MaxWorkers = Math.Max(1, function.MaxWorkersForCall(initParams) ?? 1),
         };
 
         var state = new TableProducerStreamState(producer);

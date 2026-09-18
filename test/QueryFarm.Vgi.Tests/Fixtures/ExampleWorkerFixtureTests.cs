@@ -1,6 +1,8 @@
 using Apache.Arrow;
+using Apache.Arrow.Types;
 using QueryFarm.Vgi.ExampleWorker.Table;
 using QueryFarm.Vgi.Internal;
+using QueryFarm.Vgi.Protocol;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 using Xunit;
@@ -97,5 +99,79 @@ public class NestedSequenceFixtureTests
             Secrets = new SecretsAccessor(null, isRetry: false),
         }));
         Assert.Equal("Argument 'history_size' must be >= 1", error.Message);
+    }
+}
+
+/// <summary>A queue-partitioned scan must declare no more parallel readers for a call than it has
+/// work items — the per-call <c>max_workers</c> the reference Python fixture returns from its init.
+/// With a fixed eight, a 10,000-row <c>partitioned_sequence</c> (one 10,000-row chunk) got eight
+/// readers, seven of which only found the queue empty.</summary>
+public class PartitionedFixtureReaderTests
+{
+    private static Int64Array Int64(long value) => new Int64Array.Builder().Append(value).Build();
+
+    private static TableInitParams InitParams(ITableFunction function, long count) => new()
+    {
+        FunctionName = function.Name,
+        Arguments = new TableArguments([Int64(count)], new Dictionary<string, IArrowArray>()),
+        OutputSchema = function.OutputSchema,
+    };
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 1)]
+    [InlineData(10_000, 1)]
+    [InlineData(10_001, 2)]
+    [InlineData(20_000, 2)]
+    [InlineData(100_000, 8)]
+    public void PartitionedSequence_DeclaresOneReaderPerChunk_UpToEight(long count, int readers)
+    {
+        var function = new PartitionedSequenceFunction();
+
+        Assert.Equal(readers, function.MaxWorkersForCall(InitParams(function, count)));
+        Assert.Equal(8, function.MaxWorkers);
+    }
+
+    [Theory]
+    [InlineData(100, 1)]
+    [InlineData(1_000, 1)]
+    [InlineData(5_000, 5)]
+    [InlineData(200_000, 8)]
+    public void FilterEchoPartitioned_DeclaresOneReaderPerChunk_UpToEight(long count, int readers)
+    {
+        var function = new FilterEchoPartitionedFunction();
+
+        Assert.Equal(readers, function.MaxWorkersForCall(InitParams(function, count)));
+        Assert.Equal(8, function.MaxWorkers);
+    }
+
+    /// <summary>The init stream header — what DuckDB sizes its readers by — carries the per-call
+    /// answer, not the catalog declaration.</summary>
+    [Theory]
+    [InlineData(10_000, 1)]
+    [InlineData(100_000, 8)]
+    public async Task InitHeader_CarriesThePerCallReaderCount(long count, long readers)
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new PartitionedSequenceFunction());
+        var service = new VgiServiceImpl(registry);
+        var attach = await service.CatalogAttachAsync(new CatalogAttachRequest { Name = "example" });
+
+        var argsType = new StructType([new Field("positional_0", Int64Type.Default, nullable: true)]);
+        var args = new RecordBatch(
+            new Schema([new Field("args", argsType, nullable: false)], metadata: null),
+            [new StructArray(argsType, 1, [Int64(count)], ArrowBuffer.Empty, nullCount: 0)],
+            1);
+        var bindRequest = new BindRequest
+        {
+            FunctionName = "partitioned_sequence",
+            FunctionType = FunctionType.Table,
+            Arguments = RecordBatchIpc.Write(args),
+            AttachOpaqueData = attach.AttachOpaqueData,
+        };
+
+        var stream = await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(bindRequest) });
+
+        Assert.Equal(readers, Assert.IsType<GlobalInitResponse>(stream.Header).MaxWorkers);
     }
 }
