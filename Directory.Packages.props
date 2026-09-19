@@ -16,8 +16,8 @@
          on IArrowArray/Array), fixed in vgi-rpc-csharp 0.4.0 (see that repo's
          third_party/apache-arrow-dotnet/README.md's "Published as QueryFarm.Arrow" section). This
          package's own NuGet publish must not happen before 0.4.0 is live on nuget.org. -->
-    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.11.1" />
-    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.11.1" />
+    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.12.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.12.0" />
 
     <!-- Same sibling-source-vs-NuGet split as QueryFarm.VgiRpc above; only used when the
          vgi-rpc-csharp checkout isn't present. QueryFarm.VgiRpc.Client's first-ever NuGet publish
@@ -50,8 +50,13 @@
          intermittent NullReferenceException in WriteBufferData, or a silent copy of memory the
          native pool had already reused (see RecordBatchIpc.Write, which still guards this repo's
          own writes). 0.11.0's removals (introspection rate limiting, the __introspect_token__
-         route) touch nothing here. -->
-    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.11.1" />
+         route) touch nothing here.
+         0.12.0 passes the reference's full server-role conformance and ENFORCES each method's
+         declared parameter contract (extra/missing/renamed/reordered parameters, nullability,
+         request_version). Every request this SDK's worker receives from the DuckDB extension
+         already conforms — the 338-file integration suite passes unchanged against it, direct
+         and through Rowfence — so the stricter server changes nothing for real clients. -->
+    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.12.0" />
 
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
 
