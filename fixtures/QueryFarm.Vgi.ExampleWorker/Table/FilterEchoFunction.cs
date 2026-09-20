@@ -163,8 +163,38 @@ public static class PushdownFilterFormatter
             return "(none)";
         }
 
-        var parts = filters.Predicates.Select(predicate => FormatNode(predicate.Expression, filters));
+        var parts = filters.Predicates.Select(predicate => FormatPredicate(predicate.Expression, filters));
         return string.Join(" AND ", parts);
+    }
+
+    /// <summary>Renders a node in a *predicate* position — the root of a predicate, or a child
+    /// of <c>and</c>/<c>or</c> — projecting a bare boolean column onto its equality form.
+    ///
+    /// <para>DuckDB pushes a predicate that *is* a boolean column down as a bare
+    /// <c>column_ref</c> rather than rewriting it to <c>flag = true</c>, and the schema admits
+    /// that: <c>coreExpression</c> lists <c>columnRef</c> first. Rendered literally it comes out
+    /// as <c>flag</c>, which is legal SQL but is the spelling no other VGI SDK produces, and the
+    /// <c>.test</c> corpus compares this rendering across all of them.</para>
+    ///
+    /// <para>No type lookup is needed here: the codec has already refused any predicate root
+    /// that does not resolve to BOOLEAN, and any <c>not</c> operand likewise, so a
+    /// <c>column_ref</c> reaching a predicate position is boolean by construction.</para>
+    ///
+    /// <para>The projection is exact rather than approximate, including under NULLs:
+    /// <c>WHERE flag</c> keeps only TRUE (a NULL predicate is not satisfied) and so does
+    /// <c>flag = true</c>; <c>WHERE NOT flag</c> keeps only FALSE (<c>NOT NULL</c> is NULL) and
+    /// so does <c>flag = false</c>.</para></summary>
+    private static string FormatPredicate(JsonElement node, DecodedFilters filters)
+    {
+        switch (node.GetProperty("node").GetString())
+        {
+            case "column_ref":
+                return $"{ColumnName(node)} = true";
+            case "not" when node.GetProperty("expression").GetProperty("node").GetString() == "column_ref":
+                return $"{ColumnName(node.GetProperty("expression"))} = false";
+            default:
+                return FormatNode(node, filters);
+        }
     }
 
     private static string FormatNode(JsonElement node, DecodedFilters filters)
@@ -197,7 +227,7 @@ public static class PushdownFilterFormatter
 
     private static IEnumerable<string> Children(JsonElement node, DecodedFilters filters) =>
         node.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array
-            ? children.EnumerateArray().Select(c => FormatNode(c, filters))
+            ? children.EnumerateArray().Select(c => FormatPredicate(c, filters))
             : [];
 
     private static string FormatComparison(JsonElement node, DecodedFilters filters)
