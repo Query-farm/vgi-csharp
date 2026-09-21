@@ -42,6 +42,9 @@ var tenThousandFunction = new TenThousandFunction();
 var cacheableNumbersFunction = new CacheableNumbersFunction("main", defaultCount: 10);
 var cacheRevalidatableFunction = new CacheRevalidatableFunction("main");
 var cacheFilteredFunction = new CacheFilteredMainFunction();
+// Shared for the same reason: main.secret_cache_nonce() and data.secret_cache_nonce are one function
+// (cache/secret_scope.test; see Cache/SecretCacheFunctions.cs).
+var secretCacheNonceFunction = new SecretCacheNonceFunction();
 // Shared for the same reason: main.trailing_partition_sales() and data.trailing_partition_sales are one
 // function (table/partition_columns.test).
 var trailingPartitionSalesFunction = new TrailingPartitionSalesFunction();
@@ -342,6 +345,12 @@ var worker = new Worker()
     .RegisterTableInOut(new CachedEchoFunction())
     .RegisterTableInOut(new CachedRevalEchoFunction())
     .RegisterTableBuffering(new CachedSumAllFunction())
+    // Secret-dependent cacheable fixtures, one per way a secret reaches the cache key: declared
+    // (producer), a [Secret] parameter (scalar), requested during bind (blended) — see
+    // Cache/SecretCacheFunctions.cs and cache/secret_scope.test.
+    .RegisterTable(secretCacheNonceFunction)
+    .RegisterScalar(new SecretCachedScalarFunction())
+    .RegisterTableInOut(new SecretCachedLateralFunction())
     // Splits milestone (test/sql/integration/splits/*.test) — table_function_plan / scan splits.
     .RegisterTable(new SplitRangeFunction("split_sequence", "Split-capable twin of sequence() — the parity.test baseline"))
     .RegisterTable(new SplitRangeFunction("split_many", "Many-splits stress twin of split_sequence"))
@@ -403,7 +412,7 @@ var worker = new Worker()
 // backs table/constraints.test's duckdb_constraints() metadata surface and
 // catalog/window_self_join.test's plain-table regression fixture.
 foreach (var table in DataSchemaTables.All(sequenceFunction, tenThousandFunction).Concat(MainSchemaTables.All)
-    .Concat(CacheDataTables.All(cacheableNumbersFunction, cacheRevalidatableFunction, cacheFilteredFunction))
+    .Concat(CacheDataTables.All(cacheableNumbersFunction, cacheRevalidatableFunction, cacheFilteredFunction, secretCacheNonceFunction))
     .Concat(RequiredFiltersTables.All).Concat(MultiBranchTables.All).Concat(VersionedTimeTravelTables.All)
     .Concat(TimeTravelPushdownTables.All).Append(CacheVersionedTable.Table).Append(GeoPointsTable.Table))
 {

@@ -69,9 +69,14 @@ public static class CacheDataTables
     /// list and its <c>data</c> schema's <c>Table(function=...)</c> entry, registering each backing
     /// function only ONCE (see <c>CatalogRegistry.RegisterCatalogTable</c>'s dedup-by-reference doc
     /// comment and <c>DataSchemaTables.BuildNumbers</c>'s doc comment for the general pattern) —
-    /// part of <c>table/function_registration.test</c>'s 166→162 roadmap, item (d).</summary>
+    /// part of <c>table/function_registration.test</c>'s 166→162 roadmap, item (d).
+    /// <paramref name="secretCacheNonceFunction"/> is shared the same way: <c>main.secret_cache_nonce()</c>
+    /// and <c>data.secret_cache_nonce</c> are one function (see <see cref="SecretCacheNonceFunction"/>).</summary>
     public static IReadOnlyList<CatalogTable> All(
-        ITableFunction cacheableNumbersFunction, ITableFunction cacheRevalidatableFunction, ITableFunction cacheFilteredFunction) =>
+        ITableFunction cacheableNumbersFunction,
+        ITableFunction cacheRevalidatableFunction,
+        ITableFunction cacheFilteredFunction,
+        ITableFunction secretCacheNonceFunction) =>
     [
         Build("cacheable_numbers", "Cacheable 10-row result advertising vgi.cache.ttl", cacheableNumbersFunction),
         CacheNoStore,
@@ -79,6 +84,7 @@ public static class CacheDataTables
         CacheBig, CacheNonce, CacheMulticol, CacheProjection,
         Build("cache_revalidatable", "Always-revalidate result (304 not_modified reuses stored bytes)", cacheRevalidatableFunction),
         CacheScopedTxn, CacheOrdered, CachePoison, CacheWhoami, CacheExternalFail,
+        Build("secret_cache_nonce", "One-row cacheable result keyed on the vgi_example secret", secretCacheNonceFunction),
     ];
 
     private static CatalogTable Build(string name, string comment, ITableFunction scanFunction) => new()
