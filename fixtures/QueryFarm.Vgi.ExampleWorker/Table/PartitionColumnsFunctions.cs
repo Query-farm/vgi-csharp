@@ -30,7 +30,7 @@ public static class PartitionColumnsFunctions
 /// <c>i</c> = <c>i*1_000_000 + row</c>.</summary>
 public sealed class CountryPartitionedSalesFunction : ITableFunction
 {
-    private static readonly string[] Countries = ["AU", "BR", "CA", "FR", "US"];
+    internal static readonly string[] Countries = ["AU", "BR", "CA", "FR", "US"];
 
     public string Name => "country_partitioned_sales";
 
@@ -80,6 +80,117 @@ public sealed class CountryPartitionedSalesFunction : ITableFunction
 
             var batch = new RecordBatch(outputSchema, [countryBuilder.Build(), salesBuilder.Build()], (int)rowsPerCountry);
             output.Emit(batch, PartitionValuesCodec.PartitionValues(outputSchema, batch));
+        }
+    }
+}
+
+/// <summary><c>ex.trailing_partition_sales(rows_per_country)</c> — the same contract and the same
+/// deterministic values as <see cref="CountryPartitionedSalesFunction"/> (so a test can assert the
+/// two agree), except that the partition column <c>country</c> is declared LAST
+/// (<c>seq, label, sales, country</c>). That difference is the point: every other partitioned
+/// fixture puts its partition column at index 0, which makes two distinct index spaces agree by
+/// accident. The planner asks <c>get_partition_info</c> about WORKER-SCHEMA indices, but the sink
+/// later asks <c>get_partition_data</c> about SCAN-LOCAL ones (positions after projection
+/// pushdown); <c>GROUP BY country</c> projects just <c>country</c> and <c>sales</c>, so the sink asks
+/// about scan-local 0 against a declared index of 3. A client that compares them without mapping
+/// resolves the wrong column — in the C++ extension, a FATAL <c>InternalException</c>.
+///
+/// Also backs the catalog table <c>data.trailing_partition_sales</c> (<c>rows_per_country</c> =
+/// 100; registered in <c>Program.cs</c> on this same instance), because a table's scan function is
+/// built on a different path than a direct call: a client can install <c>get_partition_info</c> for
+/// one and miss the other, and a table then silently never plans <c>PARTITIONED_AGGREGATE</c>.
+///
+/// Advertises <see cref="ProjectionPushdown"/> deliberately, as vgi-python's fixture does: without
+/// it the scan emits every base column and DuckDB's own <c>CanUsePartitionedAggregate</c> maps the
+/// projection's indices a second time (duckdb/duckdb#24327, not backported to v1.5). Emits only the
+/// projected columns, so the partition value is passed explicitly rather than read off the batch,
+/// which may not carry <c>country</c> at all. Backs <c>table/partition_columns.test</c>.</summary>
+public sealed class TrailingPartitionSalesFunction : ITableFunction
+{
+    private static readonly string[] Countries = CountryPartitionedSalesFunction.Countries;
+
+    public string Name => "trailing_partition_sales";
+
+    public string SchemaName => "main";
+
+    public string Description =>
+        "Per-country sales rows, one Arrow batch per country, with the SINGLE_VALUE partition column declared LAST in the schema instead of first.";
+
+    public IReadOnlyList<string> Categories => ["generator", "partitioning"];
+
+    public bool? ProjectionPushdown => true;
+
+    public int? MaxWorkers => 8;
+
+    /// <summary>No more readers than countries — see <see cref="PartitionedSequenceFunction.MaxWorkersForCall"/>.</summary>
+    public int? MaxWorkersForCall(TableInitParams initParams) => Countries.Length;
+
+    public VgiPartitionKind PartitionKind => VgiPartitionKind.SingleValuePartitions;
+
+    public Schema ArgumentsSchema { get; } = new([TableArgFields.Positional("rows_per_country", Int64Type.Default)], metadata: null);
+
+    public Schema OutputSchema { get; } = new(
+        [
+            new Field("seq", Int64Type.Default, nullable: true),
+            new Field("label", StringType.Default, nullable: true),
+            new Field("sales", Int64Type.Default, nullable: true),
+            new Field("country", StringType.Default, nullable: true, PartitionColumnsFunctions.PartitionColumnMetadata()),
+        ],
+        metadata: null);
+
+    public ITableFunctionProducer CreateProducer(TableInitParams initParams)
+    {
+        var rpc = initParams.Arguments.Int64(0);
+        var key = Convert.ToHexString(initParams.ExecutionId ?? []);
+        var partitionSchema = new Schema([initParams.OutputSchema.GetFieldByIndex(3)], metadata: null);
+        return new Producer(key, rpc, initParams.ProjectedSchema, initParams.ProjectionIds, partitionSchema);
+    }
+
+    private sealed class Producer(
+        string key, long rowsPerCountry, Schema projectedSchema, IReadOnlyList<long>? projectionIds, Schema partitionSchema)
+        : ITableFunctionProducer
+    {
+        public void Produce(OutputCollector output)
+        {
+            var claimed = CrossProcessWorkQueue.ClaimChunk(key, chunkSize: 1, total: Countries.Length, out var idx);
+            if (claimed == 0)
+            {
+                output.Finish();
+                return;
+            }
+
+            var country = Countries[idx];
+            var baseOffset = idx * 1_000_000L;
+
+            // Full-schema index -> column: 0 seq, 1 label, 2 sales, 3 country.
+            IArrowArray BuildColumn(long fullIndex)
+            {
+                if (fullIndex is 0 or 2)
+                {
+                    var numbers = new Int64Array.Builder();
+                    for (var i = 0L; i < rowsPerCountry; i++)
+                    {
+                        numbers.Append(fullIndex == 0 ? i : baseOffset + i);
+                    }
+
+                    return numbers.Build();
+                }
+
+                var strings = new StringArray.Builder();
+                for (var i = 0L; i < rowsPerCountry; i++)
+                {
+                    strings.Append(fullIndex == 1 ? $"{country}-{i}" : country);
+                }
+
+                return strings.Build();
+            }
+
+            var columns = (projectionIds ?? [0, 1, 2, 3]).Select(BuildColumn).ToList();
+            var metadata = new Dictionary<string, string>
+            {
+                ["vgi_partition_values#b64"] = PartitionValuesCodec.EncodeSingleValueBase64(partitionSchema, [country]),
+            };
+            output.Emit(new RecordBatch(projectedSchema, columns, (int)rowsPerCountry), metadata);
         }
     }
 }

@@ -42,6 +42,9 @@ var tenThousandFunction = new TenThousandFunction();
 var cacheableNumbersFunction = new CacheableNumbersFunction("main", defaultCount: 10);
 var cacheRevalidatableFunction = new CacheRevalidatableFunction("main");
 var cacheFilteredFunction = new CacheFilteredMainFunction();
+// Shared for the same reason: main.trailing_partition_sales() and data.trailing_partition_sales are one
+// function (table/partition_columns.test).
+var trailingPartitionSalesFunction = new TrailingPartitionSalesFunction();
 
 var worker = new Worker()
     .CatalogName("example")
@@ -321,6 +324,7 @@ var worker = new Worker()
     // v2 PartitionColumns (Hive-style) fixtures — partition_columns*.test.
     .RegisterTable(new CountryPartitionedSalesFunction())
     .RegisterTable(new RegionYearPartitionedFunction())
+    .RegisterTable(trailingPartitionSalesFunction)
     .RegisterTable(new PartitionedWithExplicitOverrideFunction())
     .RegisterTable(new DisjointRangePartitionedFunction())
     .RegisterTable(new OverlappingRangePartitionedFunction())
@@ -456,6 +460,18 @@ worker.RegisterCatalogTable(new CatalogTable
     Comment = "123456 integers; stats served by the sequence function, not the table",
     ScanFunction = sequenceFunction,
     ScanArguments = [123_456L],
+});
+
+// table/partition_columns.test — PartitionColumns reached as a CATALOG TABLE, whose scan function the
+// C++ side builds on a different path than a direct call; the partition column is declared last so the
+// worker-schema and scan-local index spaces cannot coincide. See TrailingPartitionSalesFunction.
+worker.RegisterCatalogTable(new CatalogTable
+{
+    Name = "trailing_partition_sales",
+    SchemaName = "data",
+    Comment = "Per-country sales, SINGLE_VALUE partition column declared last; GROUP BY country must plan as PARTITIONED_AGGREGATE",
+    ScanFunction = trailingPartitionSalesFunction,
+    ScanArguments = [100L],
 });
 
 // table/generated_columns.test — GENERATED ALWAYS AS columns on a VGI-backed table. Only `n` is
