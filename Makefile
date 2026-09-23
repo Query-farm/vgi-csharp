@@ -99,7 +99,9 @@ CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_WORKER_SUPPORTS_DYNAMIC_CODE' \
 	--allow-skip 'require-env VGI_SCHEMA_RECONCILE_DB' \
 	--allow-skip 'require-env VGI_RULES_WORKER' \
-	--allow-skip 'require-env VGI_REQUIRE_LAUNCHER_TRANSPORT'
+	--allow-skip 'require-env VGI_REQUIRE_LAUNCHER_TRANSPORT' \
+	--allow-skip 'require-env VGI_MALFORMED_BATCH_WORKER' \
+	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER'
 
 VGI_EXT_DIR             ?= $(HOME)/Development/vgi
 CSHARP_EXAMPLE_BIN          := $(CURDIR)/fixtures/QueryFarm.Vgi.ExampleWorker/bin/Debug/net10.0/vgi-example-worker
