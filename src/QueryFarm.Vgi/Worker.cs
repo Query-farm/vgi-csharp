@@ -8,6 +8,7 @@ using QueryFarm.Vgi.Aggregate;
 using QueryFarm.Vgi.Buffering;
 using QueryFarm.Vgi.Catalog;
 using QueryFarm.Vgi.Internal;
+using QueryFarm.Vgi.Http;
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.Vgi.Scalar;
 using QueryFarm.Vgi.Table;
@@ -377,8 +378,8 @@ public sealed class Worker
     /// not under the C# type's own name, and any other site that hosts the same interface gets
     /// the same name whether or not it went through here.
     /// </remarks>
-    private RpcServer NewRpcServer() =>
-        new(typeof(IVgiService), new VgiServiceImpl(_catalog), expectedProtocolVersion: _protocolVersion);
+    private RpcServer NewRpcServer(string? serverId = null) =>
+        new(typeof(IVgiService), new VgiServiceImpl(_catalog), serverId: serverId, expectedProtocolVersion: _protocolVersion);
 
     /// <summary>Serves over stdin/stdout until the client disconnects.</summary>
     public Task RunStdioAsync(CancellationToken cancellationToken = default)
@@ -541,7 +542,8 @@ public sealed class Worker
         if (irohBridge is not null && !IsLoopbackHost(host))
             throw new ArgumentException("Iroh HTTP bridge upstream must bind loopback.", nameof(host));
 
-        var rpc = NewRpcServer();
+        var serverId = Guid.NewGuid().ToString("n");
+        var rpc = NewRpcServer(serverId);
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls($"http://{FormatHostForUrl(host)}:{port}");
         var app = builder.Build();
@@ -562,6 +564,7 @@ public sealed class Worker
         }
 
         app.MapVgiRpc(rpc, prefix: prefix, authenticate: authenticate);
+        app.MapVgiLandingPage(_catalog.CatalogName, serverId, prefix, authenticate: authenticate);
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
         var addresses = app.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()?.Addresses;

@@ -18,6 +18,8 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <EmbeddedResource Include="Http/landing.html" LogicalName="QueryFarm.Vgi.Http.landing.html" />
+    <EmbeddedResource Include="Http/vgi-client.js" LogicalName="QueryFarm.Vgi.Http.vgi-client.js" />
   </ItemGroup>
 
   <ItemGroup>

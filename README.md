@@ -286,3 +286,15 @@ the Apache License, Version 2.0 on the tenth anniversary of its public release.
 
 For uses not permitted under this license, contact
 [hello@query.farm](mailto:hello@query.farm) for a commercial license.
+
+### Browser catalog
+
+HTTP workers serve the shared browser catalog at their HTTP root, with
+`vgi-client.js` alongside it. The page discovers schemas, tables, views, and
+functions through the normal VGI RPC endpoints. `?format=json` returns worker
+identity instead. Both assets use the worker's authentication callback and
+support conditional requests and HEAD.
+
+Applications hosting their own ASP.NET Core server can call
+`app.MapVgiLandingPage(name, serverId, prefix, authenticate: authenticate)`
+alongside `app.MapVgiRpc(...)`, using the same prefix and authentication.
