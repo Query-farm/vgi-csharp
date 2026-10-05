@@ -19,7 +19,7 @@ reference — **never modify it or its `test/sql/integration/**` sqllogictest fi
 the shared, unmodified oracle every language port is graded against, and it's what makes a green
 run here real cross-language wire-compatibility evidence, not a self-graded exercise).
 
-**Status: full parity.** All 333 sqllogictests in `~/Development/vgi/test/sql/integration/**`
+**Status: full parity.** All 356 sqllogictests in `~/Development/vgi/test/sql/integration/**`
 pass. See [`docs/roadmap.md`](docs/roadmap.md) for the milestone history and how the handful of
 tricky failures along the way got resolved (including one genuine, real bug this port helped
 surface and fix upstream, and a standing lesson about not trusting "it must be the C++ side"
@@ -50,10 +50,11 @@ here" error.
 
 ## Solution layout
 
-- `src/QueryFarm.Vgi/` — the published package: protocol DTOs, function-kind interfaces/base
-  classes (`Scalar/`, `Table/`, `TableInOut/`, `Buffering/`, `Aggregate/`), catalog registry
-  (`Catalog/`), the `IVgiService` dispatcher (`Internal/VgiServiceImpl.cs` — the largest file,
-  touched by nearly every feature), and the `Worker` builder/CLI.
+- `src/QueryFarm.Vgi/` — the published package: protocol DTOs (generated — see below),
+  function-kind interfaces/base classes (`Scalar/`, `Table/`, `TableInOut/`, `Buffering/`,
+  `Aggregate/`), catalog registry (`Catalog/`), the `IVgiService` dispatcher
+  (`Internal/VgiServiceImpl.cs` — the largest file, touched by nearly every feature), and the
+  `Worker` builder/CLI.
 - `fixtures/QueryFarm.Vgi.ExampleWorker/` — the ~170-function conformance-driving fixture worker
   the sqllogictest suite runs against. One subdirectory per function kind, plus `Cache/`,
   `CopyFormats/`, `Splits/`, `Accumulate/`, `NarrowBind/`, `ProjectionRepro/` for specific test
@@ -70,7 +71,29 @@ here" error.
 
 ## Wire-protocol conventions (read before touching `Protocol/`)
 
-- **No IDL/codegen** — RPC method dispatch/versioning rides as `vgi_rpc.*` custom metadata on
+- **The protocol types are generated — never edit them by hand.** Every request/response record
+  and wire enum lives in `src/QueryFarm.Vgi/Protocol/Generated/VgiProtocolTypes.g.cs`, emitted
+  from the vgi-python dataclasses (the protocol's source of truth) by `vgi.codegen.csharp_types`.
+  The protocol's schemas are emitted alongside into
+  `test/QueryFarm.Vgi.Tests/Generated/VgiProtocolSchemas.g.cs` by `vgi.codegen.csharp_schemas`, and
+  `Protocol/GeneratedProtocolConformanceTests` checks what this port actually serializes —
+  every record, plus `IVgiService`'s hand-written flat params and result types — against them.
+  To change a protocol type, change the dataclass in vgi-python and regenerate both files:
+
+  ```bash
+  make regen_protocol   # = uv run --project ../vgi-python python scripts/regen_generated.py
+  ```
+
+  vgi-python's `tests/test_generated_csharp.py` fails if the checked-in files drift from the
+  generator. C#-side names that differ from Python's (`PlanResponse` is
+  `TableFunctionPlanResult`, `PartitionKind` is `VgiPartitionKind`, the catalog `*Response`s are
+  one `ItemsResponse`) are declared in the generator's `CSHARP_NAMES`. The types are `partial`, so
+  C#-only helpers go in a separate hand-written file, not in the generated one. Every `binary`
+  column is a `byte[]` of raw IPC bytes — including ones Python annotates as `pa.RecordBatch` —
+  so decode with `Internal.RecordBatchIpc`/`SchemaIpc`/`EmbeddedIpc` where you need the value.
+  Not generated: `IVgiService` (method signatures), `AttachContext` (a C# API type, not a wire
+  type), `ArgumentMonotonicity`.
+- **No IDL** — RPC method dispatch/versioning rides as `vgi_rpc.*` custom metadata on
   Arrow IPC batches, not a schema-defined wire format.
 - **Two-tier dataclass rule**: a method's own top-level parameter/return type embeds as IPC inside
   a `binary` field; a property nested inside *another* dataclass is a native Arrow `struct`. A
@@ -79,11 +102,12 @@ here" error.
   since the two-tier rule only covers one level.
 - **Positional vs. name-based decoding, this is the one that bites people**: REQUEST types
   (C++ → worker) decode *positionally* — C# property declaration order must exactly match the
-  C++/generated-schema field order, verified against
-  `~/Development/vgi/src/generated/vgi_protocol_schemas.hpp`. RESPONSE types (worker → C++) are
-  validated with a *strict* `arrow::Schema::Equals` (field count/order/name/type/nullability)
-  against that same generated header's schema factories — not a tolerant name-based read. Get
-  either direction's field order wrong and it fails at runtime, not at compile time.
+  protocol's field order. RESPONSE types (worker → C++) are validated with a *strict*
+  `arrow::Schema::Equals` (field count/order/name/type/nullability) against the C++ extension's
+  generated schema factories (`~/Development/vgi/src/generated/vgi_protocol_schemas.hpp`, emitted
+  from the same vgi-python dataclasses) — not a tolerant name-based read. Either direction going
+  wrong fails at runtime, not at compile time — which is why the types are generated and the
+  conformance test above compares the serialized schemas rather than trusting the declarations.
 - **Packed vs. flat RPC methods**: packed = single `request: binary` embedded-IPC param; flat =
   params map 1:1 by name to method parameters.
 - **The protocol's wire name is declared, not derived**: `vgi.v2`, and it is a cross-port contract

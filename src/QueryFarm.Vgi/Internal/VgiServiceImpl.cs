@@ -426,7 +426,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var storage = new FunctionStorage(request.ExecutionId);
         var bindContext = ReadBindContext(storage);
 
-        var stateId = function.Process(request.InputBatch, new TableBufferingProcessParams
+        var stateId = function.Process(RecordBatchIpc.Read(request.InputBatch), new TableBufferingProcessParams
         {
             FunctionName = request.FunctionName,
             ExecutionId = request.ExecutionId,
@@ -518,7 +518,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var schemaPath = EffectiveSchemaPath(request.SchemaPath);
         var function = ResolveAggregate(identity, schemaPath, request.FunctionName);
 
-        var batch = request.InputBatch;
+        var batch = RecordBatchIpc.Read(request.InputBatch);
         var gidIndex = batch.Schema.GetFieldIndex(AggregateGroupIdColumn);
         if (gidIndex < 0)
         {
@@ -570,7 +570,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var schemaPath = EffectiveSchemaPath(request.SchemaPath);
         var function = ResolveAggregate(identity, schemaPath, request.FunctionName);
 
-        var batch = request.MergeBatch;
+        var batch = RecordBatchIpc.Read(request.MergeBatch);
         var srcIndex = batch.Schema.GetFieldIndex("source_group_id");
         var tgtIndex = batch.Schema.GetFieldIndex("target_group_id");
         if (srcIndex < 0 || tgtIndex < 0)
@@ -618,7 +618,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var schemaPath = EffectiveSchemaPath(request.SchemaPath);
         var function = ResolveAggregate(identity, schemaPath, request.FunctionName);
 
-        var gidBatch = request.GroupIdsBatch;
+        var gidBatch = RecordBatchIpc.Read(request.GroupIdsBatch);
         var gidIndex = gidBatch.Schema.GetFieldIndex("group_id");
         if (gidIndex < 0)
         {
@@ -645,7 +645,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var resultBatch = new RecordBatch(outputSchema, [resultArray], count);
-        return Task.FromResult(new AggregateFinalizeResult { ResultBatch = resultBatch });
+        return Task.FromResult(new AggregateFinalizeResult { ResultBatch = RecordBatchIpc.Write(resultBatch) });
     }
 
     public Task<AggregateDestructorResult> AggregateDestructorAsync(AggregateDestructorRequest request, ICallContext? ctx = null)
@@ -1944,7 +1944,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Tags = tags,
             AttachOpaqueData = [],
             Path = path.ToList(),
-            EstimatedObjectCount = new Dictionary<string, long?>
+            EstimatedObjectCount = new Dictionary<string, long>
             {
                 ["table"] = catalog.CatalogTablesFor(identity).Count(t => CatalogRegistry.PathsEqual(t.EffectiveSchemaPath, path)),
                 ["view"] = catalog.CatalogViewsFor(identity).Count(v => CatalogRegistry.PathsEqual(v.EffectiveSchemaPath, path)),
@@ -2024,12 +2024,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Name = table.Name,
             SchemaPath = table.EffectiveSchemaPath.ToList(),
             Columns = SchemaIpc.WriteSchemaOnly(columns),
-            NotNullConstraints = table.NotNullColumns.Select(c => (int?)byName(c)).ToList(),
-            UniqueConstraints = table.UniqueColumns.Select(group => group.Select(c => (int?)byName(c)).ToList()).ToList(),
+            NotNullConstraints = table.NotNullColumns.Select(byName).ToList(),
+            UniqueConstraints = table.UniqueColumns.Select(group => group.Select(byName).ToList()).ToList(),
             CheckConstraints = table.CheckConstraints.ToList(),
             PrimaryKeyConstraints = table.PrimaryKeyColumns.Count == 0
                 ? []
-                : [table.PrimaryKeyColumns.Select(c => (int?)byName(c)).ToList()],
+                : [table.PrimaryKeyColumns.Select(byName).ToList()],
             ForeignKeyConstraints = table.ForeignKeys.Select(fk => EmbeddedIpc.Encode(new ForeignKeyInfo
             {
                 FkColumns = fk.Columns.ToList(),

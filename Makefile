@@ -14,7 +14,7 @@ OWN_PROJECTS := src/QueryFarm.Vgi/QueryFarm.Vgi.csproj \
 	examples/01-minimal-scalar-worker/Worker.csproj \
 	examples/docs/QueryFarm.Vgi.DocsExamples.csproj
 
-.PHONY: build test smoke docs_examples test_docs_examples test_integration test_integration_subprocess test_integration_gated format format_check
+.PHONY: build test smoke docs_examples test_docs_examples test_integration test_integration_subprocess test_integration_gated format format_check regen_protocol
 
 build:
 	$(DOTNET) build vgi-csharp.slnx
@@ -36,6 +36,14 @@ format:
 
 format_check:
 	@for p in $(OWN_PROJECTS); do $(DOTNET) format $$p --verify-no-changes || exit 1; done
+
+# Regenerates Protocol/Generated/VgiProtocolTypes.g.cs and the test project's
+# Generated/VgiProtocolSchemas.g.cs from the vgi-python dataclasses (and every
+# other port's generated artifacts that are checked out beside it). Never edit
+# those files by hand: change the dataclass in vgi-python, then run this.
+VGI_PYTHON ?= ../vgi-python
+regen_protocol:
+	uv run --project $(VGI_PYTHON) python $(VGI_PYTHON)/scripts/regen_generated.py
 
 # Runs the ~/Development/vgi sqllogictest suite against the C# fixture worker(s) as ONE
 # `unittest` invocation over the pooled `launch:` (AF_UNIX) transport — dramatically

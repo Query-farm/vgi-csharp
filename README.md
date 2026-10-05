@@ -25,7 +25,7 @@ It is wire-compatible with the canonical [Python](https://github.com/Query-farm/
 the Go/Rust/Java/TypeScript ports, so a C# worker drops in behind the same `ATTACH ... (TYPE vgi)`.
 Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targets **.NET 10**.
 
-> **Status: full parity.** All 333 sqllogictests in the canonical
+> **Status: full parity.** All 356 sqllogictests in the canonical
 > `~/Development/vgi/test/sql/integration/**` suite pass — the same unmodified suite the
 > Python/Go/Rust/Java ports are graded against. See [`docs/roadmap.md`](docs/roadmap.md) for the
 > milestone history.
@@ -248,7 +248,7 @@ src/QueryFarm.Vgi/                    the published package
   Scalar/ Table/ TableInOut/          per-function-kind interfaces + ScalarFn
   Buffering/ Aggregate/
   Catalog/                            CatalogTable/CatalogView/CatalogMacro
-  Protocol/                           wire DTOs, one per RPC request/response type
+  Protocol/                           IVgiService + wire DTOs (Generated/, from vgi-python)
   Internal/                           VgiServiceImpl (the IVgiService dispatcher), pushdown
                                        filter codec/evaluator, argument codecs, storage
 fixtures/QueryFarm.Vgi.ExampleWorker/ the ~170-function conformance-driving fixture worker
@@ -285,8 +285,10 @@ sqllogictest iteration loop and the wire-protocol conventions worth knowing befo
 
 ## Architecture notes
 
-- **No IDL/codegen** — RPC method dispatch and versioning ride as `vgi_rpc.*` custom metadata on
-  Arrow IPC batches, not a schema-defined wire format.
+- **No IDL** — RPC method dispatch and versioning ride as `vgi_rpc.*` custom metadata on
+  Arrow IPC batches, not a schema-defined wire format. The protocol's request/response types are
+  generated from the canonical vgi-python dataclasses (`make regen_protocol`), and a conformance
+  test checks what this port serializes against the protocol's schemas.
 - **Two-tier dataclass rule**: a method's own top-level parameter/return type embeds as IPC inside
   a `binary` field; a property nested inside another dataclass is a native Arrow `struct`.
 - **Positional vs. name-based decoding**: request types (C++ → worker) decode *positionally* —
