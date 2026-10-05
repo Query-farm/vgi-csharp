@@ -109,6 +109,19 @@ public interface IVgiService
 
     Task<ItemsResponse> CatalogSchemasAsync(byte[] attachOpaqueData, byte[]? transactionOpaqueData, ICallContext? ctx = null);
 
+    /// <summary>Every schema and all of its contents in one result — what a client calls instead of
+    /// <see cref="CatalogSchemasAsync"/> plus a <c>catalog_schema_contents_*</c> call per schema and
+    /// kind, and only when <see cref="CatalogAttachResult.SupportsCatalogContents"/> was set on the
+    /// attach. Takes no transaction: the client caches the answer catalog-wide, so it is the
+    /// committed catalog at <see cref="CatalogContentsResponse.CatalogVersion"/>.
+    ///
+    /// <para>The default composes this service's own per-schema RPCs
+    /// (<see cref="CatalogContentsComposer"/>), so every item is byte-for-byte what those return and
+    /// any implementation can serve it without new code. Override it only to build the snapshot
+    /// more cheaply.</para></summary>
+    Task<CatalogContentsResponse> CatalogContentsAsync(byte[] attachOpaqueData, ICallContext? ctx = null) =>
+        CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
+
     Task<ItemsResponse> CatalogSchemaContentsFunctionsAsync(
         byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null);
 

@@ -1144,6 +1144,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             GlobalFunctionPrefix = catalog.GlobalFunctionPrefix,
             ResolvedDataVersion = attachContext?.ResolvedDataVersion,
             ResolvedImplementationVersion = attachContext?.ResolvedImplementationVersion,
+            SupportsCatalogContents = attachContext?.SupportsCatalogContents ?? catalog.SupportsCatalogContents,
         });
     }
 
@@ -1217,6 +1218,16 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             .ToList();
 
         return Task.FromResult(new ItemsResponse { Items = items });
+    }
+
+    /// <summary>Runs the <see cref="CatalogRegistry.OnCatalogContents"/> hook (if any) for this
+    /// attach's identity — a throw refuses the call, and the client falls back to the per-schema
+    /// RPCs — then composes the answer from this service's own per-schema RPCs
+    /// (<see cref="CatalogContentsComposer"/>), so every item is byte-identical to theirs.</summary>
+    public Task<CatalogContentsResponse> CatalogContentsAsync(byte[] attachOpaqueData, ICallContext? ctx = null)
+    {
+        catalog.OnCatalogContents?.Invoke(DecodeIdentity(attachOpaqueData));
+        return CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
     }
 
     public Task<ItemsResponse> CatalogSchemaGetAsync(

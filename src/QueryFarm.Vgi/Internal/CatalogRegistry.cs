@@ -187,6 +187,17 @@ public sealed class CatalogRegistry
     /// it, mirroring how a Python worker's own <c>catalog_attach</c> override dispatches.</summary>
     public Func<Protocol.CatalogAttachRequest, Protocol.AttachContext?>? OnAttach { get; set; }
 
+    /// <summary>Advertised as <see cref="Protocol.CatalogAttachResult.SupportsCatalogContents"/> on
+    /// every attach (see <see cref="Worker.CatalogContents"/>). On by default: every catalog this
+    /// registry serves is declarative — populated by <c>Register*</c> calls at startup, with no
+    /// runtime DDL and no transaction-specific listing — which is exactly the shape vgi-python's
+    /// <c>ReadOnlyCatalogInterface</c> advertises it for.</summary>
+    public bool SupportsCatalogContents { get; set; } = true;
+
+    /// <summary>Called with the attach identity before a <c>catalog_contents</c> answer is built
+    /// (<see cref="Worker.OnCatalogContents"/>); throwing refuses the call.</summary>
+    public Action<string>? OnCatalogContents { get; set; }
+
     public void RegisterScalar(IScalarFunction function, string identity = DefaultIdentity) =>
         Add(_scalarFunctions, identity, function.SchemaPath, function.Name, function);
 

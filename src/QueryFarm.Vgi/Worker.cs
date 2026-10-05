@@ -53,7 +53,7 @@ public sealed class Worker
     /// registered in more than one schema. 2.0.0 replaces schema names throughout the protocol
     /// with raw identifier-component paths so schemas can be nested to arbitrary depth. 2.1.0 added
     /// the <c>catalog_contents</c> RPC and the <c>supports_catalog_contents</c> column on the
-    /// <c>catalog_attach</c> result (this worker reports <c>false</c>).</para>
+    /// <c>catalog_attach</c> result (see <see cref="CatalogContents"/>).</para>
     /// </summary>
     public const string DefaultProtocolVersion = "2.1.0";
 
@@ -259,6 +259,32 @@ public sealed class Worker
     public Worker OnAttach(Func<Protocol.CatalogAttachRequest, Protocol.AttachContext?> handler)
     {
         _catalog.OnAttach = handler;
+        return this;
+    }
+
+    /// <summary>Whether <c>catalog_attach</c> advertises
+    /// <see cref="Protocol.CatalogAttachResult.SupportsCatalogContents"/>, letting the client load
+    /// the whole catalog with one <c>catalog_contents</c> call instead of <c>catalog_schemas</c> plus
+    /// a <c>catalog_schema_contents_*</c> call per schema and kind. On by default — this worker's
+    /// catalogs are declarative (fixed by the <c>Register*</c> calls, no runtime DDL), the shape
+    /// vgi-python's <c>ReadOnlyCatalogInterface</c> advertises it for. The RPC itself is always
+    /// served (see <see cref="Protocol.IVgiService.CatalogContentsAsync"/>); turning this off only
+    /// stops the client from calling it.</summary>
+    public Worker CatalogContents(bool enabled)
+    {
+        _catalog.SupportsCatalogContents = enabled;
+        return this;
+    }
+
+    /// <summary>Registers a hook run with the attach identity before every <c>catalog_contents</c>
+    /// answer is built. Throwing refuses the call — the exception's message reaches the client as
+    /// the RPC error, and a client falls back to <c>catalog_schemas</c> plus the per-schema RPCs —
+    /// mirroring how a vgi-python catalog overrides <c>catalog_contents</c>. To stop the client
+    /// calling it at all, withdraw the advertisement instead (<see cref="CatalogContents"/>, or
+    /// <see cref="Protocol.AttachContext.SupportsCatalogContents"/> per attach).</summary>
+    public Worker OnCatalogContents(Action<string> handler)
+    {
+        _catalog.OnCatalogContents = handler;
         return this;
     }
 

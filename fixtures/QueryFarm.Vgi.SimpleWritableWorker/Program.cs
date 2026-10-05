@@ -50,6 +50,10 @@ var worker = new Worker()
     .RegisterCatalogTable(items)
     .RegisterCatalogTable(itemsNoReturning)
     .RegisterCatalogTable(itemsInsertOnly)
-    .RegisterCatalogTable(itemsBrokenReturning);
+    .RegisterCatalogTable(itemsBrokenReturning)
+    // A writable catalog: like vgi-python's simple_writable fixture it does not advertise
+    // catalog_contents, so the client keeps loading it per schema
+    // (simple_writable/catalog_contents.test).
+    .CatalogContents(false);
 
 await worker.RunFromArgsAsync(args);

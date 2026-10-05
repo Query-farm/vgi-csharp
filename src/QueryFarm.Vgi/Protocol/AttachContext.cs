@@ -32,4 +32,10 @@ public sealed class AttachContext
     /// <summary>Fed onto <see cref="CatalogAttachResult.ResolvedImplementationVersion"/> — see
     /// <see cref="ResolvedDataVersion"/>.</summary>
     public string? ResolvedImplementationVersion { get; init; }
+
+    /// <summary>Overrides <see cref="CatalogAttachResult.SupportsCatalogContents"/> for this attach
+    /// only; <see langword="null"/> keeps the worker-wide setting (<c>Worker.CatalogContents</c>).
+    /// Lets one worker serve a catalog that must be loaded per schema (e.g. one whose listing is
+    /// transaction-specific) beside ones that can be loaded in a single call.</summary>
+    public bool? SupportsCatalogContents { get; init; }
 }

@@ -17,6 +17,7 @@ using QueryFarm.Vgi.ExampleWorker.AttachOptions;
 using QueryFarm.Vgi.ExampleWorker.Aggregate;
 using QueryFarm.Vgi.ExampleWorker.Buffering;
 using QueryFarm.Vgi.ExampleWorker.Cache;
+using QueryFarm.Vgi.ExampleWorker.CatalogContents;
 using QueryFarm.Vgi.ExampleWorker.CopyFormats;
 using QueryFarm.Vgi.ExampleWorker.NarrowBind;
 using QueryFarm.Vgi.ExampleWorker.ProjectionRepro;
@@ -370,7 +371,11 @@ var worker = new Worker()
     .RegisterTable(new EchoAttachOptionsFunction(), identity: "attach_options")
     // attach/attach_options_echo.test + attach/attach_options_required.test's catalog_attach
     // validation/echo hook.
-    .OnAttach(request => AttachOptionsSetup.Handle(request));
+    .OnAttach(request => CatalogContentsSetup.HandleAttach(request) ?? AttachOptionsSetup.Handle(request))
+    .OnCatalogContents(CatalogContentsSetup.HandleCatalogContents);
+
+// catalog/catalog_contents*.test — the contents_probe / contents_broken / contents_legacy catalogs.
+CatalogContentsSetup.Register(worker);
 
 // table/function_registration.test — PASSES (exactly 162 table-type functions, matching the
 // vgi-python reference worker's roster count). Closed via a full class-hierarchy diff of every
@@ -731,6 +736,12 @@ worker.RegisterTable(new ProjReproFullSchemaFunction(), identity: "projection_re
 worker.RegisterTable(new ProjReproChunkedFunction(), identity: "projection_repro");
 worker.RegisterTable(new ProjReproMultiWorkerFunction(), identity: "projection_repro");
 worker.RegisterTable(new ProjReproStrictFunction(), identity: "projection_repro");
+
+// catalog_contents (protocol 2.1.0): the whole catalog in one RPC. Every catalog here is
+// declarative, so it is advertised (the SDK default); VGI_CATALOG_CONTENTS=0 withdraws the
+// advertisement so the conformance lane can be compared with and without it. A `launch:` worker is
+// pooled by (argv, cwd, VGI_RPC_* env), so stop a warm one before flipping this.
+worker.CatalogContents(Environment.GetEnvironmentVariable("VGI_CATALOG_CONTENTS") != "0");
 
 await worker.RunFromArgsAsync(args);
 
