@@ -51,9 +51,11 @@ public sealed class Worker
     /// authoritative schema for the scan/write function it just resolved, so the client no longer has
     /// to guess (the table's own schema, then <c>default_schema</c>) when one function name is
     /// registered in more than one schema. 2.0.0 replaces schema names throughout the protocol
-    /// with raw identifier-component paths so schemas can be nested to arbitrary depth.</para>
+    /// with raw identifier-component paths so schemas can be nested to arbitrary depth. 2.1.0 added
+    /// the <c>catalog_contents</c> RPC and the <c>supports_catalog_contents</c> column on the
+    /// <c>catalog_attach</c> result (this worker reports <c>false</c>).</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "2.0.0";
+    public const string DefaultProtocolVersion = "2.1.0";
 
     private readonly CatalogRegistry _catalog = new();
     private string _protocolVersion = DefaultProtocolVersion;
