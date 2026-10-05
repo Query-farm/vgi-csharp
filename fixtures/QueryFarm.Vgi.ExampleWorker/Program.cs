@@ -17,7 +17,6 @@ using QueryFarm.Vgi.ExampleWorker.AttachOptions;
 using QueryFarm.Vgi.ExampleWorker.Aggregate;
 using QueryFarm.Vgi.ExampleWorker.Buffering;
 using QueryFarm.Vgi.ExampleWorker.Cache;
-using QueryFarm.Vgi.ExampleWorker.CatalogContents;
 using QueryFarm.Vgi.ExampleWorker.CopyFormats;
 using QueryFarm.Vgi.ExampleWorker.NarrowBind;
 using QueryFarm.Vgi.ExampleWorker.ProjectionRepro;
@@ -371,11 +370,7 @@ var worker = new Worker()
     .RegisterTable(new EchoAttachOptionsFunction(), identity: "attach_options")
     // attach/attach_options_echo.test + attach/attach_options_required.test's catalog_attach
     // validation/echo hook.
-    .OnAttach(request => CatalogContentsSetup.HandleAttach(request) ?? AttachOptionsSetup.Handle(request))
-    .OnCatalogContents(CatalogContentsSetup.HandleCatalogContents);
-
-// catalog/catalog_contents*.test — the contents_probe / contents_broken / contents_legacy catalogs.
-CatalogContentsSetup.Register(worker);
+    .OnAttach(request => AttachOptionsSetup.Handle(request));
 
 // table/function_registration.test — PASSES (exactly 162 table-type functions, matching the
 // vgi-python reference worker's roster count). Closed via a full class-hierarchy diff of every

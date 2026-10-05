@@ -146,6 +146,72 @@ public class CatalogContentsTests
             kindsSeen.Order(StringComparer.Ordinal));
     }
 
+    /// <summary>An item's bytes depend only on its contents: map fields (tags, column comments,
+    /// estimated_object_count) are written in key order, whatever order the caller built them in.
+    /// Otherwise one object could encode two ways and the "byte-identical" guarantee — and any
+    /// content-hash cache built on it — would not hold.</summary>
+    [Fact]
+    public async Task MapFields_EncodeInKeyOrder_RegardlessOfInsertionOrder()
+    {
+        static CatalogRegistry With(params (string Key, string Value)[] tags)
+        {
+            var dict = new Dictionary<string, string>();
+            foreach (var (key, value) in tags)
+            {
+                dict[key] = value;
+            }
+
+            var registry = new CatalogRegistry();
+            registry.RegisterSchema("data", "Data", new Dictionary<string, string>(dict));
+            registry.RegisterView(new CatalogView
+            {
+                Name = "v",
+                SchemaName = "data",
+                Definition = "SELECT 1 AS one",
+                Tags = new Dictionary<string, string>(dict),
+                ColumnComments = new Dictionary<string, string>(dict),
+            });
+            registry.RegisterMacro(new CatalogMacro
+            {
+                Name = "m",
+                SchemaName = "data",
+                MacroType = MacroType.Scalar,
+                Definition = "1",
+                Tags = new Dictionary<string, string>(dict),
+            });
+            registry.RegisterCatalogTable(new CatalogTable
+            {
+                Name = "t",
+                SchemaName = "data",
+                Columns = OneColumn,
+                Tags = new Dictionary<string, string>(dict),
+            });
+            return registry;
+        }
+
+        IVgiService forward = new VgiServiceImpl(With(("a", "1"), ("b", "2"), ("c", "3")));
+        IVgiService reverse = new VgiServiceImpl(With(("c", "3"), ("b", "2"), ("a", "1")));
+        var forwardContents = (await forward.CatalogContentsAsync(await AttachAsync(forward))).Schemas;
+        var reverseContents = (await reverse.CatalogContentsAsync(await AttachAsync(reverse))).Schemas;
+
+        Assert.Equal(forwardContents.Count, reverseContents.Count);
+        for (var i = 0; i < forwardContents.Count; i++)
+        {
+            Assert.True(forwardContents[i].SequenceEqual(reverseContents[i]), $"schema entry {i} differs");
+        }
+
+        var data = Decode(new CatalogContentsResponse { Schemas = reverseContents })
+            .Single(c => EmbeddedIpc.Decode<SchemaInfo>(c.Schema).Path.SequenceEqual(["data"]));
+        Assert.Equal(["a", "b", "c"], EmbeddedIpc.Decode<SchemaInfo>(data.Schema).Tags.Keys);
+        Assert.Equal(
+            EmbeddedIpc.Decode<SchemaInfo>(data.Schema).EstimatedObjectCount!.Keys.Order(StringComparer.Ordinal),
+            EmbeddedIpc.Decode<SchemaInfo>(data.Schema).EstimatedObjectCount!.Keys);
+        Assert.Equal(["a", "b", "c"], EmbeddedIpc.Decode<ViewInfo>(Assert.Single(data.Views)).Tags.Keys);
+        Assert.Equal(["a", "b", "c"], EmbeddedIpc.Decode<ViewInfo>(Assert.Single(data.Views)).ColumnComments.Keys);
+        Assert.Equal(["a", "b", "c"], EmbeddedIpc.Decode<TableInfo>(Assert.Single(data.Tables)).Tags.Keys);
+        Assert.Equal(["a", "b", "c"], EmbeddedIpc.Decode<MacroInfo>(Assert.Single(data.ScalarMacros)).Tags.Keys);
+    }
+
     [Fact]
     public async Task KindsCountedAsZero_AreEmptyAndNotFetched()
     {

@@ -1138,7 +1138,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             SecretTypes = catalog.SecretTypes.Select(EmbeddedIpc.Encode).ToList(),
             AttachCatalogs = [],
             Comment = catalog.DatabaseComment,
-            Tags = catalog.DatabaseTags,
+            Tags = SortedMap(catalog.DatabaseTags),
             SupportsColumnStatistics = true,
             GlobalFunctions = BuildGlobalFunctionInfos(),
             GlobalFunctionPrefix = catalog.GlobalFunctionPrefix,
@@ -1427,7 +1427,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static CopyFromFormatInfo BuildCopyFromFormatInfo(Catalog.CopyFormat format) => new()
     {
         Comment = format.Comment,
-        Tags = format.Tags,
+        Tags = SortedMap(format.Tags),
         FormatName = format.FormatName,
         Handler = format.Handler,
         Options = SchemaIpc.WriteSchemaOnly(format.Options),
@@ -1664,7 +1664,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static FunctionInfo BuildFunctionInfo(IScalarFunction function) => new()
     {
         Comment = function.Comment,
-        Tags = function.Tags.ToDictionary(),
+        Tags = SortedMap(function.Tags),
         Name = function.Name,
         SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Scalar,
@@ -1710,7 +1710,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static FunctionInfo BuildFunctionInfo(ITableFunction function) => new()
     {
         Comment = function.Comment,
-        Tags = function.Tags.ToDictionary(),
+        Tags = SortedMap(function.Tags),
         Name = function.Name,
         SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Table,
@@ -1748,7 +1748,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static FunctionInfo BuildFunctionInfo(ITableInOutFunction function) => new()
     {
         Comment = function.Comment,
-        Tags = function.Tags.ToDictionary(),
+        Tags = SortedMap(function.Tags),
         Name = function.Name,
         SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Table,
@@ -1773,7 +1773,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static FunctionInfo BuildFunctionInfo(ITableBufferingFunction function) => new()
     {
         Comment = function.Comment,
-        Tags = function.Tags.ToDictionary(),
+        Tags = SortedMap(function.Tags),
         Name = function.Name,
         SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.TableBuffering,
@@ -1840,7 +1840,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static FunctionInfo BuildFunctionInfo(IAggregateFunction function) => new()
     {
         Comment = function.Comment,
-        Tags = function.Tags.ToDictionary(),
+        Tags = SortedMap(function.Tags),
         Name = function.Name,
         SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Aggregate,
@@ -1945,6 +1945,16 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// <see cref="Catalog.CatalogTable"/> today, and adding one risks the exact-count
     /// <c>table/function_registration.test</c> (162 expected) for a single-test diagnostic-log
     /// assertion. Deferred.</para></summary>
+    /// <summary>A map field's entries in ordinal key order, as a fresh dictionary (insertion order
+    /// is its enumeration order, and the encoder writes entries in enumeration order). Every map in
+    /// a catalog item goes through here, so an item's bytes depend only on its contents — not on
+    /// the order a caller happened to build its dictionary in, nor on an
+    /// <see cref="IReadOnlyDictionary{TKey,TValue}"/> implementation that enumerates in hash order
+    /// (string hashes are randomized per process). <c>catalog_contents</c> promises items
+    /// byte-identical to the per-schema RPCs', and clients may key caches on content hashes.</summary>
+    private static Dictionary<string, TValue> SortedMap<TValue>(IEnumerable<KeyValuePair<string, TValue>> map) =>
+        map.OrderBy(entry => entry.Key, StringComparer.Ordinal).ToDictionary(entry => entry.Key, entry => entry.Value);
+
     private SchemaInfo BuildSchemaInfo(string identity, IReadOnlyList<string> path)
     {
         var (comment, tags) = catalog.SchemaMetadataFor(identity, path);
@@ -1952,10 +1962,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return new SchemaInfo
         {
             Comment = comment,
-            Tags = tags,
+            Tags = SortedMap(tags),
             AttachOpaqueData = [],
             Path = path.ToList(),
-            EstimatedObjectCount = new Dictionary<string, long>
+            EstimatedObjectCount = SortedMap(new Dictionary<string, long>
             {
                 ["table"] = catalog.CatalogTablesFor(identity).Count(t => CatalogRegistry.PathsEqual(t.EffectiveSchemaPath, path)),
                 ["view"] = catalog.CatalogViewsFor(identity).Count(v => CatalogRegistry.PathsEqual(v.EffectiveSchemaPath, path)),
@@ -1967,14 +1977,14 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 ["aggregate_function"] = catalog.AggregateFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, path)),
                 ["macro"] = catalog.CatalogMacrosFor(identity).Count(m => CatalogRegistry.PathsEqual(m.EffectiveSchemaPath, path)),
                 ["index"] = 0,
-            },
+            }),
         };
     }
 
     private static MacroInfo BuildMacroInfo(Catalog.CatalogMacro macro) => new()
     {
         Comment = macro.Comment,
-        Tags = macro.Tags,
+        Tags = SortedMap(macro.Tags),
         Name = macro.Name,
         SchemaPath = macro.EffectiveSchemaPath.ToList(),
         MacroType = macro.MacroType,
@@ -2006,11 +2016,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static ViewInfo BuildViewInfo(CatalogView view) => new()
     {
         Comment = view.Comment,
-        Tags = view.Tags,
+        Tags = SortedMap(view.Tags),
         Name = view.Name,
         SchemaPath = view.EffectiveSchemaPath.ToList(),
         Definition = view.Definition,
-        ColumnComments = view.ColumnComments,
+        ColumnComments = SortedMap(view.ColumnComments),
     };
 
     private static TableInfo BuildTableInfo(CatalogTable table)
@@ -2031,7 +2041,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return new TableInfo
         {
             Comment = table.Comment,
-            Tags = table.Tags,
+            Tags = SortedMap(table.Tags),
             Name = table.Name,
             SchemaPath = table.EffectiveSchemaPath.ToList(),
             Columns = SchemaIpc.WriteSchemaOnly(columns),
@@ -2049,7 +2059,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 ReferencedSchemaPath = fk.ReferencedSchemaPath?.ToList()
                     ?? (fk.ReferencedSchema is { } referencedSchema ? [referencedSchema] : table.EffectiveSchemaPath.ToList()),
             })).ToList(),
-            WriteResultModes = new Dictionary<string, string>(table.WriteResultModes),
+            WriteResultModes = SortedMap(table.WriteResultModes),
             SupportsColumnStatistics = table.Statistics.Count > 0,
             ScanFunction = table.ScanFunction is { } scan && table.InlineScanFunction
                 ? BuildInlineScanFunction(scan.Name, scan.SchemaPath, table.ScanArguments, table.ScanNamedArguments)

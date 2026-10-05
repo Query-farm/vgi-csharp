@@ -82,10 +82,12 @@ test_integration_subprocess:
 # VersionedTablesWorker,BadEnumWorker}/, fixtures/QueryFarm.Vgi.ExampleWorker/AttachOptions/.
 # Remaining --allow-skip entries below are either genuinely shared with every other lane (docker/
 # iceberg/spatial/network/HTTP-only) or Python-lane-specific setup this lane was never meant to
-# exercise (VGI_TEST_DEDICATED_WORKER/VGI_SCHEMA_RECONCILE_DB).
+# exercise (VGI_TEST_DEDICATED_WORKER/VGI_SCHEMA_RECONCILE_DB, and VGI_CATALOG_CONTENTS_WORKER for
+# the catalog_contents tests that need vgi-python's contents_* fixture catalogs — this lane runs
+# the generic catalog/catalog_contents_conformance.test instead).
 #
-# C# runs 293 today (328 discovered, 35 expected skips).
-CSHARP_MIN_EXECUTED ?= 288
+# C# runs 312 today (356 discovered, 44 expected skips).
+CSHARP_MIN_EXECUTED ?= 307
 CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) \
 	--allow-skip 'require spatial' \
 	--allow-skip 'require-env VGI_DOCKER_IMAGE' \
@@ -109,7 +111,8 @@ CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_RULES_WORKER' \
 	--allow-skip 'require-env VGI_REQUIRE_LAUNCHER_TRANSPORT' \
 	--allow-skip 'require-env VGI_MALFORMED_BATCH_WORKER' \
-	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER'
+	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER' \
+	--allow-skip 'require-env VGI_CATALOG_CONTENTS_WORKER'
 
 VGI_EXT_DIR             ?= $(HOME)/Development/vgi
 CSHARP_EXAMPLE_BIN          := $(CURDIR)/fixtures/QueryFarm.Vgi.ExampleWorker/bin/Debug/net10.0/vgi-example-worker
