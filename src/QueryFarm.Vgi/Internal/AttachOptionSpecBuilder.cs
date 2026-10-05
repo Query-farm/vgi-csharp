@@ -11,10 +11,12 @@ namespace QueryFarm.Vgi.Internal;
 /// them to <see cref="CatalogInfo.AttachOptionSpecs"/> (via <c>.Select(EmbeddedIpc.Encode).ToList()</c>,
 /// same as <c>CatalogAttachResult.Settings</c> does) when constructing the <see cref="CatalogInfo"/>
 /// it passes to <c>Worker.RegisterCatalog</c>. Mirrors <see cref="SettingSpecBuilder"/> exactly,
-/// plus the <paramref name="required"/> flag <see cref="AttachOptionSpec"/> adds.</summary>
+/// plus the <paramref name="required"/> and <paramref name="secret"/> flags <see cref="AttachOptionSpec"/>
+/// adds. Declare every credential option (API key, token, password) with <c>secret: true</c> — see
+/// <see cref="AttachOptionSpec.Secret"/>.</summary>
 public static class AttachOptionSpecBuilder
 {
-    public static AttachOptionSpec Build(string name, string description, IArrowType type, IArrowArray? defaultValue, bool required = false)
+    public static AttachOptionSpec Build(string name, string description, IArrowType type, IArrowArray? defaultValue, bool required = false, bool secret = false)
     {
         var valueSchema = new Schema([new Field("value", type, nullable: true)], metadata: null);
         byte[]? defaultBytes = null;
@@ -30,6 +32,7 @@ public static class AttachOptionSpecBuilder
             Type = SchemaIpc.WriteSchemaOnly(valueSchema),
             DefaultValue = defaultBytes,
             Required = required,
+            Secret = secret,
         };
     }
 }

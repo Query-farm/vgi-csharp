@@ -1,3 +1,5 @@
+using QueryFarm.Vgi.Internal;
+
 namespace QueryFarm.Vgi.Protocol;
 
 /// <summary>
@@ -8,7 +10,9 @@ namespace QueryFarm.Vgi.Protocol;
 ///
 /// Wire shape mirrors vgi-python's <c>AttachOptionSpec.ARROW_SCHEMA</c> — the SAME four columns as
 /// <see cref="SettingSpec"/> (<c>name</c>/<c>description</c>/<c>type</c>/<c>default_value</c>) plus
-/// one appended <c>required</c> column: <see langword="true"/> means the caller MUST supply this
+/// two appended nullable boolean columns, <c>required</c> then <c>secret</c> (see
+/// <see cref="Secret"/>). Readers look both up by name, so a peer that predates either column
+/// ignores it, and a spec without it reads as <see langword="false"/>. <c>required</c>: <see langword="true"/> means the caller MUST supply this
 /// option at <c>ATTACH</c> time (mutually exclusive with a default — an option with a default is
 /// always satisfiable without the caller). The C++ extension surfaces this on
 /// <c>vgi_catalogs().attach_options[].required</c> for pre-attach discovery; it does NOT itself
@@ -30,5 +34,24 @@ public sealed class AttachOptionSpec
     /// options never have one).</summary>
     public byte[]? DefaultValue { get; set; }
 
+    /// <summary>The caller must supply this option at <c>ATTACH</c> time. See the type's summary.</summary>
+    [WireOptional]
     public bool Required { get; set; }
+
+    /// <summary>
+    /// This option is a credential: an API key, token, password or anything else that must not
+    /// leak. <b>Credential options MUST be declared secret.</b> Clients and the DuckDB extension
+    /// then mask the value in UIs, keep it out of result-cache keys (hashed, never plain text),
+    /// <c>duckdb_databases()</c>, logs, telemetry, and exported or shared configuration, and can
+    /// supply it from a <c>vgi_attach</c> DuckDB secret instead of the <c>ATTACH</c> text:
+    /// <code>
+    /// CREATE SECRET (TYPE vgi_attach, SCOPE '&lt;worker url&gt;', api_key '…');
+    /// ATTACH 'sales' (TYPE vgi, LOCATION '&lt;worker url&gt;');
+    /// </code>
+    /// Combines with <see cref="Required"/> (a required secret lets a client ask for the credential
+    /// before attaching). A default is allowed but a secret option should normally have none — a
+    /// default credential is one every caller shares, published at discovery.
+    /// </summary>
+    [WireOptional]
+    public bool Secret { get; set; }
 }

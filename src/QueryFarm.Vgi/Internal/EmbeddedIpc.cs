@@ -33,15 +33,41 @@ public static class EmbeddedIpc
     {
         public Layout(Type clrType)
         {
-            Schema = SchemaDerivation.InnerSchemaFor(clrType);
-            Properties = new PropertyInfo[Schema.FieldsList.Count];
+            var schema = SchemaDerivation.InnerSchemaFor(clrType);
+            Properties = new PropertyInfo[schema.FieldsList.Count];
             ClrTypes = new Type[Properties.Length];
+            var fields = new List<Field>(Properties.Length);
+            var positional = 0;
             for (var i = 0; i < Properties.Length; i++)
             {
-                Properties[i] = clrType.GetProperty(ValueCodec.FindClrPropertyName(clrType, Schema.GetFieldByIndex(i)))!;
+                var field = schema.GetFieldByIndex(i);
+                Properties[i] = clrType.GetProperty(ValueCodec.FindClrPropertyName(clrType, field))!;
                 ClrTypes[i] = Properties[i].PropertyType;
+                if (Properties[i].IsDefined(typeof(WireOptionalAttribute)))
+                {
+                    field = new Field(field.Name, field.DataType, nullable: true, field.Metadata);
+                }
+                else
+                {
+                    if (positional != i)
+                    {
+                        throw new InvalidOperationException(
+                            $"'{clrType}.{Properties[i].Name}' follows a [WireOptional] property; appended optional columns must come last.");
+                    }
+
+                    positional++;
+                }
+
+                fields.Add(field);
             }
+
+            PositionalCount = positional;
+            Schema = positional == Properties.Length ? schema : new Schema(fields, schema.Metadata);
         }
+
+        /// <summary>How many leading fields decode positionally; the rest are
+        /// <see cref="WireOptionalAttribute"/> columns, decoded by name.</summary>
+        public int PositionalCount { get; }
 
         public Schema Schema { get; }
 
@@ -79,12 +105,39 @@ public static class EmbeddedIpc
         using var row = reader.ReadNextRecordBatch()
             ?? throw new InvalidOperationException($"Embedded record for '{typeof(T)}' had no data batch.");
 
-        var values = ValueCodec.ExtractRow(row, layout.ClrTypes);
+        var values = ValueCodec.ExtractRow(row, layout.PositionalCount == layout.ClrTypes.Length
+            ? layout.ClrTypes
+            : layout.ClrTypes[..layout.PositionalCount]);
 
         var instance = new T();
-        for (var i = 0; i < layout.Properties.Length; i++)
+        for (var i = 0; i < layout.PositionalCount; i++)
         {
             layout.Properties[i].SetValue(instance, values[i]);
+        }
+
+        // Appended optional columns: by name, so a batch from an older peer (no such column)
+        // or one carrying a null leaves the property at its default.
+        for (var i = layout.PositionalCount; i < layout.Properties.Length; i++)
+        {
+            var name = layout.Schema.GetFieldByIndex(i).Name;
+            var index = row.Schema.GetFieldIndex(name);
+            if (index < 0)
+            {
+                continue;
+            }
+
+            var clrType = layout.ClrTypes[i];
+            var readType = clrType.IsValueType && Nullable.GetUnderlyingType(clrType) is null
+                ? typeof(Nullable<>).MakeGenericType(clrType)
+                : clrType;
+            // Not disposed: it shares row's column, which row's own disposal releases.
+            var single = new RecordBatch(
+                new Schema([row.Schema.GetFieldByIndex(index)], metadata: null), [row.Column(index)], row.Length);
+            var value = ValueCodec.ExtractRow(single, [readType])[0];
+            if (value is not null)
+            {
+                layout.Properties[i].SetValue(instance, value);
+            }
         }
 
         return instance;

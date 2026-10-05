@@ -14,8 +14,8 @@ namespace QueryFarm.Vgi.ExampleWorker.AttachOptions;
 ///
 /// <c>attach_options</c> declares 19 typed options (all defaulted — <see cref="AttachOptionEntries"/>)
 /// and echoes the merged (supplied-over-default) values back via <see cref="EchoAttachOptionsFunction"/>.
-/// <c>attach_options_required</c> declares 2 (<c>api_key</c> required/no-default, <c>region</c>
-/// defaulted) and refuses an ATTACH missing <c>api_key</c> — the C++ extension surfaces
+/// <c>attach_options_required</c> declares 2 (<c>api_key</c> required/secret/no-default — a
+/// credential, so declared secret; <c>region</c> defaulted) and refuses an ATTACH missing <c>api_key</c> — the C++ extension surfaces
 /// <c>required</c> at discovery from <see cref="CatalogInfo.AttachOptionSpecs"/> but does NOT
 /// itself enforce it (verified: no such check exists client-side), so this worker must.
 ///
@@ -46,7 +46,7 @@ internal static class AttachOptionsSetup
         Name = RequiredCatalogName,
         AttachOptionSpecs =
         [
-            EmbeddedIpc.Encode(AttachOptionSpecBuilder.Build(RequiredApiKey.Name, RequiredApiKey.Description, RequiredApiKey.Type, defaultValue: null, required: true)),
+            EmbeddedIpc.Encode(AttachOptionSpecBuilder.Build(RequiredApiKey.Name, RequiredApiKey.Description, RequiredApiKey.Type, defaultValue: null, required: true, secret: true)),
             EmbeddedIpc.Encode(AttachOptionSpecBuilder.Build(RequiredRegion.Name, RequiredRegion.Description, RequiredRegion.Type, RequiredRegion.Default)),
         ],
     };

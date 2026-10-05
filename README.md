@@ -173,6 +173,36 @@ FROM (VALUES ('alice')) t(name);
 logical catalog from the same process (see `Worker.RegisterCatalog`); most workers only need the
 default.
 
+### Attach options and credentials
+
+A catalog can declare typed `ATTACH`-time options (`ATTACH ... (TYPE vgi, LOCATION ..., region 'eu')`)
+by building `AttachOptionSpec`s with `AttachOptionSpecBuilder.Build` and passing them, encoded, as
+the `CatalogInfo.AttachOptionSpecs` it registers via `Worker.RegisterCatalog`:
+
+```csharp
+AttachOptionSpecs =
+[
+    EmbeddedIpc.Encode(AttachOptionSpecBuilder.Build("api_key", "API key", StringType.Default,
+        defaultValue: null, required: true, secret: true)),
+    EmbeddedIpc.Encode(AttachOptionSpecBuilder.Build("region", "Region", StringType.Default,
+        new StringArray.Builder().Append("us-east-1").Build())),
+],
+```
+
+**Credential options (API keys, tokens, passwords) MUST be declared `secret: true`.** Clients and
+the DuckDB extension mask a secret option, keep it out of cache keys, logs and exported
+configuration, and can supply it from a `vgi_attach` DuckDB secret so the `ATTACH` statement carries
+no credential:
+
+```sql
+CREATE SECRET (TYPE vgi_attach, SCOPE 'https://sales.example.com', api_key 'sk-...');
+ATTACH 'sales' (TYPE vgi, LOCATION 'https://sales.example.com');
+```
+
+`secret` combines with `required`. A secret option may declare a default, but normally shouldn't.
+`required` is advertised, not enforced by the extension: reject a missing required option in your
+`OnAttach` handler.
+
 ## Transports
 
 ```csharp
