@@ -40,13 +40,13 @@ public sealed class AttachOptionSpec
 
     /// <summary>
     /// This option is a credential: an API key, token, password or anything else that must not
-    /// leak. <b>Credential options MUST be declared secret.</b> Clients and the DuckDB extension
-    /// then mask the value in UIs, keep it out of result-cache keys (hashed, never plain text),
-    /// <c>duckdb_databases()</c>, logs, telemetry, and exported or shared configuration, and can
-    /// supply it from a <c>vgi_attach</c> DuckDB secret instead of the <c>ATTACH</c> text:
+    /// leak. <b>Credential options MUST be declared secret.</b> The caller passes the value inline
+    /// as an ordinary attach option; the DuckDB extension then redacts it from
+    /// <c>duckdb_databases()</c>, keeps only a salted hash of it in its result-cache key, and never
+    /// logs it, and clients mask it and keep it out of exported or shared configuration. To keep
+    /// the credential out of the SQL text itself, pass it as an expression:
     /// <code>
-    /// CREATE SECRET (TYPE vgi_attach, SCOPE '&lt;worker url&gt;', api_key '…');
-    /// ATTACH 'sales' (TYPE vgi, LOCATION '&lt;worker url&gt;');
+    /// ATTACH 'sales' (TYPE vgi, LOCATION '&lt;worker url&gt;', api_key getenv('SALES_API_KEY'));
     /// </code>
     /// Combines with <see cref="Required"/> (a required secret lets a client ask for the credential
     /// before attaching). A default is allowed but a secret option should normally have none — a

@@ -189,14 +189,14 @@ AttachOptionSpecs =
 ],
 ```
 
-**Credential options (API keys, tokens, passwords) MUST be declared `secret: true`.** Clients and
-the DuckDB extension mask a secret option, keep it out of cache keys, logs and exported
-configuration, and can supply it from a `vgi_attach` DuckDB secret so the `ATTACH` statement carries
-no credential:
+**Credential options (API keys, tokens, passwords) MUST be declared `secret: true`.** The caller
+passes the value inline as an ordinary attach option. The DuckDB extension redacts it from
+`duckdb_databases()`, keeps only a salted hash of it in its cache key, and never logs it; clients
+mask it and keep it out of exported configuration. To keep the credential out of the SQL text,
+pass it as an expression:
 
 ```sql
-CREATE SECRET (TYPE vgi_attach, SCOPE 'https://sales.example.com', api_key 'sk-...');
-ATTACH 'sales' (TYPE vgi, LOCATION 'https://sales.example.com');
+ATTACH 'sales' (TYPE vgi, LOCATION 'https://sales.example.com', api_key getenv('SALES_API_KEY'));
 ```
 
 `secret` combines with `required`. A secret option may declare a default, but normally shouldn't.
