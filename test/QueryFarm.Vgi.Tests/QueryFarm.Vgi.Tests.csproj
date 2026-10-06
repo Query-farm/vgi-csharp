@@ -42,9 +42,12 @@
        Directory.Build.props). -->
   <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' == 'true'">
     <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Client/QueryFarm.VgiRpc.Client.csproj" />
+    <!-- WorkerSealedGrantsTests.cs drives the HTTP worker end to end with the HTTP client. -->
+    <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Client.Http/QueryFarm.VgiRpc.Client.Http.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' != 'true'">
     <PackageReference Include="QueryFarm.VgiRpc.Client" />
+    <PackageReference Include="QueryFarm.VgiRpc.Client.Http" />
   </ItemGroup>
 
 </Project>

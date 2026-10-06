@@ -85,6 +85,13 @@ public static class IdentityFixture
         var principal = context.Request.Headers[PrincipalHeader].ToString();
         if (string.IsNullOrEmpty(principal))
         {
+            // A bearer: not ours. Fall through to the identity bearer authenticators (sealed grants,
+            // then resolve_token) -- IDENTITY_CONFORMANCE_FIXTURE.md §10.
+            if (!string.IsNullOrEmpty(context.Request.Headers.Authorization.ToString()))
+            {
+                throw new AuthFailure(AuthReason.InvalidCredential, "no conformance principal header");
+            }
+
             return Task.CompletedTask;
         }
 

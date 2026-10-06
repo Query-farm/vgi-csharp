@@ -61,6 +61,7 @@
          already conforms — the 338-file integration suite passes unchanged against it, direct
          and through Rowfence — so the stricter server changes nothing for real clients. -->
     <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.13.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Client.Http" Version="0.13.0" />
 
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
 

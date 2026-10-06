@@ -65,6 +65,8 @@ public sealed class Worker
     private IReadOnlyList<string>? _introspectPrincipals;
     private double _maxAuthAge = 900.0;
     private RpcHttpEndpoints.AuthenticateDelegate? _httpAuthenticate;
+    private GrantKeys? _grantKeys;
+    private IReadOnlyList<string>? _grantKeyArgs;
 
     /// <summary>The transport a server is being built for. Only <see cref="Http"/> changes what is
     /// hosted (identity); the rest are named so that decision lives in <see cref="NewRpcServer"/>
@@ -152,6 +154,80 @@ public sealed class Worker
         _introspectPrincipals = introspectPrincipals?.ToList();
         _maxAuthAge = maxAuthAge;
         return this;
+    }
+
+    /// <summary>Sealed-grant keys for <c>vgi_rpc.Identity.v1</c> (IDENTITY_V1_SPEC.md §9), overriding
+    /// <c>VGI_RPC_GRANT_KEYS</c> and <c>--grant-key</c>.</summary>
+    /// <param name="keys">The configuration; the first key mints and every key verifies.</param>
+    /// <returns>This builder.</returns>
+    /// <remarks>
+    /// <para>Grants are opt-in and HTTP-only. Without this call the worker reads
+    /// <c>--grant-key KEY</c> (repeatable, first mints) or <c>VGI_RPC_GRANT_KEYS</c> (comma-separated
+    /// base64 of exactly 32 bytes each), plus <c>VGI_RPC_GRANT_AUDIENCE</c> and
+    /// <c>VGI_RPC_GRANT_MAX_TTL_SECONDS</c> (default 7 days); with none of them nothing changes. A
+    /// malformed key stops the worker at startup.</para>
+    /// <para>With keys, the HTTP worker hosts <c>vgi_rpc.Identity.v1</c> even without hooks: it
+    /// mints sealed <c>vgig1.</c> grants through <c>issue_grant</c> (unless
+    /// <see cref="Identity"/> supplies a minter) and accepts them back as bearer credentials on every
+    /// call, after <see cref="HttpAuthenticate"/>'s own authenticator. A grant authenticates as its
+    /// owner with no <c>auth_time</c>, so it cannot mint another grant. Sealed grants are not
+    /// individually revocable: keep the lifetime short, and rotate by adding the new key first and
+    /// removing the old one once its grants have expired.</para>
+    /// </remarks>
+    public Worker SealedGrants(GrantKeys keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        _grantKeys = keys;
+        return this;
+    }
+
+    /// <summary>The sealed-grant configuration HTTP serves with: <see cref="SealedGrants"/>,
+    /// else <c>--grant-key</c>, else <c>VGI_RPC_GRANT_KEYS</c>; <see langword="null"/> when none.</summary>
+    /// <exception cref="ArgumentException">A malformed key or lifetime: the worker refuses to start.</exception>
+    internal GrantKeys? ResolveGrantKeys()
+    {
+        if (_grantKeys is not null)
+        {
+            return _grantKeys;
+        }
+
+        if (_grantKeyArgs is { Count: > 0 } explicitKeys)
+        {
+            var environment = new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                [GrantKeys.KeysEnvironmentVariable] = string.Join(",", explicitKeys),
+                [GrantKeys.AudienceEnvironmentVariable] =
+                    Environment.GetEnvironmentVariable(GrantKeys.AudienceEnvironmentVariable),
+                [GrantKeys.MaxTtlEnvironmentVariable] =
+                    Environment.GetEnvironmentVariable(GrantKeys.MaxTtlEnvironmentVariable),
+            };
+            return WithGrantContext(() => GrantKeys.FromEnvironment(environment));
+        }
+
+        return WithGrantContext(() => GrantKeys.FromEnvironment());
+    }
+
+    /// <summary>Reads <c>--grant-key KEY</c> (repeatable, first mints) for the HTTP transport.</summary>
+    internal void ApplyGrantKeyArgs(string[] args)
+    {
+        var grantKeyArgs = ValuesAfter(args, "--grant-key");
+        if (grantKeyArgs.Count > 0)
+        {
+            _grantKeyArgs = grantKeyArgs;
+        }
+    }
+
+    private static GrantKeys? WithGrantContext(Func<GrantKeys?> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (ArgumentException exc)
+        {
+            throw new ArgumentException(
+                $"invalid sealed-grant configuration ({GrantKeys.KeysEnvironmentVariable} / --grant-key): {exc.Message}", exc);
+        }
     }
 
     /// <summary>Authenticates HTTP callers -- composed with the Iroh bridge's peer identity when
@@ -581,12 +657,16 @@ public sealed class Worker
     internal RpcServer NewRpcServer(ServerTransport transport, string? serverId = null)
     {
         var extra = ValidatedHostedProtocols();
-        var identity = transport == ServerTransport.Http ? BuildIdentity() : null;
+        // Grants, like the rest of Identity, are HTTP-only here: resolved explicitly and passed on,
+        // never left to vgi-rpc's own environment default, which would host them on every transport.
+        var grantKeys = transport == ServerTransport.Http ? ResolveGrantKeys() : null;
+        var identity = transport == ServerTransport.Http ? BuildIdentity(grantKeys) : null;
         try
         {
             return new RpcServer(
                 typeof(IVgiService), new VgiServiceImpl(_catalog), serverId: serverId,
-                expectedProtocolVersion: _protocolVersion, identity: identity, additionalProtocols: extra);
+                expectedProtocolVersion: _protocolVersion, identity: identity, additionalProtocols: extra,
+                grantKeys: grantKeys, grantKeysFromEnvironment: false);
         }
         catch (ArgumentException exc) when (extra.Count > 0)
         {
@@ -661,9 +741,9 @@ public sealed class Worker
     /// worker did not opt in -- absent beats routed-and-refusing.</summary>
     /// <exception cref="InvalidOperationException">A resolver was supplied without an introspector
     /// allowlist -- the worker refuses to start.</exception>
-    private IdentityImpl? BuildIdentity()
+    private IdentityImpl? BuildIdentity(GrantKeys? grantKeys)
     {
-        if (_resolveToken is null && _mintGrant is null)
+        if (_resolveToken is null && _mintGrant is null && grantKeys is null)
         {
             return null;
         }
@@ -690,7 +770,9 @@ public sealed class Worker
             }
         }
 
-        return new IdentityImpl(_resolveToken, _mintGrant, principals, _maxAuthAge);
+        // With keys and no minter, IdentityImpl mints sealed grants itself; the HTTP server then
+        // accepts them (and resolveToken's credentials) as bearers.
+        return new IdentityImpl(_resolveToken, _mintGrant, principals, _maxAuthAge, grantKeys);
     }
 
     /// <summary>Serves over stdin/stdout until the client disconnects.</summary>
@@ -854,29 +936,10 @@ public sealed class Worker
         if (irohBridge is not null && !IsLoopbackHost(host))
             throw new ArgumentException("Iroh HTTP bridge upstream must bind loopback.", nameof(host));
 
-        var serverId = Guid.NewGuid().ToString("n");
-        var rpc = NewRpcServer(ServerTransport.Http, serverId);
         var builder = WebApplication.CreateSlimBuilder(WorkerHostOptions());
         builder.WebHost.UseUrls($"http://{FormatHostForUrl(host)}:{port}");
         var app = builder.Build();
-
-        var authenticate = _httpAuthenticate;
-        if (irohBridge is not null)
-        {
-            app.UseVgiRpcPhysicalPeerSnapshot();
-            var provider = IrohPeerIdentityProviders.Forwarded(
-                irohBridge.Issuer,
-                irohBridge.EffectiveTrustedProxyAddresses);
-            authenticate = PeerIdentityAuthentication.Compose(
-                _httpAuthenticate,
-                [provider],
-                irohBridge.Authenticate
-                    ? PeerAuthenticationPolicies.Primary("iroh")
-                    : PeerAuthenticationPolicies.Observe);
-        }
-
-        app.MapVgiRpc(rpc, prefix: prefix, authenticate: authenticate);
-        app.MapVgiLandingPage(_catalog.CatalogName, serverId, prefix, authenticate: authenticate);
+        MapHttp(app, prefix, irohBridge);
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
         var addresses = app.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()?.Addresses;
@@ -895,6 +958,44 @@ public sealed class Worker
         }
     }
 
+    /// <summary>Builds the HTTP server and maps the VGI endpoints onto <paramref name="app"/> --
+    /// <see cref="RunHttpAsync"/>'s wiring, separated so it is testable in-process.</summary>
+    /// <remarks>
+    /// Identity bearers (sealed grants, <c>resolve_token</c>) are composed after
+    /// <see cref="HttpAuthenticate"/>'s authenticator by <c>MapVgiRpc</c>. Behind the Iroh bridge the
+    /// peer-identity policy is the gate, so the bearers go <em>inside</em> it -- as part of the
+    /// application authenticator the policy runs -- rather than OR-ed beside it, where a grant could
+    /// bypass the bridge's requirement.
+    /// </remarks>
+    internal RpcServer MapHttp(WebApplication app, string prefix = "", IrohBridgeOptions? irohBridge = null)
+    {
+        var serverId = Guid.NewGuid().ToString("n");
+        var rpc = NewRpcServer(ServerTransport.Http, serverId);
+        var authenticate = _httpAuthenticate;
+        var identityBearer = true;
+        if (irohBridge is not null)
+        {
+            app.UseVgiRpcPhysicalPeerSnapshot();
+            var provider = IrohPeerIdentityProviders.Forwarded(
+                irohBridge.Issuer,
+                irohBridge.EffectiveTrustedProxyAddresses);
+            var inner = rpc.HostedIdentity is { } hosted
+                ? IdentityBearerAuthentication.Compose(_httpAuthenticate, hosted.GrantKeys, hosted.ResolveTokenHook)
+                : _httpAuthenticate;
+            authenticate = PeerIdentityAuthentication.Compose(
+                inner,
+                [provider],
+                irohBridge.Authenticate
+                    ? PeerAuthenticationPolicies.Primary("iroh")
+                    : PeerAuthenticationPolicies.Observe);
+            identityBearer = false;
+        }
+
+        app.MapVgiRpc(rpc, prefix: prefix, authenticate: authenticate, identityBearer: identityBearer);
+        app.MapVgiLandingPage(_catalog.CatalogName, serverId, prefix, authenticate: authenticate);
+        return rpc;
+    }
+
     /// <summary>
     /// The canonical CLI entry point every worker's <c>Main</c> calls. Understands the launcher
     /// transport (<c>--unix &lt;path&gt; [--idle-timeout &lt;seconds&gt;]</c>), HTTP,
@@ -902,6 +1003,8 @@ public sealed class Worker
     /// </summary>
     public Task RunFromArgsAsync(string[] args, CancellationToken cancellationToken = default)
     {
+        ApplyGrantKeyArgs(args);
+
         var httpIndex = Array.IndexOf(args, "--http");
         if (httpIndex >= 0)
         {

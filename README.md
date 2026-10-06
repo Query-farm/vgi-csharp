@@ -265,6 +265,32 @@ framework reports it as `identity_unavailable` with your retry hint, which calle
 negative-cache. Never throw an `ArgumentException` (or return `null`) for an outage: that reads
 as "this credential is unknown".
 
+### Grants as bearer credentials
+
+`issue_grant` mints a credential for automation to present later as an ordinary bearer, and the
+HTTP worker accepts it back:
+
+```csharp
+worker.SealedGrants(GrantKeys.Parse([Environment.GetEnvironmentVariable("MY_GRANT_KEY")!]));
+// or: --grant-key KEY (repeatable, first mints), or VGI_RPC_GRANT_KEYS=key1,key2
+```
+
+With grant keys configured (`SealedGrants(...)`, `--grant-key`, or `VGI_RPC_GRANT_KEYS` with the
+optional `VGI_RPC_GRANT_AUDIENCE` / `VGI_RPC_GRANT_MAX_TTL_SECONDS`, default 7 days), the HTTP
+worker hosts `vgi_rpc.Identity.v1` even without hooks, mints sealed `vgig1.` grants through
+`issue_grant` (unless `Identity(mintGrant: ...)` supplies a minter), and accepts them as
+`Authorization: Bearer` credentials on every call, as the grant's owner. Keys are standard base64
+of exactly 32 bytes; a malformed one stops the worker at startup. No keys, no change. A caller
+must have authenticated recently (`auth_time`) to mint; a grant carries none, so grants never mint
+grants. Sealed grants are not individually revocable: keep the lifetime short, and rotate by
+adding the new key first, then removing the old one after its grants expire.
+
+A worker that supplies `resolveToken` also has it consulted for bearers the earlier
+authenticators did not accept. Order: your `HttpAuthenticate` delegate (throw `AuthFailure` for a
+credential that is not yours), then sealed grants, then `resolveToken`. A bad `vgig1.` token is a
+401 that never reaches the resolver; a resolver outage (`AuthUnavailableException`) is a 503.
+Behind the Iroh bridge the bearers are checked inside the peer-identity policy, never beside it.
+
 ## Protocol overview
 
 VGI uses `vgi_rpc`, an Apache Arrow IPC-based RPC framework, for all client-worker communication —
