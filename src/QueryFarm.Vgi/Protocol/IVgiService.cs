@@ -201,9 +201,10 @@ public interface IVgiService
         Task.CompletedTask;
 
     // ------------------------------------------------------------------------------------------
-    // Catalog DDL. None of this worker's catalogs support runtime schema/table/view mutation — a
-    // declarative Worker.RegisterCatalogTable/RegisterView call at startup is the only way to
-    // populate one — so every DDL RPC's default body throws CatalogReadOnlyException, matching a
+    // Catalog DDL. A declarative catalog supports no runtime schema/table/view mutation — a
+    // Worker.RegisterCatalogTable/RegisterView call at startup is the only way to populate one — so
+    // every DDL RPC's default body throws CatalogReadOnlyException (VgiServiceImpl serves the
+    // schema/table/view create/drop RPCs for Worker.RegisterInMemoryCatalog catalogs), matching a
     // real read-only vgi-python CatalogReadOnlyError. attach/ddl_wire_contract.test pins this
     // exact behavior (and, more importantly, pins the WIRE SHAPE below byte-for-byte against the
     // generated Catalog*ParamsSchema()s — see that test's own doc comment for why a hand-coded C++

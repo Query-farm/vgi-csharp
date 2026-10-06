@@ -133,6 +133,19 @@ public sealed class CatalogRegistry
 
     public IReadOnlyList<Protocol.CatalogInfo> Catalogs => _catalogs;
 
+    /// <summary>The DDL-capable in-memory catalogs (<see cref="Worker.RegisterInMemoryCatalog"/>) and
+    /// the private catalog of every live attach of one.</summary>
+    internal InMemoryCatalogStore InMemory { get; } = new();
+
+    /// <summary>Registers <paramref name="name"/> as a DDL-capable in-memory catalog: discoverable,
+    /// exclusive (it never inherits the default bucket's content), and private per ATTACH — see
+    /// <see cref="InMemoryCatalogStore"/>.</summary>
+    public void RegisterInMemoryCatalog(string name, InMemoryCatalogOptions? options = null)
+    {
+        RegisterCatalog(new Protocol.CatalogInfo { Name = name }, exclusive: true);
+        InMemory.Register(name, options ?? new InMemoryCatalogOptions());
+    }
+
     private long _functionsVersion;
 
     /// <summary>Moves on every change to what a function listing or an ATTACH's global functions

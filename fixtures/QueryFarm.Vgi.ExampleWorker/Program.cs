@@ -373,7 +373,7 @@ var worker = new Worker()
     .RegisterTable(new EchoAttachOptionsFunction(), identity: "attach_options")
     // attach/attach_options_echo.test + attach/attach_options_required.test's catalog_attach
     // validation/echo hook.
-    .OnAttach(request => AttachOptionsSetup.Handle(request));
+    .OnAttach(request => AttachOptionsSetup.Handle(request) ?? CatalogContentsSetup.Handle(request));
 
 // table/function_registration.test — PASSES (exactly 162 table-type functions, matching the
 // vgi-python reference worker's roster count). Closed via a full class-hierarchy diff of every
@@ -741,9 +741,10 @@ worker.RegisterTable(new ProjReproStrictFunction(), identity: "projection_repro"
 // pooled by (argv, cwd, VGI_RPC_* env), so stop a warm one before flipping this.
 worker.CatalogContents(Environment.GetEnvironmentVariable("VGI_CATALOG_CONTENTS") != "0");
 
-// catalog_contents revalidation: a content-hash etag on "example" (what the conformance test's
-// conditional calls exercise) and the generation-counter "contents_reval" catalog.
-RevalidatingCatalogSetup.Register(worker);
+// catalog_contents fixture catalogs: a content-hash etag on "example" (what the conformance test's
+// conditional calls exercise) plus the six contents_* catalogs (static probe/broken/legacy, and the
+// DDL-capable in-memory memory/reval/hash) — see CatalogContents/CatalogContentsSetup.cs.
+CatalogContentsSetup.Register(worker);
 
 // conformance.Secondary.v1 through the ordinary hosting hook -- hosted on every transport after
 // vgi.v2 -- so vgi-rpc's shared hosted-protocols group (`vgi-rpc-test-hosted --expect

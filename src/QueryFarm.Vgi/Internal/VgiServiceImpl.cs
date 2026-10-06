@@ -1124,14 +1124,20 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         // result — a null handler, or one that returns null, keeps every field below at today's
         // defaults.
         var attachContext = catalog.OnAttach?.Invoke(request);
+        var identity = attachContext?.Identity ?? request.Name;
+        var attachOpaqueData = EncodeIdentity(identity, attachContext?.ExtraOpaqueData);
+
+        // A DDL-capable in-memory catalog (Worker.RegisterInMemoryCatalog) gets a private catalog
+        // per attach; its version moves with every DDL, so it is not frozen.
+        var memory = catalog.InMemory.Attach(identity, attachOpaqueData, catalog.DefaultSchemaPath);
 
         return Task.FromResult(new CatalogAttachResult
         {
-            AttachOpaqueData = EncodeIdentity(attachContext?.Identity ?? request.Name, attachContext?.ExtraOpaqueData),
-            SupportsTransactions = request.Name == "example",
-            SupportsTimeTravel = true,
-            CatalogVersionFrozen = true,
-            CatalogVersion = 1,
+            AttachOpaqueData = attachOpaqueData,
+            SupportsTransactions = memory is null && request.Name == "example",
+            SupportsTimeTravel = memory is null,
+            CatalogVersionFrozen = memory is null,
+            CatalogVersion = memory?.ReportedVersion ?? CatalogVersion,
             AttachOpaqueDataRequired = false,
             DefaultSchema = catalog.DefaultSchema,
             Settings = catalog.Settings.Select(EmbeddedIpc.Encode).ToList(),
@@ -1200,7 +1206,74 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return [.. cached.Items];
     }
 
-    public Task CatalogDetachAsync(byte[] attachOpaqueData, ICallContext? ctx = null) => Task.CompletedTask;
+    public Task CatalogDetachAsync(byte[] attachOpaqueData, ICallContext? ctx = null)
+    {
+        catalog.InMemory.Detach(attachOpaqueData);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Every declarative catalog is version-frozen at <see cref="CatalogVersion"/>; an
+    /// in-memory catalog reports its generation counter (or 0 — see
+    /// <see cref="InMemoryCatalogOptions.ReportsVersion"/>).</summary>
+    public Task<CatalogVersionResponse> CatalogVersionAsync(
+        byte[] attachOpaqueData, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        Task.FromResult(new CatalogVersionResponse
+        {
+            Version = catalog.InMemory.Find(attachOpaqueData)?.ReportedVersion ?? CatalogVersion,
+        });
+
+    // ------------------------------------------------------------------------------------------
+    // Catalog DDL: served by an in-memory catalog's private state (Worker.RegisterInMemoryCatalog);
+    // every declarative catalog is read-only and fails exactly as IVgiService's defaults do.
+    // ------------------------------------------------------------------------------------------
+
+    private InMemoryCatalogState MemoryOrReadOnly(byte[] attachOpaqueData, string operation) =>
+        catalog.InMemory.Find(attachOpaqueData) ?? throw new CatalogReadOnlyException(operation);
+
+    public Task CatalogSchemaCreateAsync(
+        byte[] attachOpaqueData, List<string> path, OnConflict onConflict, string? comment, Dictionary<string, string>? tags,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null)
+    {
+        MemoryOrReadOnly(attachOpaqueData, "catalog_schema_create").CreateSchema(path, onConflict, comment, tags);
+        return Task.CompletedTask;
+    }
+
+    public Task CatalogSchemaDropAsync(
+        byte[] attachOpaqueData, List<string> path, bool ignoreNotFound, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+    {
+        MemoryOrReadOnly(attachOpaqueData, "catalog_schema_drop").DropSchema(path, ignoreNotFound, cascade);
+        return Task.CompletedTask;
+    }
+
+    public Task CatalogTableCreateAsync(TableCreateRequest request, ICallContext? ctx = null)
+    {
+        MemoryOrReadOnly(request.AttachOpaqueData, "catalog_table_create").CreateTable(request);
+        return Task.CompletedTask;
+    }
+
+    public Task CatalogTableDropAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null)
+    {
+        MemoryOrReadOnly(attachOpaqueData, "catalog_table_drop").DropTable(schemaPath, name, ignoreNotFound);
+        return Task.CompletedTask;
+    }
+
+    public Task CatalogViewCreateAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string definition, OnConflict onConflict,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null)
+    {
+        MemoryOrReadOnly(attachOpaqueData, "catalog_view_create").CreateView(schemaPath, name, definition, onConflict);
+        return Task.CompletedTask;
+    }
+
+    public Task CatalogViewDropAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null)
+    {
+        MemoryOrReadOnly(attachOpaqueData, "catalog_view_drop").DropView(schemaPath, name, ignoreNotFound);
+        return Task.CompletedTask;
+    }
 
     /// <summary>Pre-<c>ATTACH</c> discovery — <c>vgi_catalogs('&lt;location&gt;')</c> — see
     /// <see cref="CatalogRegistry.Catalogs"/>'s doc comment.</summary>
@@ -1210,6 +1283,14 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<ItemsResponse> CatalogSchemasAsync(byte[] attachOpaqueData, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
+        if (catalog.InMemory.Find(attachOpaqueData) is { } memory)
+        {
+            return Task.FromResult(new ItemsResponse
+            {
+                Items = memory.Schemas().Select(schema => EmbeddedIpc.Encode(BuildMemorySchemaInfo(identity, schema))).ToList(),
+            });
+        }
+
         var schemaPaths = catalog.SchemaPathsFor(identity);
 
         var items = schemaPaths
@@ -1234,7 +1315,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         catalog.OnCatalogContents?.Invoke(identity);
         var version = (await ((IVgiService)this).CatalogVersionAsync(attachOpaqueData, null, ctx).ConfigureAwait(false)).Version;
 
-        Task<CatalogContentsResult> Build() => CatalogContentsSnapshotAsync(identity, attachOpaqueData, ctx);
+        // An in-memory catalog's contents are private to the attach and change with every DDL, so
+        // its snapshot is composed fresh on every call instead of cached per identity.
+        Task<CatalogContentsResult> Build() => catalog.InMemory.Find(attachOpaqueData) is null
+            ? CatalogContentsSnapshotAsync(identity, attachOpaqueData, ctx)
+            : CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
         var handler = catalog.CatalogContentsHandlerFor(identity);
         var result = handler is null
             ? await Build().ConfigureAwait(false)
@@ -1284,6 +1369,13 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
+        if (catalog.InMemory.Find(attachOpaqueData) is { } memory)
+        {
+            return Task.FromResult(memory.Schema(path) is { } schema
+                ? new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildMemorySchemaInfo(identity, schema))] }
+                : new ItemsResponse());
+        }
+
         if (!catalog.SchemaPathsFor(identity).Any(candidate => CatalogRegistry.PathsEqual(candidate, path)))
         {
             return Task.FromResult(new ItemsResponse());
@@ -1307,6 +1399,18 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
         byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
+        if (catalog.InMemory.Find(attachOpaqueData) is { } memory)
+        {
+            if (!string.IsNullOrEmpty(atUnit))
+            {
+                throw new InvalidOperationException($"Table '{string.Join('.', schemaPath)}.{name}' does not support time travel queries.");
+            }
+
+            return Task.FromResult(memory.Table(schemaPath, name) is { } item
+                ? new ItemsResponse { Items = [item] }
+                : new ItemsResponse());
+        }
+
         var identity = DecodeIdentity(attachOpaqueData);
         var table = catalog.FindCatalogTable(identity, schemaPath, name);
         if (table is null)
@@ -1341,6 +1445,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
         byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
+        if (catalog.InMemory.Find(attachOpaqueData) is { } memory && memory.Table(schemaPath, name) is not null)
+        {
+            throw new InvalidOperationException(
+                $"Table '{string.Join('.', schemaPath)}.{name}' is an in-memory catalog entry with no data; it cannot be scanned.");
+        }
+
         var identity = DecodeIdentity(attachOpaqueData);
         var table = catalog.FindCatalogTable(identity, schemaPath, name)
             ?? throw new InvalidOperationException($"Unknown table: '{string.Join('.', schemaPath)}.{name}'.");
@@ -1414,6 +1524,13 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<ItemsResponse> CatalogViewGetAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
+        if (catalog.InMemory.Find(attachOpaqueData) is { } memory)
+        {
+            return Task.FromResult(memory.View(schemaPath, name) is { } item
+                ? new ItemsResponse { Items = [item] }
+                : new ItemsResponse());
+        }
+
         var identity = DecodeIdentity(attachOpaqueData);
         var view = catalog.FindView(identity, schemaPath, name);
         return Task.FromResult(view is null
@@ -1424,6 +1541,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<ItemsResponse> CatalogSchemaContentsTablesAsync(
         byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
+        if (catalog.InMemory.Find(attachOpaqueData) is { } memory)
+        {
+            return Task.FromResult(new ItemsResponse { Items = memory.Tables(path) });
+        }
+
         var identity = DecodeIdentity(attachOpaqueData);
         var items = catalog.CatalogTablesFor(identity)
             .Where(table => CatalogRegistry.PathsEqual(table.EffectiveSchemaPath, path))
@@ -1437,6 +1559,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     public Task<ItemsResponse> CatalogSchemaContentsViewsAsync(
         byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
+        if (catalog.InMemory.Find(attachOpaqueData) is { } memory)
+        {
+            return Task.FromResult(new ItemsResponse { Items = memory.Views(path) });
+        }
+
         var identity = DecodeIdentity(attachOpaqueData);
         var items = catalog.CatalogViewsFor(identity)
             .Where(view => CatalogRegistry.PathsEqual(view.EffectiveSchemaPath, path))
@@ -2030,6 +2157,30 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             }),
         };
     }
+
+    /// <summary>An in-memory catalog's schema: tables and views from the attach's private state;
+    /// functions and macros are whatever is registered under the catalog's identity, as for any
+    /// other catalog.</summary>
+    private SchemaInfo BuildMemorySchemaInfo(string identity, InMemoryCatalogState.SchemaSnapshot schema) => new()
+    {
+        Comment = schema.Comment,
+        Tags = SortedMap(schema.Tags),
+        AttachOpaqueData = [],
+        Path = schema.Path,
+        EstimatedObjectCount = SortedMap(new Dictionary<string, long>
+        {
+            ["table"] = schema.Tables,
+            ["view"] = schema.Views,
+            ["scalar_function"] = catalog.ScalarFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, schema.Path)),
+            ["table_function"] =
+                catalog.TableFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, schema.Path)) +
+                catalog.TableInOutFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, schema.Path)) +
+                catalog.TableBufferingFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, schema.Path)),
+            ["aggregate_function"] = catalog.AggregateFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, schema.Path)),
+            ["macro"] = catalog.CatalogMacrosFor(identity).Count(m => CatalogRegistry.PathsEqual(m.EffectiveSchemaPath, schema.Path)),
+            ["index"] = 0,
+        }),
+    };
 
     private static MacroInfo BuildMacroInfo(Catalog.CatalogMacro macro) => new()
     {

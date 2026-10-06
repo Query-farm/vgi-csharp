@@ -438,6 +438,24 @@ public sealed class Worker
         return this;
     }
 
+    /// <summary>Serves <paramref name="name"/> as a DDL-capable in-memory catalog — the C#
+    /// counterpart of vgi-python's <c>InMemoryCatalog</c>. Every ATTACH of it gets a private, empty
+    /// catalog (one schema, the worker's default schema) that <c>CREATE</c>/<c>DROP SCHEMA</c>,
+    /// <c>CREATE</c>/<c>DROP TABLE</c> and <c>CREATE</c>/<c>DROP VIEW</c> (with <c>OR REPLACE</c> /
+    /// <c>IF [NOT] EXISTS</c>) change; DETACH discards it. Its tables are catalog entries only (a
+    /// scan of one fails). The attach is not version-frozen: <c>catalog_version</c> is a generation
+    /// counter every DDL moves (or always 0, see <see cref="Catalog.InMemoryCatalogOptions.ReportsVersion"/>),
+    /// and <c>catalog_contents</c> is advertised and composed fresh on every call — combine with
+    /// <see cref="OnCatalogContents(string, Func{Catalog.CatalogContentsRequest, Task{Catalog.CatalogContentsResult}})"/>
+    /// (whose <see cref="Catalog.CatalogContentsRequest.CatalogVersion"/> is that counter) or
+    /// <see cref="CatalogContentsEtag"/> to revalidate it. The state lives in this process, so it
+    /// needs one long-lived worker (<c>launch:</c> or HTTP).</summary>
+    public Worker RegisterInMemoryCatalog(string name, Catalog.InMemoryCatalogOptions? options = null)
+    {
+        _catalog.RegisterInMemoryCatalog(name, options);
+        return this;
+    }
+
     /// <summary>Declares a custom DuckDB secret TYPE (<c>CREATE SECRET (TYPE &lt;name&gt;, ...)</c>)
     /// this worker exposes via <c>catalog_attach</c> — a secret type must be declared here at least
     /// once for <c>duckdb_secret_types()</c>/<c>CREATE SECRET</c> to know it exists at all.
