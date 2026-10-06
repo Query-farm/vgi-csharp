@@ -111,7 +111,7 @@ read as community-extension-build-vs-`main`-branch-test-file skew — both pass 
 locally-built unittest, so they're not worker bugs.
 
 The local, fully-verified conformance gate remains `scripts/run_tests.sh` against a
-locally-built `~/Development/vgi` checkout — see the root `README.md` and `docs/roadmap.md`. This
+locally-built vgi checkout (`VGI_DIR`, default `../vgi`) — see the root `README.md` and `docs/roadmap.md`. This
 CI job is a lighter-weight, no-C++-build check for every push/PR, and it now genuinely passes; it
 supplements (catches spatial-path gaps the local suite structurally can't) rather than replaces
 that local verification when actually changing worker behavior.
@@ -120,11 +120,11 @@ that local verification when actually changing worker behavior.
 
 ```bash
 dotnet build -c Release
-VGI_SRC=~/Development/vgi \
+VGI_SRC="$PWD/../vgi" \
 HAYBARN_UNITTEST=/path/to/haybarn-unittest \
   ci/run-integration.sh                       # launch lane (default)
 
-VGI_SRC=~/Development/vgi \
+VGI_SRC="$PWD/../vgi" \
 HAYBARN_UNITTEST=/path/to/haybarn-unittest \
 TRANSPORT=http \
   ci/run-integration.sh                       # http lane

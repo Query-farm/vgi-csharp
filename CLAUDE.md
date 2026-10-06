@@ -14,7 +14,9 @@ transport/RPC framework everything here rides on — Arrow IPC streaming, method
 project; when working on transport/RPC-layer behavior rather than VGI's own application semantics,
 that's the repo to change, not this one.
 
-The C++ DuckDB extension that drives the acceptance suite lives at `~/Development/vgi` (read-only
+The C++ DuckDB extension that drives the acceptance suite is the vgi checkout the Makefile's
+`VGI_DIR` points at (default: the sibling `../vgi`; `scripts/run_tests.sh` reads `VGI_EXT`, else
+`VGI_DIR`; `~/Development/vgi` in the notes below is the maintainer's copy) (read-only
 reference — **never modify it or its `test/sql/integration/**` sqllogictest files**; that suite is
 the shared, unmodified oracle every language port is graded against, and it's what makes a green
 run here real cross-language wire-compatibility evidence, not a self-graded exercise).
@@ -133,7 +135,7 @@ process starts once and is reused across every `ATTACH` in the run rather than b
 per `.test` file — this is the difference between a ~3 minute full-suite run and 15-20+ minutes.
 
 ```bash
-scripts/run_tests.sh                      # full suite, launcher transport
+scripts/run_tests.sh                      # full suite, launcher transport (vgi at $VGI_EXT / $VGI_DIR / ../vgi)
 scripts/run_tests.sh scalar               # one category
 scripts/run_tests.sh "test/sql/integration/table/sequence.test"   # one file
 scripts/run_tests.sh --no-build ...       # skip the dotnet build step

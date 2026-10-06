@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the in-scope VGI integration suite against the C# worker(s) — ONE `unittest`
 # invocation across every requested glob (not one subprocess per .test file, unlike
-# `~/Development/vgi/scripts/run_tests.py`), and by default the pooled AF_UNIX
+# the vgi repo's `scripts/run_tests.py`), and by default the pooled AF_UNIX
 # `launch:` transport so the worker process is started once and reused across every
 # ATTACH in the run, not cold-spawned per test file. Both together make a full-suite
 # run minutes instead of tens of minutes. Modeled directly on vgi-rust's
@@ -22,7 +22,8 @@
 set -uo pipefail
 
 VGI_CSHARP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VGI_EXT="${VGI_EXT:-$HOME/Development/vgi}"
+# The vgi extension checkout: $VGI_EXT, else $VGI_DIR, else the sibling ../vgi.
+VGI_EXT="${VGI_EXT:-${VGI_DIR:-$VGI_CSHARP/../vgi}}"
 UNITTEST="$VGI_EXT/build/release/test/unittest"
 DOTNET="${DOTNET:-$HOME/.dotnet/dotnet}"
 export PATH="$HOME/.dotnet:$PATH"

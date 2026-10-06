@@ -276,7 +276,7 @@ this SDK's own unit tests (schema derivation, dispatch, codecs, storage).
 make build                # dotnet build vgi-csharp.slnx
 make test                 # unit tests (test/QueryFarm.Vgi.Tests)
 make format_check         # dotnet format --verify-no-changes
-make test_integration      # full sqllogictest suite against ~/Development/vgi (launcher transport)
+make test_integration      # full sqllogictest suite against $(VGI_DIR), default ../vgi (launcher transport)
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for the full local-development workflow, including the fast

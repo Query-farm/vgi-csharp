@@ -1,5 +1,13 @@
 DOTNET ?= dotnet
 
+# Sibling checkouts this Makefile drives, both overridable on the command line:
+#   VGI_DIR         the vgi C++ extension repo (test/sql, scripts/run_tests.py, build/)
+#   VGI_PYTHON_DIR  vgi-python (regen_protocol's generator)
+# e.g. `make test_integration_gated VGI_DIR=/path/to/vgi`. The older names VGI_EXT_DIR
+# (for VGI_DIR) and VGI_PYTHON (for VGI_PYTHON_DIR) are still honored.
+VGI_DIR        ?= $(or $(VGI_EXT_DIR),../vgi)
+VGI_PYTHON_DIR ?= $(or $(VGI_PYTHON),../vgi-python)
+
 # Every vgi-csharp-owned project — scoped individually (not the whole .slnx) so `dotnet format`
 # doesn't also try to reformat vgi-rpc-csharp's vendored third_party/apache-arrow-dotnet, which
 # QueryFarm.Vgi transitively references.
@@ -41,27 +49,26 @@ format_check:
 # Generated/VgiProtocolSchemas.g.cs from the vgi-python dataclasses (and every
 # other port's generated artifacts that are checked out beside it). Never edit
 # those files by hand: change the dataclass in vgi-python, then run this.
-VGI_PYTHON ?= ../vgi-python
 regen_protocol:
-	uv run --project $(VGI_PYTHON) python $(VGI_PYTHON)/scripts/regen_generated.py
+	uv run --project $(VGI_PYTHON_DIR) python $(VGI_PYTHON_DIR)/scripts/regen_generated.py
 
-# Runs the ~/Development/vgi sqllogictest suite against the C# fixture worker(s) as ONE
+# Runs the $(VGI_DIR) sqllogictest suite against the C# fixture worker(s) as ONE
 # `unittest` invocation over the pooled `launch:` (AF_UNIX) transport — dramatically
 # faster than spawning `unittest` (and cold-starting the worker) per .test file. See
 # scripts/run_tests.sh's own header comment for usage (category/single-file filtering,
 # --no-build). Pass ARGS="scalar" etc. to scope it, e.g. `make test_integration ARGS=cache`.
 test_integration:
-	scripts/run_tests.sh $(ARGS)
+	VGI_EXT="$(abspath $(VGI_DIR))" scripts/run_tests.sh $(ARGS)
 
 # Same suite, but over the bare-subprocess transport DuckDB's LOCATION default uses —
 # slower, but required for the few tests that assert on DuckDB's own local subprocess-pool
 # behavior (e.g. vgi_worker_pool.test's PID-reuse check), which the launcher transport
 # bypasses by design (the launcher, not DuckDB, owns the worker process in that mode).
 test_integration_subprocess:
-	SUBPROCESS=1 scripts/run_tests.sh $(ARGS)
+	SUBPROCESS=1 VGI_EXT="$(abspath $(VGI_DIR))" scripts/run_tests.sh $(ARGS)
 
 # ---------------------------------------------------------------------------
-# Gated conformance lane — what `~/Development/vgi`'s `make test_languages` calls via
+# Gated conformance lane — what the vgi repo's `make test_languages` calls via
 # `test_csharp`, mirroring the go/typescript/java lanes there (see the note by
 # VGI_EXPECTED_SKIPS in that repo's Makefile).
 #
@@ -114,7 +121,6 @@ CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_ROWID_CONSTRAINT_WORKER' \
 	--allow-skip 'require-env VGI_CATALOG_CONTENTS_WORKER'
 
-VGI_EXT_DIR             ?= $(HOME)/Development/vgi
 CSHARP_EXAMPLE_BIN          := $(CURDIR)/fixtures/QueryFarm.Vgi.ExampleWorker/bin/Debug/net10.0/vgi-example-worker
 CSHARP_SIMPLE_WRITABLE_BIN  := $(CURDIR)/fixtures/QueryFarm.Vgi.SimpleWritableWorker/bin/Debug/net10.0/vgi-simple-writable-worker
 CSHARP_BAD_PROTOCOL_BIN     := $(CURDIR)/fixtures/QueryFarm.Vgi.BadProtocolWorker/bin/Debug/net10.0/vgi-bad-protocol-worker
@@ -123,7 +129,7 @@ CSHARP_VERSIONED_TABLES_BIN := $(CURDIR)/fixtures/QueryFarm.Vgi.VersionedTablesW
 CSHARP_BAD_ENUM_BIN         := $(CURDIR)/fixtures/QueryFarm.Vgi.BadEnumWorker/bin/Debug/net10.0/vgi-bad-enum-worker
 
 test_integration_gated: build
-	cd $(VGI_EXT_DIR) && \
+	cd $(VGI_DIR) && \
 	    VGI_TEST_WORKER="launch:$(CSHARP_EXAMPLE_BIN)" \
 	    VGI_SIMPLE_WRITABLE_WORKER="launch:$(CSHARP_SIMPLE_WRITABLE_BIN)" \
 	    VGI_BAD_PROTOCOL_WORKER="$(CSHARP_BAD_PROTOCOL_BIN)" \
