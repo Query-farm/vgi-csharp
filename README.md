@@ -219,6 +219,52 @@ shares the same `(argv, cwd, VGI_RPC_*-env)` identity, rather than cold-spawned 
 line must go to `Console.Error`, never plain `Console.WriteLine` — a stray stdout write corrupts
 the Arrow IPC stream.
 
+### Hosting additional protocols
+
+A worker can host further application protocols beside `vgi.v2` — a reporting protocol, a shared
+fixture — through one hook, called exactly once when the server is built:
+
+```csharp
+new Worker()
+    .RegisterScalar(...)
+    .HostedProtocols(() => [HostedProtocol.For<IReports>(new Reports(config))])
+    .RunFromArgsAsync(args);
+```
+
+The protocols are hosted, in the order returned, on every transport (stdio, unix, the Iroh raw
+upstream, HTTP), and listed by `vgi_rpc.Reflection.v1` after `vgi.v2`. They cannot change
+`vgi.v2`: every request is routed on its `vgi_rpc.protocol` key with no fallback, so DuckDB
+dispatches exactly as before. Each interface needs its own `[ProtocolName]` (not `vgi.v2`, not
+under the reserved `vgi_rpc.` prefix); a bad entry fails startup with an error naming the hook.
+
+### Token introspection (`vgi_rpc.Identity.v1`)
+
+A worker may opt into hosting `vgi_rpc.Identity.v1` over HTTP, for a reverse proxy that must
+resolve an opaque bearer credential to a principal:
+
+```csharp
+worker
+    .Identity(
+        resolveToken: token => apiKeys.Lookup(token) is { } row
+            ? new TokenIdentity(row.Principal, row.Label)
+            : null,                                  // "the store answered: unknown"
+        introspectPrincipals: ["proxy@example.com"]) // or VGI_INTROSPECT_PRINCIPALS
+    .HttpAuthenticate(myAuthenticate);               // who the caller is
+```
+
+Only the methods whose hooks you supply are hosted (`resolveToken` → `introspect_token`,
+`mintGrant` → `issue_grant`); with neither, the protocol is absent. A worker that supplies
+`resolveToken` without an introspector allowlist **refuses to start**: authenticating and
+introspecting are different capabilities, and "any authenticated caller" would let any user
+resolve any other user's credential to its owner.
+
+For a transient failure — the store is down, a timeout, a 5xx — throw
+`QueryFarm.VgiRpc.Errors.AuthUnavailableException("store unreachable", retryAfterSeconds: 10)`,
+the same error an HTTP authenticate delegate throws to get a 503 with `Retry-After`. The
+framework reports it as `identity_unavailable` with your retry hint, which callers know not to
+negative-cache. Never throw an `ArgumentException` (or return `null`) for an outage: that reads
+as "this credential is unknown".
+
 ## Protocol overview
 
 VGI uses `vgi_rpc`, an Apache Arrow IPC-based RPC framework, for all client-worker communication —

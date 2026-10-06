@@ -18,6 +18,7 @@ using QueryFarm.Vgi.ExampleWorker.Aggregate;
 using QueryFarm.Vgi.ExampleWorker.Buffering;
 using QueryFarm.Vgi.ExampleWorker.Cache;
 using QueryFarm.Vgi.ExampleWorker.CatalogContents;
+using QueryFarm.Vgi.ExampleWorker.Conformance;
 using QueryFarm.Vgi.ExampleWorker.CopyFormats;
 using QueryFarm.Vgi.ExampleWorker.NarrowBind;
 using QueryFarm.Vgi.ExampleWorker.ProjectionRepro;
@@ -26,6 +27,7 @@ using QueryFarm.Vgi.ExampleWorker.Splits;
 using QueryFarm.Vgi.ExampleWorker.Table;
 using QueryFarm.Vgi.ExampleWorker.TableInOut;
 using QueryFarm.Vgi.Protocol;
+using QueryFarm.VgiRpc.Server;
 
 // Shared instance (not a fresh `new SequenceFunction()`) so `data.large_sequence` below can be
 // registered against the SAME scan-function reference already bound to `main.sequence` — CatalogRegistry
@@ -742,6 +744,18 @@ worker.CatalogContents(Environment.GetEnvironmentVariable("VGI_CATALOG_CONTENTS"
 // catalog_contents revalidation: a content-hash etag on "example" (what the conformance test's
 // conditional calls exercise) and the generation-counter "contents_reval" catalog.
 RevalidatingCatalogSetup.Register(worker);
+
+// conformance.Secondary.v1 through the ordinary hosting hook -- hosted on every transport after
+// vgi.v2 -- so vgi-rpc's shared hosted-protocols group (`vgi-rpc-test-hosted --expect
+// vgi.v2,conformance.Secondary.v1`) runs against this worker. Additive: vgi.v2 is unchanged.
+worker.HostedProtocols(() => [new HostedProtocol(typeof(ISecondary), new SecondaryImpl())]);
+
+// --identity (HTTP only): vgi_rpc.Identity.v1 with the IDENTITY_CONFORMANCE_FIXTURE.md policy and
+// its spoofable header authentication -- `vgi-rpc-test-hosted --url ... --identity`.
+if (IdentityFixture.Requested(args))
+{
+    IdentityFixture.OptIn(worker);
+}
 
 await worker.RunFromArgsAsync(args);
 

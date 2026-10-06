@@ -59,6 +59,111 @@ public sealed class Worker
 
     private readonly CatalogRegistry _catalog = new();
     private string _protocolVersion = DefaultProtocolVersion;
+    private Func<IEnumerable<HostedProtocol>>? _hostedProtocols;
+    private IdentityImpl.TokenResolver? _resolveToken;
+    private IdentityImpl.GrantMinter? _mintGrant;
+    private IReadOnlyList<string>? _introspectPrincipals;
+    private double _maxAuthAge = 900.0;
+    private RpcHttpEndpoints.AuthenticateDelegate? _httpAuthenticate;
+
+    /// <summary>The transport a server is being built for. Only <see cref="Http"/> changes what is
+    /// hosted (identity); the rest are named so that decision lives in <see cref="NewRpcServer"/>
+    /// rather than at each call site.</summary>
+    internal enum ServerTransport
+    {
+        Stdio,
+        Unix,
+        IrohTcp,
+        Http,
+    }
+
+    /// <summary>The hook that supplies further application protocols for this worker to host
+    /// beside <c>vgi.v2</c>, as <see cref="HostedProtocol"/> <c>(interface, implementation)</c>
+    /// pairs.</summary>
+    /// <param name="hook">Called <b>exactly once</b>, when the worker's server is built -- so it
+    /// may consult configuration or the environment -- and its result is fixed for the life of the
+    /// process. The protocols are hosted, in the order returned, on <b>every</b> transport this
+    /// worker serves (stdio, unix, the Iroh raw upstream, HTTP), listed by
+    /// <c>vgi_rpc.Reflection.v1</c> after <c>vgi.v2</c>.</param>
+    /// <returns>This builder.</returns>
+    /// <remarks>
+    /// <para>Hosting another protocol cannot change <c>vgi.v2</c>: every request is routed on its
+    /// <c>vgi_rpc.protocol</c> key with no fallback to the primary, so the DuckDB extension, which
+    /// only ever names <c>vgi.v2</c>, dispatches exactly as it would against a single-protocol
+    /// worker.</para>
+    /// <para>Each protocol needs a distinct wire name (<c>[ProtocolName]</c> on its interface,
+    /// conventionally dot-qualified with a major version), not <c>vgi.v2</c>, and not under the
+    /// reserved <c>vgi_rpc.</c> prefix: framework protocols are not supplied here. Reflection is
+    /// hosted automatically, and <c>vgi_rpc.Identity.v1</c> is enabled with
+    /// <see cref="Identity"/>. The protocol is the unit of optionality -- there is no way to host
+    /// a subset of a protocol's methods, so a capability that may be absent is its own protocol.</para>
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// new Worker()
+    ///     .RegisterScalar(...)
+    ///     .HostedProtocols(() => [HostedProtocol.For&lt;IReports&gt;(new Reports(config))])
+    ///     .RunFromArgsAsync(args);
+    /// </code>
+    /// </example>
+    public Worker HostedProtocols(Func<IEnumerable<HostedProtocol>> hook)
+    {
+        ArgumentNullException.ThrowIfNull(hook);
+        _hostedProtocols = hook;
+        return this;
+    }
+
+    /// <summary>Opts this worker into hosting <c>vgi_rpc.Identity.v1</c> over HTTP.</summary>
+    /// <param name="resolveToken">Resolves an opaque bearer credential to a principal; supplying it
+    /// hosts <c>introspect_token</c>. Return <see langword="null"/> for "the store answered and
+    /// the credential is unknown". For "the answer is not knowable" -- a store or sidecar is down,
+    /// a timeout, a 5xx -- throw <see cref="QueryFarm.VgiRpc.Errors.AuthUnavailableException"/>
+    /// (the same error an HTTP authenticate delegate throws to get a 503 with
+    /// <c>Retry-After</c>): the framework reports it as <c>identity_unavailable</c> with your
+    /// retry hint, and a caller that negative-caches the first answer must not cache this one.
+    /// <see cref="IdentityUnavailableException"/> works too. Never throw an
+    /// <see cref="ArgumentException"/> for an outage.</param>
+    /// <param name="mintGrant">Mints a standing grant for the calling principal; supplying it
+    /// hosts <c>issue_grant</c>. The same rule for transient failures applies.</param>
+    /// <param name="introspectPrincipals">Principals allowed to call <c>introspect_token</c>.
+    /// <see langword="null"/> reads <c>VGI_INTROSPECT_PRINCIPALS</c> (comma-separated). Required
+    /// whenever <paramref name="resolveToken"/> is supplied: with neither, the worker refuses to
+    /// start on HTTP.</param>
+    /// <param name="maxAuthAge">How recently, in seconds, a caller must have authenticated to mint.</param>
+    /// <returns>This builder.</returns>
+    /// <remarks>
+    /// <para>Absent unless opted into -- and then only the methods whose hooks were supplied are
+    /// hosted, so a dependency upgrade never grows a credential-to-identity oracle on an existing
+    /// worker. Hosted on HTTP only: its allowlist is a list of <em>principals</em>, which a
+    /// transport without caller identity (stdio, unix) cannot check. Supply the caller's identity
+    /// with <see cref="HttpAuthenticate"/>.</para>
+    /// <para>There is no permissive default for the allowlist on purpose: authenticating and
+    /// introspecting are different capabilities, and "any authenticated caller" lets any user
+    /// resolve any other user's credential to its owner.</para>
+    /// </remarks>
+    public Worker Identity(
+        IdentityImpl.TokenResolver? resolveToken = null,
+        IdentityImpl.GrantMinter? mintGrant = null,
+        IEnumerable<string>? introspectPrincipals = null,
+        double maxAuthAge = 900.0)
+    {
+        _resolveToken = resolveToken;
+        _mintGrant = mintGrant;
+        _introspectPrincipals = introspectPrincipals?.ToList();
+        _maxAuthAge = maxAuthAge;
+        return this;
+    }
+
+    /// <summary>Authenticates HTTP callers -- composed with the Iroh bridge's peer identity when
+    /// that is configured. Throw <c>AuthFailure</c> to reject; throw
+    /// <see cref="QueryFarm.VgiRpc.Errors.AuthUnavailableException"/> when the authority cannot
+    /// answer (503 with <c>Retry-After</c>, never a 401).</summary>
+    public Worker HttpAuthenticate(RpcHttpEndpoints.AuthenticateDelegate authenticate)
+    {
+        ArgumentNullException.ThrowIfNull(authenticate);
+        _httpAuthenticate = authenticate;
+        return this;
+    }
 
     /// <summary>Overrides the declared VGI protocol version — for test fixtures ONLY (e.g.
     /// <c>protocol_version/version_mismatch.test</c>'s deliberately-incompatible worker). Every
@@ -451,13 +556,129 @@ public sealed class Worker
     /// not under the C# type's own name, and any other site that hosts the same interface gets
     /// the same name whether or not it went through here.
     /// </remarks>
-    private RpcServer NewRpcServer(string? serverId = null) =>
-        new(typeof(IVgiService), new VgiServiceImpl(_catalog), serverId: serverId, expectedProtocolVersion: _protocolVersion);
+    /// <para>What it hosts, in reflection order: <c>vgi.v2</c>; the protocols the
+    /// <see cref="HostedProtocols"/> hook returns, on every transport; <c>vgi_rpc.Reflection.v1</c>,
+    /// on every transport; and <c>vgi_rpc.Identity.v1</c> on HTTP when <see cref="Identity"/> was
+    /// called.</para>
+    internal RpcServer NewRpcServer(ServerTransport transport, string? serverId = null)
+    {
+        var extra = ValidatedHostedProtocols();
+        var identity = transport == ServerTransport.Http ? BuildIdentity() : null;
+        try
+        {
+            return new RpcServer(
+                typeof(IVgiService), new VgiServiceImpl(_catalog), serverId: serverId,
+                expectedProtocolVersion: _protocolVersion, identity: identity, additionalProtocols: extra);
+        }
+        catch (ArgumentException exc) when (extra.Count > 0)
+        {
+            throw new ArgumentException($"{HookName}: {exc.Message}", exc);
+        }
+    }
+
+    private const string HookName = "Worker.HostedProtocols hook";
+
+    /// <summary>Calls the hook once and checks what it returned, so an error names the hook rather
+    /// than only the protocol type vgi-rpc would name.</summary>
+    private List<HostedProtocol> ValidatedHostedProtocols()
+    {
+        if (_hostedProtocols is null)
+        {
+            return [];
+        }
+
+        var returned = _hostedProtocols() ?? throw new ArgumentException($"{HookName} returned null; return an empty sequence instead.");
+        var primary = QueryFarm.VgiRpc.Reflection.WireNaming.ForProtocol(typeof(IVgiService));
+        var seen = new Dictionary<string, Type>(StringComparer.Ordinal);
+        var pairs = new List<HostedProtocol>();
+        var index = 0;
+        foreach (var entry in returned)
+        {
+            if (entry is null)
+            {
+                throw new ArgumentException($"{HookName} entry {index} is null.");
+            }
+
+            string name;
+            try
+            {
+                name = QueryFarm.VgiRpc.Reflection.WireNaming.ForProtocol(entry.ServiceInterface);
+            }
+            catch (ArgumentException exc)
+            {
+                throw new ArgumentException($"{HookName} entry {index} ({entry.ServiceInterface.Name}): {exc.Message}", exc);
+            }
+
+            if (QueryFarm.VgiRpc.Reflection.WireNaming.IsReservedProtocolName(name))
+            {
+                throw new ArgumentException(
+                    $"{HookName} entry {index} ({entry.ServiceInterface.Name}) is named '{name}', which claims the "
+                    + "reserved 'vgi_rpc.' prefix. Framework protocols are not supplied through this hook: reflection "
+                    + "is hosted automatically, and vgi_rpc.Identity.v1 is enabled with Worker.Identity(...).");
+            }
+
+            if (name == primary)
+            {
+                throw new ArgumentException(
+                    $"{HookName} entry {index} ({entry.ServiceInterface.Name}) is named '{name}', the worker's own "
+                    + "protocol. Give it a distinct [ProtocolName].");
+            }
+
+            if (seen.TryGetValue(name, out var previous))
+            {
+                throw new ArgumentException(
+                    $"{HookName} lists protocol name '{name}' twice ({previous.Name} and {entry.ServiceInterface.Name}). "
+                    + "The name is the routing key, so each hosted protocol needs a distinct [ProtocolName].");
+            }
+
+            seen[name] = entry.ServiceInterface;
+            pairs.Add(entry);
+            index++;
+        }
+
+        return pairs;
+    }
+
+    /// <summary>The <c>vgi_rpc.Identity.v1</c> implementation, or <see langword="null"/> when the
+    /// worker did not opt in -- absent beats routed-and-refusing.</summary>
+    /// <exception cref="InvalidOperationException">A resolver was supplied without an introspector
+    /// allowlist -- the worker refuses to start.</exception>
+    private IdentityImpl? BuildIdentity()
+    {
+        if (_resolveToken is null && _mintGrant is null)
+        {
+            return null;
+        }
+
+        // Only consulted for introspect_token: a worker that mints but resolves nothing is not an
+        // oracle and needs no allowlist.
+        IReadOnlyList<string>? principals = null;
+        if (_resolveToken is not null)
+        {
+            principals = (_introspectPrincipals
+                    ?? (Environment.GetEnvironmentVariable("VGI_INTROSPECT_PRINCIPALS") ?? "").Split(','))
+                .Select(p => p.Trim())
+                .Where(p => p.Length > 0)
+                .ToList();
+            if (principals.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "This worker supplies a resolveToken hook, which hosts the vgi_rpc.Identity.v1 protocol, but no "
+                    + "introspector allowlist was configured. Pass introspectPrincipals to Worker.Identity(...) or set "
+                    + "VGI_INTROSPECT_PRINCIPALS (comma-separated). There is no permissive default on purpose: "
+                    + "introspection is a separate capability from authentication, and allowing every authenticated "
+                    + "caller lets any user resolve any other user's credential to its owner. Remove the resolveToken "
+                    + "hook to leave the protocol unhosted entirely.");
+            }
+        }
+
+        return new IdentityImpl(_resolveToken, _mintGrant, principals, _maxAuthAge);
+    }
 
     /// <summary>Serves over stdin/stdout until the client disconnects.</summary>
     public Task RunStdioAsync(CancellationToken cancellationToken = default)
     {
-        var server = NewRpcServer();
+        var server = NewRpcServer(ServerTransport.Stdio);
         return server.ServeAsync(new StdioTransport(), cancellationToken);
     }
 
@@ -475,7 +696,7 @@ public sealed class Worker
     /// </summary>
     public async Task RunUnixSocketAsync(string path, double idleTimeoutSeconds = 300, CancellationToken cancellationToken = default)
     {
-        var server = NewRpcServer();
+        var server = NewRpcServer(ServerTransport.Unix);
 
         using var shutdownCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var activeConnections = 0;
@@ -576,7 +797,7 @@ public sealed class Worker
             throw new ArgumentException("Iroh bridge upstream must bind loopback.", nameof(host));
         ArgumentException.ThrowIfNullOrWhiteSpace(issuer);
 
-        var server = NewRpcServer();
+        var server = NewRpcServer(ServerTransport.IrohTcp);
         var options = new TcpServerOptions
         {
             ProxyProtocolV2Required = true,
@@ -616,12 +837,12 @@ public sealed class Worker
             throw new ArgumentException("Iroh HTTP bridge upstream must bind loopback.", nameof(host));
 
         var serverId = Guid.NewGuid().ToString("n");
-        var rpc = NewRpcServer(serverId);
-        var builder = WebApplication.CreateSlimBuilder();
+        var rpc = NewRpcServer(ServerTransport.Http, serverId);
+        var builder = WebApplication.CreateSlimBuilder(WorkerHostOptions());
         builder.WebHost.UseUrls($"http://{FormatHostForUrl(host)}:{port}");
         var app = builder.Build();
 
-        RpcHttpEndpoints.AuthenticateDelegate? authenticate = null;
+        var authenticate = _httpAuthenticate;
         if (irohBridge is not null)
         {
             app.UseVgiRpcPhysicalPeerSnapshot();
@@ -629,7 +850,7 @@ public sealed class Worker
                 irohBridge.Issuer,
                 irohBridge.EffectiveTrustedProxyAddresses);
             authenticate = PeerIdentityAuthentication.Compose(
-                null,
+                _httpAuthenticate,
                 [provider],
                 irohBridge.Authenticate
                     ? PeerAuthenticationPolicies.Primary("iroh")
@@ -747,6 +968,21 @@ public sealed class Worker
 
         return RunStdioAsync(cancellationToken);
     }
+
+    /// <summary>Host options for the HTTP worker: content root at the application's own
+    /// directory, configuration reload off.</summary>
+    /// <remarks>
+    /// The defaults make the content root the process's cwd and watch it for configuration
+    /// changes. A worker has no appsettings to reload, and a launcher or harness may start it from
+    /// a home directory or a large checkout, where setting up that watch took more than a minute
+    /// (measured: 80 s from a 511 GB home directory, under 1 s with either of these off) before
+    /// the worker could print <c>PORT:</c>.
+    /// </remarks>
+    internal static WebApplicationOptions WorkerHostOptions() => new()
+    {
+        ContentRootPath = AppContext.BaseDirectory,
+        Args = ["--hostBuilder:reloadConfigOnChange=false"],
+    };
 
     private static bool IsLoopbackHost(string host) =>
         host is "localhost" or "127.0.0.1" or "::1"

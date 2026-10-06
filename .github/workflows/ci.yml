@@ -53,6 +53,29 @@ jobs:
       # projects and needs no such exclusion.
       - run: dotnet format vgi-csharp.slnx --verify-no-changes
 
+  # vgi-rpc's shared hosted-protocols group against the fixture worker on stdio, unix and HTTP
+  # (+ vgi_rpc.Identity.v1): conformance.Secondary.v1 hosted through Worker.HostedProtocols, the
+  # error model through this SDK's server, and the Identity opt-in. The reference is installed from
+  # a checkout of vgi-rpc-python (unpinned main, by design), as vgi-rpc-csharp's conformance job does.
+  hosted-protocols:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-python
+          path: _conformance/vgi-rpc
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e "./_conformance/vgi-rpc[http,conformance]" pytest pytest-timeout
+      - run: dotnet build -c Release
+      - run: ci/run-hosted-protocols.sh
+
   # See ci/README.md: runs the canonical suite against a prebuilt haybarn-unittest + the signed
   # community vgi extension, no C++ build from source. BOTH transports, because they are two
   # separate dispatch implementations that have diverged in production: a launcher-only lane
