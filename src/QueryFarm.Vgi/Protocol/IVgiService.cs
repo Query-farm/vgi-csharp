@@ -115,12 +115,20 @@ public interface IVgiService
     /// attach. Takes no transaction: the client caches the answer catalog-wide, so it is the
     /// committed catalog at <see cref="CatalogContentsResponse.CatalogVersion"/>.
     ///
+    /// <para><paramref name="ifNoneMatch"/> is the <see cref="CatalogContentsResponse.Etag"/> of a
+    /// snapshot the client holds: when it equals the current etag the answer is
+    /// <see cref="CatalogContentsResponse.NotModified"/> with no schemas. A service that answers
+    /// <c>etag = null</c> does not revalidate and ignores it.</para>
+    ///
     /// <para>The default composes this service's own per-schema RPCs
     /// (<see cref="CatalogContentsComposer"/>), so every item is byte-for-byte what those return and
-    /// any implementation can serve it without new code. Override it only to build the snapshot
-    /// more cheaply.</para></summary>
-    Task<CatalogContentsResponse> CatalogContentsAsync(byte[] attachOpaqueData, ICallContext? ctx = null) =>
-        CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
+    /// any implementation can serve it without new code; it returns no etag. Override it to build
+    /// the snapshot more cheaply or to revalidate, shaping the answer with
+    /// <see cref="CatalogContentsResponder.Respond"/> so the etag rules hold. A
+    /// <see cref="Worker"/>'s catalogs do both through <see cref="Worker.OnCatalogContents(string, Func{Catalog.CatalogContentsRequest, Task{Catalog.CatalogContentsResult}})"/>
+    /// and <see cref="Worker.CatalogContentsEtag"/>.</para></summary>
+    Task<CatalogContentsResponse> CatalogContentsAsync(byte[] attachOpaqueData, string? ifNoneMatch = null, ICallContext? ctx = null) =>
+        CatalogContentsComposer.ServeAsync(this, attachOpaqueData, ifNoneMatch, ctx);
 
     Task<ItemsResponse> CatalogSchemaContentsFunctionsAsync(
         byte[] attachOpaqueData, List<string> path, SchemaObjectType type, byte[]? transactionOpaqueData, ICallContext? ctx = null);

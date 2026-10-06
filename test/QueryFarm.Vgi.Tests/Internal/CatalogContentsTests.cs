@@ -60,8 +60,22 @@ public class CatalogContentsTests
 
     private static string Key(List<string> path) => string.Join(".", path);
 
-    private static List<SchemaContents> Decode(CatalogContentsResponse response) =>
-        response.Schemas.Select(EmbeddedIpc.Decode<SchemaContents>).ToList();
+    /// <summary>The response's schemas, after checking each inline row's <c>path</c> matches the
+    /// <see cref="SchemaInfo.Path"/> inside it (what the client verifies).</summary>
+    private static List<SchemaContents> Decode(CatalogContentsResponse response)
+    {
+        Assert.False(response.NotModified);
+        foreach (var entry in response.Schemas)
+        {
+            Assert.Equal(EmbeddedIpc.Decode<SchemaInfo>(entry.Schema).Path, entry.Path);
+        }
+
+        return response.Schemas;
+    }
+
+    /// <summary>A snapshot's identity for comparisons: the content-hash digest covers every path and
+    /// item byte.</summary>
+    private static string Fingerprint(CatalogContentsResponse response) => CatalogContentsDigest.Compute(response.Schemas);
 
     [Fact]
     public async Task OneEntryPerSchema_ParentsBeforeChildren()
@@ -191,16 +205,11 @@ public class CatalogContentsTests
 
         IVgiService forward = new VgiServiceImpl(With(("a", "1"), ("b", "2"), ("c", "3")));
         IVgiService reverse = new VgiServiceImpl(With(("c", "3"), ("b", "2"), ("a", "1")));
-        var forwardContents = (await forward.CatalogContentsAsync(await AttachAsync(forward))).Schemas;
-        var reverseContents = (await reverse.CatalogContentsAsync(await AttachAsync(reverse))).Schemas;
+        var forwardResponse = await forward.CatalogContentsAsync(await AttachAsync(forward));
+        var reverseResponse = await reverse.CatalogContentsAsync(await AttachAsync(reverse));
+        Assert.Equal(Fingerprint(forwardResponse), Fingerprint(reverseResponse));
 
-        Assert.Equal(forwardContents.Count, reverseContents.Count);
-        for (var i = 0; i < forwardContents.Count; i++)
-        {
-            Assert.True(forwardContents[i].SequenceEqual(reverseContents[i]), $"schema entry {i} differs");
-        }
-
-        var data = Decode(new CatalogContentsResponse { Schemas = reverseContents })
+        var data = Decode(reverseResponse)
             .Single(c => EmbeddedIpc.Decode<SchemaInfo>(c.Schema).Path.SequenceEqual(["data"]));
         Assert.Equal(["a", "b", "c"], EmbeddedIpc.Decode<SchemaInfo>(data.Schema).Tags.Keys);
         Assert.Equal(
@@ -288,7 +297,8 @@ public class CatalogContentsTests
             .RegisterScalar(new AddValuesFunction())
             .RegisterTable(new SequenceFunction())
             .RegisterSchema("data", "Data schema")
-            .RegisterCatalogTable(new CatalogTable { Name = "plain", SchemaName = "data", Columns = OneColumn });
+            .RegisterCatalogTable(new CatalogTable { Name = "plain", SchemaName = "data", Columns = OneColumn })
+            .CatalogContentsEtag(CatalogContentsEtagMode.ContentHash);
         var path = Path.Combine(Path.GetTempPath(), $"vgi-csharp-test-{Guid.NewGuid():N}.sock");
         using var cts = new CancellationTokenSource();
         var serveTask = worker.RunUnixSocketAsync(path, idleTimeoutSeconds: 30, cts.Token);
@@ -319,12 +329,282 @@ public class CatalogContentsTests
                 main.ScalarFunctions);
             Assert.Equal("add_values", EmbeddedIpc.Decode<FunctionInfo>(Assert.Single(main.ScalarFunctions)).Name);
             Assert.Equal("plain", EmbeddedIpc.Decode<TableInfo>(Assert.Single(byPath["data"].Tables)).Name);
+
+            // Revalidation over the wire: if_none_match travels as a nullable utf8 column, and
+            // etag / not_modified / an empty schemas list come back.
+            Assert.Equal(CatalogContentsDigest.Compute(response.Schemas), response.Etag);
+            var unchanged = await client.CatalogContentsAsync(attached.AttachOpaqueData, response.Etag);
+            Assert.True(unchanged.NotModified);
+            Assert.Empty(unchanged.Schemas);
+            Assert.Equal(response.Etag, unchanged.Etag);
+            Assert.Equal(response.CatalogVersion, unchanged.CatalogVersion);
+            var stale = await client.CatalogContentsAsync(attached.AttachOpaqueData, "stale");
+            Assert.False(stale.NotModified);
+            Assert.Equal(Fingerprint(response), Fingerprint(stale));
         }
         finally
         {
             cts.Cancel();
             await serveTask;
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Revalidation (etag / if_none_match / not_modified) and the content-hash etag.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>The content-hash etag is byte-for-byte vgi-python's <c>catalog_contents_digest()</c>:
+    /// these digests were computed by vgi-python (cc83818) over the same snapshots.</summary>
+    [Fact]
+    public void Digest_MatchesVgiPython()
+    {
+        List<SchemaContents> snapshot =
+        [
+            new() { Path = ["main"], Schema = [1, 2], Tables = ["t1"u8.ToArray()], ScalarFunctions = ["f"u8.ToArray(), []], TableMacros = ["m"u8.ToArray()] },
+            new() { Path = ["main", "ü"], Schema = "s"u8.ToArray(), Indexes = ["i"u8.ToArray()] },
+        ];
+
+        Assert.Equal("7d5a7cc20cd648bf3218c0d63d9bfaa7acfbc93e41f199bceab06cc6c98d1b2b", CatalogContentsDigest.Compute(snapshot));
+        Assert.Equal("af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc", CatalogContentsDigest.Compute([]));
+    }
+
+    [Fact]
+    public async Task ByDefault_NoEtag_AndIfNoneMatchIsIgnored()
+    {
+        IVgiService service = new VgiServiceImpl(PopulatedRegistry());
+        var attach = await AttachAsync(service);
+
+        var full = await service.CatalogContentsAsync(attach);
+        Assert.Null(full.Etag);
+        Assert.False(full.NotModified);
+
+        var conditional = await service.CatalogContentsAsync(attach, ifNoneMatch: "anything");
+        Assert.Null(conditional.Etag);
+        Assert.False(conditional.NotModified);
+        Assert.Equal(Fingerprint(full), Fingerprint(conditional));
+    }
+
+    [Fact]
+    public async Task ContentHash_EtagIsTheDigest_AndAMatchIsNotModified()
+    {
+        var registry = PopulatedRegistry();
+        registry.CatalogContentsEtag = CatalogContentsEtagMode.ContentHash;
+        IVgiService service = new VgiServiceImpl(registry);
+        var attach = await AttachAsync(service);
+
+        var full = await service.CatalogContentsAsync(attach);
+        Assert.False(full.NotModified);
+        Assert.NotEmpty(full.Schemas);
+        Assert.Equal(CatalogContentsDigest.Compute(full.Schemas), full.Etag);
+
+        var unchanged = await service.CatalogContentsAsync(attach, ifNoneMatch: full.Etag);
+        Assert.True(unchanged.NotModified);
+        Assert.Empty(unchanged.Schemas);
+        Assert.Equal(full.Etag, unchanged.Etag);
+        Assert.Equal(full.CatalogVersion, unchanged.CatalogVersion);
+
+        var stale = await service.CatalogContentsAsync(attach, ifNoneMatch: "not-the-etag");
+        Assert.False(stale.NotModified);
+        Assert.Equal(full.Etag, stale.Etag);
+        Assert.Equal(Fingerprint(full), Fingerprint(stale));
+    }
+
+    /// <summary>The same catalog built twice (separate registries and services, so nothing is
+    /// shared or cached between them) hashes alike.</summary>
+    [Fact]
+    public async Task ContentHash_IsDeterministicAcrossBuilds()
+    {
+        async Task<string?> EtagOf()
+        {
+            var registry = PopulatedRegistry();
+            registry.CatalogContentsEtag = CatalogContentsEtagMode.ContentHash;
+            IVgiService service = new VgiServiceImpl(registry);
+            return (await service.CatalogContentsAsync(await AttachAsync(service))).Etag;
+        }
+
+        var first = await EtagOf();
+        Assert.NotNull(first);
+        Assert.Equal(first, await EtagOf());
+    }
+
+    [Fact]
+    public async Task ContentHash_IsPerIdentity()
+    {
+        var registry = PopulatedRegistry();
+        registry.SetCatalogContentsEtag("hashed", CatalogContentsEtagMode.ContentHash);
+        IVgiService service = new VgiServiceImpl(registry);
+
+        Assert.NotNull((await service.CatalogContentsAsync(await AttachAsync(service, "hashed"))).Etag);
+        Assert.Null((await service.CatalogContentsAsync(await AttachAsync(service, "plain"))).Etag);
+    }
+
+    /// <summary>A cheap validator answers not-modified before anything is built; a miss builds and
+    /// carries the etag.</summary>
+    [Fact]
+    public async Task Handler_CheapValidator_ShortCircuitsWithoutBuilding()
+    {
+        var registry = PopulatedRegistry();
+        var builds = 0;
+        registry.SetCatalogContentsHandler("example", async request =>
+        {
+            const string etag = "gen-7";
+            if (request.IfNoneMatch == etag)
+            {
+                return CatalogContentsResult.Unchanged(etag);
+            }
+
+            builds++;
+            return await request.BuildAsync() with { Etag = etag };
+        });
+        IVgiService service = new VgiServiceImpl(registry);
+        var attach = await AttachAsync(service);
+
+        var full = await service.CatalogContentsAsync(attach);
+        Assert.Equal("gen-7", full.Etag);
+        Assert.False(full.NotModified);
+        Assert.NotEmpty(Decode(full));
+        Assert.Equal(1, builds);
+
+        var unchanged = await service.CatalogContentsAsync(attach, ifNoneMatch: "gen-7");
+        Assert.True(unchanged.NotModified);
+        Assert.Empty(unchanged.Schemas);
+        Assert.Equal("gen-7", unchanged.Etag);
+        Assert.Equal(1, builds);
+
+        var stale = await service.CatalogContentsAsync(attach, ifNoneMatch: "gen-6");
+        Assert.False(stale.NotModified);
+        Assert.Equal(Fingerprint(full), Fingerprint(stale));
+        Assert.Equal(2, builds);
+    }
+
+    [Fact]
+    public async Task Handler_SeesTheRequest()
+    {
+        var registry = PopulatedRegistry();
+        CatalogContentsRequest? seen = null;
+        registry.SetCatalogContentsHandler("example", request =>
+        {
+            seen = request;
+            return request.BuildAsync();
+        });
+        IVgiService service = new VgiServiceImpl(registry);
+        var attach = await AttachAsync(service);
+
+        var response = await service.CatalogContentsAsync(attach, ifNoneMatch: "x");
+        Assert.NotNull(seen);
+        Assert.Equal("example", seen.Identity);
+        Assert.Equal("x", seen.IfNoneMatch);
+        Assert.Equal(attach, seen.AttachOpaqueData);
+        Assert.Equal(response.CatalogVersion, seen.CatalogVersion);
+        Assert.Null(response.Etag);
+        Assert.False(response.NotModified);
+    }
+
+    /// <summary>A full answer whose own etag equals <c>if_none_match</c> is sent not-modified.</summary>
+    [Fact]
+    public async Task Handler_FullAnswerWithMatchingEtag_BecomesNotModified()
+    {
+        var registry = PopulatedRegistry();
+        registry.SetCatalogContentsHandler("example", async request => await request.BuildAsync() with { Etag = "v1" });
+        IVgiService service = new VgiServiceImpl(registry);
+
+        var response = await service.CatalogContentsAsync(await AttachAsync(service), ifNoneMatch: "v1");
+        Assert.True(response.NotModified);
+        Assert.Empty(response.Schemas);
+        Assert.Equal("v1", response.Etag);
+    }
+
+    public static TheoryData<string, string?, string?, bool> BadNotModified => new()
+    {
+        // case, result etag, if_none_match, with schemas
+        { "no etag", null, "v1", false },
+        { "no if_none_match", "v1", null, false },
+        { "etag differs from if_none_match", "v2", "v1", false },
+        { "schemas with not_modified", "v1", "v1", true },
+    };
+
+    [Theory]
+    [MemberData(nameof(BadNotModified))]
+    public async Task Handler_InvalidNotModified_FailsTheCall(string scenario, string? etag, string? ifNoneMatch, bool withSchemas)
+    {
+        var registry = PopulatedRegistry();
+        registry.SetCatalogContentsHandler("example", async request => new CatalogContentsResult
+        {
+            Etag = etag,
+            NotModified = true,
+            Schemas = withSchemas ? (await request.BuildAsync()).Schemas : [],
+        });
+        IVgiService service = new VgiServiceImpl(registry);
+        var attach = await AttachAsync(service);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await service.CatalogContentsAsync(attach, ifNoneMatch));
+        Assert.Contains("not_modified", error.Message, StringComparison.Ordinal);
+        _ = scenario;
+    }
+
+    private static SchemaContents Entry(params string[] path) => new()
+    {
+        Path = [.. path],
+        Schema = EmbeddedIpc.Encode(new SchemaInfo { AttachOpaqueData = [], Path = [.. path], Comment = null, Tags = [] }),
+    };
+
+    [Fact]
+    public void Respond_ChecksPaths_AndOrdersParentsFirst()
+    {
+        var ordered = CatalogContentsResponder.Respond(
+            3, new CatalogContentsResult { Schemas = [Entry("a", "b"), Entry("z"), Entry("a")] }, null, CatalogContentsEtagMode.None);
+        Assert.Equal(3, ordered.CatalogVersion);
+        Assert.Equal([["z"], ["a"], ["a", "b"]], ordered.Schemas.Select(s => s.Path));
+
+        Assert.Contains("duplicate", Assert.Throws<InvalidOperationException>(() => CatalogContentsResponder.Respond(
+            1, new CatalogContentsResult { Schemas = [Entry("a"), Entry("a")] }, null, CatalogContentsEtagMode.None)).Message);
+        Assert.Contains("without its parent", Assert.Throws<InvalidOperationException>(() => CatalogContentsResponder.Respond(
+            1, new CatalogContentsResult { Schemas = [Entry("a", "b")] }, null, CatalogContentsEtagMode.None)).Message);
+        var mismatched = Entry("a");
+        mismatched.Path = ["b"];
+        Assert.Contains("SchemaInfo.path", Assert.Throws<InvalidOperationException>(() => CatalogContentsResponder.Respond(
+            1, new CatalogContentsResult { Schemas = [mismatched] }, null, CatalogContentsEtagMode.None)).Message);
+    }
+
+    /// <summary>The default snapshot is built once per identity and reused — until something is
+    /// registered, which rebuilds it (and moves the content-hash etag).</summary>
+    [Fact]
+    public async Task Snapshot_IsCached_UntilTheRegistryChanges()
+    {
+        var registry = PopulatedRegistry();
+        registry.CatalogContentsEtag = CatalogContentsEtagMode.ContentHash;
+        IVgiService service = new VgiServiceImpl(registry);
+        var attach = await AttachAsync(service);
+
+        var first = await service.CatalogContentsAsync(attach);
+        var second = await service.CatalogContentsAsync(attach);
+        Assert.Same(first.Schemas[0], second.Schemas[0]);
+        Assert.Equal(first.Etag, second.Etag);
+
+        registry.RegisterView(new CatalogView { Name = "late_view", SchemaName = "data", Definition = "SELECT 3 AS three" });
+        var third = await service.CatalogContentsAsync(attach, ifNoneMatch: first.Etag);
+        Assert.False(third.NotModified);
+        Assert.NotEqual(first.Etag, third.Etag);
+        Assert.Contains(
+            third.Schemas.Single(s => s.Path.SequenceEqual(["data"])).Views,
+            item => EmbeddedIpc.Decode<ViewInfo>(item).Name == "late_view");
+    }
+
+    /// <summary>A decorating service's default <see cref="IVgiService.CatalogContentsAsync"/> has no
+    /// etag and ignores <c>if_none_match</c>.</summary>
+    [Fact]
+    public async Task InterfaceDefault_HasNoEtag()
+    {
+        var registry = PopulatedRegistry();
+        registry.CatalogContentsEtag = CatalogContentsEtagMode.ContentHash; // the decorator does not use it
+        IVgiService counting = new CountingService(new VgiServiceImpl(registry));
+        var attach = await AttachAsync(counting);
+
+        var response = await counting.CatalogContentsAsync(attach, ifNoneMatch: "x");
+        Assert.Null(response.Etag);
+        Assert.False(response.NotModified);
+        Assert.NotEmpty(Decode(response));
     }
 
     /// <summary>Forwards to a real service and records which per-kind RPCs the default

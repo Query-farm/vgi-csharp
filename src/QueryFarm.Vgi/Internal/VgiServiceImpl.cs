@@ -1222,13 +1222,63 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     /// <summary>Runs the <see cref="CatalogRegistry.OnCatalogContents"/> hook (if any) for this
     /// attach's identity — a throw refuses the call, and the client falls back to the per-schema
-    /// RPCs — then composes the answer from this service's own per-schema RPCs
-    /// (<see cref="CatalogContentsComposer"/>), so every item is byte-identical to theirs.</summary>
-    public Task<CatalogContentsResponse> CatalogContentsAsync(byte[] attachOpaqueData, ICallContext? ctx = null)
+    /// RPCs — then answers with the identity's handler
+    /// (<see cref="Worker.OnCatalogContents(string, Func{CatalogContentsRequest, Task{CatalogContentsResult}})"/>)
+    /// or, without one, the default snapshot: composed from this service's own per-schema RPCs
+    /// (<see cref="CatalogContentsComposer"/>), so every item is byte-identical to theirs. The
+    /// identity's <see cref="CatalogContentsEtagMode"/> and the revalidation rules are applied by
+    /// <see cref="CatalogContentsResponder"/>.</summary>
+    public async Task<CatalogContentsResponse> CatalogContentsAsync(byte[] attachOpaqueData, string? ifNoneMatch = null, ICallContext? ctx = null)
     {
-        catalog.OnCatalogContents?.Invoke(DecodeIdentity(attachOpaqueData));
-        return CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
+        var identity = DecodeIdentity(attachOpaqueData);
+        catalog.OnCatalogContents?.Invoke(identity);
+        var version = (await ((IVgiService)this).CatalogVersionAsync(attachOpaqueData, null, ctx).ConfigureAwait(false)).Version;
+
+        Task<CatalogContentsResult> Build() => CatalogContentsSnapshotAsync(identity, attachOpaqueData, ctx);
+        var handler = catalog.CatalogContentsHandlerFor(identity);
+        var result = handler is null
+            ? await Build().ConfigureAwait(false)
+            : await handler(new CatalogContentsRequest(identity, attachOpaqueData, ifNoneMatch, version, Build)).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"catalog_contents handler for '{identity}' returned null");
+        return CatalogContentsResponder.Respond(version, result, ifNoneMatch, catalog.CatalogContentsEtagFor(identity));
     }
+
+    /// <summary>The default <c>catalog_contents</c> snapshot for <paramref name="identity"/>, from
+    /// <see cref="_contentsSnapshots"/> when nothing has been registered since it was built.</summary>
+    private async Task<CatalogContentsResult> CatalogContentsSnapshotAsync(string identity, byte[] attachOpaqueData, ICallContext? ctx)
+    {
+        var contentsVersion = catalog.ContentsVersion;
+        if (_contentsSnapshots.TryGetValue(identity, out var cached) && cached.ContentsVersion == contentsVersion)
+        {
+            return cached.Result;
+        }
+
+        var composed = await CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx).ConfigureAwait(false);
+        var snapshot = new ContentsSnapshot(
+            contentsVersion, new CatalogContentsResult { Schemas = CatalogContentsResponder.Validate(composed.Schemas) });
+        if (_contentsSnapshots.Count >= MaxCachedFunctionListings)
+        {
+            // The key is client-chosen (any attach name), so bound it like _functionListings.
+            _contentsSnapshots.Clear();
+        }
+
+        _contentsSnapshots[identity] = snapshot;
+        return snapshot.Result;
+    }
+
+    /// <summary>
+    /// The default <c>catalog_contents</c> snapshot per attach identity — validated, parents first,
+    /// with its content-hash digest computed at most once. Every catalog a <see cref="Worker"/>
+    /// serves is version-frozen and its listings depend only on the attach identity (not on the
+    /// attach's other bytes or on the caller), the conditions under which vgi-python caches its
+    /// response per (catalog, catalog_version); here the key is (identity,
+    /// <see cref="CatalogRegistry.ContentsVersion"/>), so a registration made after serving started
+    /// is still picked up. A handler's <see cref="CatalogContentsRequest.BuildAsync"/> is served
+    /// from it too.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ContentsSnapshot> _contentsSnapshots = new(StringComparer.Ordinal);
+
+    private sealed record ContentsSnapshot(long ContentsVersion, CatalogContentsResult Result);
 
     public Task<ItemsResponse> CatalogSchemaGetAsync(
         byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null)

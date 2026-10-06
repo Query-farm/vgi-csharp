@@ -86,8 +86,8 @@ test_integration_subprocess:
 # the catalog_contents tests that need vgi-python's contents_* fixture catalogs — this lane runs
 # the generic catalog/catalog_contents_conformance.test instead).
 #
-# C# runs 312 today (356 discovered, 44 expected skips).
-CSHARP_MIN_EXECUTED ?= 307
+# C# runs 318 today (358 discovered, 40 expected skips).
+CSHARP_MIN_EXECUTED ?= 313
 CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) \
 	--allow-skip 'require spatial' \
 	--allow-skip 'require-env VGI_DOCKER_IMAGE' \

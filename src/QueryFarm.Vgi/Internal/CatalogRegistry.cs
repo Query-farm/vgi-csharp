@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Apache.Arrow;
 using QueryFarm.Vgi.Aggregate;
 using QueryFarm.Vgi.Buffering;
@@ -141,7 +142,21 @@ public sealed class CatalogRegistry
     /// has started is still advertised.</summary>
     internal long FunctionsVersion => Interlocked.Read(ref _functionsVersion);
 
-    private void FunctionsChanged() => Interlocked.Increment(ref _functionsVersion);
+    private void FunctionsChanged()
+    {
+        Interlocked.Increment(ref _functionsVersion);
+        ContentsChanged();
+    }
+
+    private long _contentsVersion;
+
+    /// <summary>Moves on every change to what a <c>catalog_contents</c> snapshot can contain — any
+    /// registration (function, table, view, macro, schema) or an identity becoming exclusive.
+    /// <see cref="VgiServiceImpl"/> caches each identity's snapshot and rebuilds it when this has
+    /// moved since it was built.</summary>
+    internal long ContentsVersion => Interlocked.Read(ref _contentsVersion);
+
+    private void ContentsChanged() => Interlocked.Increment(ref _contentsVersion);
 
     private bool FallsBackToDefault(string identity) => identity != DefaultIdentity && !_exclusiveIdentities.Contains(identity);
 
@@ -195,8 +210,32 @@ public sealed class CatalogRegistry
     public bool SupportsCatalogContents { get; set; } = true;
 
     /// <summary>Called with the attach identity before a <c>catalog_contents</c> answer is built
-    /// (<see cref="Worker.OnCatalogContents"/>); throwing refuses the call.</summary>
+    /// (<see cref="Worker.OnCatalogContents(Action{string})"/>); throwing refuses the call.</summary>
     public Action<string>? OnCatalogContents { get; set; }
+
+    private readonly ConcurrentDictionary<string, Func<CatalogContentsRequest, Task<CatalogContentsResult>>> _contentsHandlers =
+        new(StringComparer.Ordinal);
+
+    private readonly ConcurrentDictionary<string, CatalogContentsEtagMode> _contentsEtagModes = new(StringComparer.Ordinal);
+
+    /// <summary>The <see cref="CatalogContentsEtagMode"/> of every identity without one of its own
+    /// (<see cref="Worker.CatalogContentsEtag"/>). <see cref="CatalogContentsEtagMode.None"/> by
+    /// default.</summary>
+    public CatalogContentsEtagMode CatalogContentsEtag { get; set; } = CatalogContentsEtagMode.None;
+
+    /// <summary>Sets one identity's <see cref="CatalogContentsEtagMode"/>.</summary>
+    public void SetCatalogContentsEtag(string identity, CatalogContentsEtagMode mode) => _contentsEtagModes[identity] = mode;
+
+    internal CatalogContentsEtagMode CatalogContentsEtagFor(string identity) =>
+        _contentsEtagModes.TryGetValue(identity, out var mode) ? mode : CatalogContentsEtag;
+
+    /// <summary>Registers the <c>catalog_contents</c> handler for one identity
+    /// (<see cref="Worker.OnCatalogContents(string, Func{CatalogContentsRequest, Task{CatalogContentsResult}})"/>).</summary>
+    public void SetCatalogContentsHandler(string identity, Func<CatalogContentsRequest, Task<CatalogContentsResult>> handler) =>
+        _contentsHandlers[identity] = handler;
+
+    internal Func<CatalogContentsRequest, Task<CatalogContentsResult>>? CatalogContentsHandlerFor(string identity) =>
+        _contentsHandlers.GetValueOrDefault(identity);
 
     public void RegisterScalar(IScalarFunction function, string identity = DefaultIdentity) =>
         Add(_scalarFunctions, identity, function.SchemaPath, function.Name, function);
@@ -509,8 +548,11 @@ public sealed class CatalogRegistry
     public void RegisterSchema(string schemaName, string? comment = null, Dictionary<string, string>? tags = null, string identity = DefaultIdentity) =>
         RegisterSchema([schemaName], comment, tags, identity);
 
-    public void RegisterSchema(IReadOnlyList<string> schemaPath, string? comment = null, Dictionary<string, string>? tags = null, string identity = DefaultIdentity) =>
+    public void RegisterSchema(IReadOnlyList<string> schemaPath, string? comment = null, Dictionary<string, string>? tags = null, string identity = DefaultIdentity)
+    {
         _schemas[(identity, PathKey(schemaPath))] = (schemaPath.ToList(), comment, tags ?? []);
+        ContentsChanged();
+    }
 
     public (string? Comment, Dictionary<string, string> Tags) SchemaMetadataFor(string identity, string schemaName)
         => SchemaMetadataFor(identity, [schemaName]);
@@ -544,6 +586,7 @@ public sealed class CatalogRegistry
     public void RegisterCatalogTable(CatalogTable table, string identity = DefaultIdentity)
     {
         _tables[(identity, PathKey(table.EffectiveSchemaPath), table.Name)] = table;
+        ContentsChanged();
 
         if (table.ScanFunction is { } scan && !AlreadyRegisteredByReference(_tableFunctions, identity, scan.SchemaPath, scan.Name, scan))
         {
@@ -624,8 +667,11 @@ public sealed class CatalogRegistry
         return byKey.Values;
     }
 
-    public void RegisterView(CatalogView view, string identity = DefaultIdentity) =>
+    public void RegisterView(CatalogView view, string identity = DefaultIdentity)
+    {
         _views[(identity, PathKey(view.EffectiveSchemaPath), view.Name)] = view;
+        ContentsChanged();
+    }
 
     public CatalogView? FindView(string identity, string schemaName, string name)
         => FindView(identity, [schemaName], name);
@@ -677,8 +723,11 @@ public sealed class CatalogRegistry
         return byKey.Values;
     }
 
-    public void RegisterMacro(CatalogMacro macro, string identity = DefaultIdentity) =>
+    public void RegisterMacro(CatalogMacro macro, string identity = DefaultIdentity)
+    {
         _macros[(identity, PathKey(macro.EffectiveSchemaPath), macro.Name)] = macro;
+        ContentsChanged();
+    }
 
     public CatalogMacro? FindMacro(string identity, string schemaName, string name)
         => FindMacro(identity, [schemaName], name);

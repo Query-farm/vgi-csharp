@@ -1,3 +1,4 @@
+using QueryFarm.Vgi.Catalog;
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.VgiRpc.Server;
 
@@ -26,22 +27,26 @@ namespace QueryFarm.Vgi.Internal;
 /// </remarks>
 public static class CatalogContentsComposer
 {
-    public static async Task<CatalogContentsResponse> ComposeAsync(
-        IVgiService service, byte[] attachOpaqueData, ICallContext? ctx = null)
+    /// <summary>The whole default RPC: the version, the composed snapshot, no etag (so
+    /// <paramref name="ifNoneMatch"/> is ignored), shaped by <see cref="CatalogContentsResponder"/>.</summary>
+    public static async Task<CatalogContentsResponse> ServeAsync(
+        IVgiService service, byte[] attachOpaqueData, string? ifNoneMatch, ICallContext? ctx = null)
     {
         var version = (await service.CatalogVersionAsync(attachOpaqueData, null, ctx).ConfigureAwait(false)).Version;
+        var result = await ComposeAsync(service, attachOpaqueData, ctx).ConfigureAwait(false);
+        return CatalogContentsResponder.Respond(version, result, ifNoneMatch, CatalogContentsEtagMode.None);
+    }
+
+    /// <summary>Every schema and its contents, in <c>catalog_schemas</c> order, with no etag.</summary>
+    public static async Task<CatalogContentsResult> ComposeAsync(
+        IVgiService service, byte[] attachOpaqueData, ICallContext? ctx = null)
+    {
         var schemaItems = (await service.CatalogSchemasAsync(attachOpaqueData, null, ctx).ConfigureAwait(false)).Items;
 
-        // Parents before children, as catalog_schemas guarantees; OrderBy is stable, so schemas of
-        // equal depth keep the order catalog_schemas listed them in.
-        var schemas = schemaItems
-            .Select(item => (Item: item, Info: EmbeddedIpc.Decode<SchemaInfo>(item)))
-            .OrderBy(schema => schema.Info.Path.Count)
-            .ToList();
-
-        var entries = new List<byte[]>(schemas.Count);
-        foreach (var (item, info) in schemas)
+        var entries = new List<SchemaContents>(schemaItems.Count);
+        foreach (var item in schemaItems)
         {
+            var info = EmbeddedIpc.Decode<SchemaInfo>(item);
             var path = info.Path;
             var counts = info.EstimatedObjectCount;
 
@@ -50,8 +55,9 @@ public static class CatalogContentsComposer
                     ? []
                     : (await fetch().ConfigureAwait(false)).Items;
 
-            entries.Add(EmbeddedIpc.Encode(new SchemaContents
+            entries.Add(new SchemaContents
             {
+                Path = [.. path],
                 Schema = item,
                 Tables = await Kind("table", () =>
                     service.CatalogSchemaContentsTablesAsync(attachOpaqueData, path, null, ctx)).ConfigureAwait(false),
@@ -68,9 +74,9 @@ public static class CatalogContentsComposer
                 TableMacros = await Kind("macro", () =>
                     service.CatalogSchemaContentsMacrosAsync(attachOpaqueData, path, SchemaObjectType.TableMacro, null, ctx)).ConfigureAwait(false),
                 Indexes = [],
-            }));
+            });
         }
 
-        return new CatalogContentsResponse { CatalogVersion = version, Schemas = entries };
+        return new CatalogContentsResult { Schemas = entries };
     }
 }

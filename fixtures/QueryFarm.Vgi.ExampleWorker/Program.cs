@@ -17,6 +17,7 @@ using QueryFarm.Vgi.ExampleWorker.AttachOptions;
 using QueryFarm.Vgi.ExampleWorker.Aggregate;
 using QueryFarm.Vgi.ExampleWorker.Buffering;
 using QueryFarm.Vgi.ExampleWorker.Cache;
+using QueryFarm.Vgi.ExampleWorker.CatalogContents;
 using QueryFarm.Vgi.ExampleWorker.CopyFormats;
 using QueryFarm.Vgi.ExampleWorker.NarrowBind;
 using QueryFarm.Vgi.ExampleWorker.ProjectionRepro;
@@ -737,6 +738,10 @@ worker.RegisterTable(new ProjReproStrictFunction(), identity: "projection_repro"
 // advertisement so the conformance lane can be compared with and without it. A `launch:` worker is
 // pooled by (argv, cwd, VGI_RPC_* env), so stop a warm one before flipping this.
 worker.CatalogContents(Environment.GetEnvironmentVariable("VGI_CATALOG_CONTENTS") != "0");
+
+// catalog_contents revalidation: a content-hash etag on "example" (what the conformance test's
+// conditional calls exercise) and the generation-counter "contents_reval" catalog.
+RevalidatingCatalogSetup.Register(worker);
 
 await worker.RunFromArgsAsync(args);
 

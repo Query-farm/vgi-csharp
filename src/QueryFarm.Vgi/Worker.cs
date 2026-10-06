@@ -288,6 +288,51 @@ public sealed class Worker
         return this;
     }
 
+    /// <summary>Answers <c>catalog_contents</c> for one catalog identity — the C# counterpart of
+    /// overriding vgi-python's <c>CatalogInterface.catalog_contents(attach_opaque_data,
+    /// if_none_match)</c>. The handler gets the client's <see cref="Catalog.CatalogContentsRequest.IfNoneMatch"/>
+    /// and returns a <see cref="Catalog.CatalogContentsResult"/>: typically
+    /// <see cref="Catalog.CatalogContentsResult.Unchanged"/> when it equals a cheap validator
+    /// (generation counter, schema version, git sha) — <i>before</i> building anything — and
+    /// otherwise <see cref="Catalog.CatalogContentsRequest.BuildAsync"/>'s snapshot with that etag:
+    /// <code>
+    /// worker.OnCatalogContents("mycat", async request =&gt;
+    ///     request.IfNoneMatch == etag
+    ///         ? CatalogContentsResult.Unchanged(etag)
+    ///         : await request.BuildAsync() with { Etag = etag });
+    /// </code>
+    /// The worker enforces the rules (not-modified only with an etag equal to
+    /// <c>if_none_match</c> and no schemas; a full answer whose etag matches is sent not-modified; a
+    /// result with no etag never is) and checks the schema paths. Runs after
+    /// <see cref="OnCatalogContents(Action{string})"/>.</summary>
+    public Worker OnCatalogContents(string identity, Func<Catalog.CatalogContentsRequest, Task<Catalog.CatalogContentsResult>> handler)
+    {
+        _catalog.SetCatalogContentsHandler(identity, handler);
+        return this;
+    }
+
+    /// <summary>Opts catalogs in to a framework-supplied <c>catalog_contents</c> etag when they
+    /// return none of their own — <see cref="Catalog.CatalogContentsEtagMode.ContentHash"/>: the
+    /// SHA-256 of the snapshot, the same digest vgi-python computes, with a matching
+    /// <c>if_none_match</c> answered not-modified. <paramref name="identity"/> scopes it to one
+    /// catalog identity; <see langword="null"/> sets it for every catalog without its own setting.
+    /// Off by default, as in vgi-python. Every <see cref="Worker"/> catalog is version-frozen and its
+    /// snapshot is cached (see <see cref="Internal.VgiServiceImpl"/>), so the hash is computed once
+    /// per registration change, not per call.</summary>
+    public Worker CatalogContentsEtag(Catalog.CatalogContentsEtagMode mode, string? identity = null)
+    {
+        if (identity is null)
+        {
+            _catalog.CatalogContentsEtag = mode;
+        }
+        else
+        {
+            _catalog.SetCatalogContentsEtag(identity, mode);
+        }
+
+        return this;
+    }
+
     /// <summary>Declares a custom DuckDB secret TYPE (<c>CREATE SECRET (TYPE &lt;name&gt;, ...)</c>)
     /// this worker exposes via <c>catalog_attach</c> — a secret type must be declared here at least
     /// once for <c>duckdb_secret_types()</c>/<c>CREATE SECRET</c> to know it exists at all.

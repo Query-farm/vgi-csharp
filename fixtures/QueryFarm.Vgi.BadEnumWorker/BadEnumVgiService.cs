@@ -94,8 +94,8 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
 
     // Composed from THIS decorator's per-schema RPCs (not forwarded to `real`), so the corrupted
     // function listing reaches a catalog_contents client exactly as it reaches a per-schema one.
-    public Task<CatalogContentsResponse> CatalogContentsAsync(byte[] attachOpaqueData, ICallContext? ctx = null) =>
-        CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
+    public Task<CatalogContentsResponse> CatalogContentsAsync(byte[] attachOpaqueData, string? ifNoneMatch = null, ICallContext? ctx = null) =>
+        CatalogContentsComposer.ServeAsync(this, attachOpaqueData, ifNoneMatch, ctx);
 
     public Task<ItemsResponse> CatalogCatalogsAsync(ICallContext? ctx = null) =>
         real.CatalogCatalogsAsync(ctx);
