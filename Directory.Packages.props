@@ -20,8 +20,8 @@
          did not reach the elements, so the generated InitRequest/TableFunctionPlanRequest
          join_keys/split_tokens derived list<binary> where the protocol declares
          list<large_binary> (Protocol/GeneratedProtocolConformanceTests catches it). -->
-    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.13.0" />
-    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.13.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.14.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.14.0" />
 
     <!-- Same sibling-source-vs-NuGet split as QueryFarm.VgiRpc above; only used when the
          vgi-rpc-csharp checkout isn't present. QueryFarm.VgiRpc.Client's first-ever NuGet publish
@@ -60,8 +60,8 @@
          request_version). Every request this SDK's worker receives from the DuckDB extension
          already conforms — the 338-file integration suite passes unchanged against it, direct
          and through Rowfence — so the stricter server changes nothing for real clients. -->
-    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.13.0" />
-    <PackageVersion Include="QueryFarm.VgiRpc.Client.Http" Version="0.13.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.14.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Client.Http" Version="0.14.0" />
 
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
 
