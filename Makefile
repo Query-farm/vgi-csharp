@@ -22,7 +22,7 @@ OWN_PROJECTS := src/QueryFarm.Vgi/QueryFarm.Vgi.csproj \
 	examples/01-minimal-scalar-worker/Worker.csproj \
 	examples/docs/QueryFarm.Vgi.DocsExamples.csproj
 
-.PHONY: build test smoke docs_examples test_docs_examples test_integration test_integration_subprocess test_integration_gated format format_check regen_protocol
+.PHONY: build test smoke docs_examples test_docs_examples test_integration test_integration_subprocess test_integration_http test_integration_gated format format_check regen_protocol
 
 build:
 	$(DOTNET) build vgi-csharp.slnx
@@ -66,6 +66,14 @@ test_integration:
 # bypasses by design (the launcher, not DuckDB, owns the worker process in that mode).
 test_integration_subprocess:
 	SUBPROCESS=1 VGI_EXT="$(abspath $(VGI_DIR))" scripts/run_tests.sh $(ARGS)
+
+# Same suite, with the main worker served over HTTP (one long-lived `--http` server). A separate
+# dispatch implementation from the pipe transports, so it gets its own lane. Every target that
+# runs the extension's unittest passes --test-config $(VGI_DIR)/test/configs/no_error_skip.json
+# (scripts/run_tests.sh and the gated lane below): without it, DuckDB's sqllogictest runner
+# turns every error containing "HTTP" into a skip — which, over HTTP, is every worker error.
+test_integration_http:
+	HTTP=1 VGI_EXT="$(abspath $(VGI_DIR))" scripts/run_tests.sh $(ARGS)
 
 # ---------------------------------------------------------------------------
 # Gated conformance lane — what the vgi repo's `make test_languages` calls via
@@ -139,4 +147,5 @@ test_integration_gated: build
 	    VGI_BAD_ENUM_WORKER="$(CSHARP_BAD_ENUM_BIN)" \
 	    VGI_REQUIRE_LAUNCHER_TRANSPORT=1 \
 	    python3 scripts/run_tests.py -j 6 $(CSHARP_COVERAGE_GATE) \
+	        --test-config "$(abspath $(VGI_DIR))/test/configs/no_error_skip.json" \
 	        "test/sql/integration/*" "~test/sql/integration/writable/*"

@@ -143,6 +143,7 @@ SUBPROCESS=1 scripts/run_tests.sh ...     # bare-subprocess transport (slower; n
                                            # handful of tests asserting on DuckDB's own
                                            # subprocess-pool/PID-reuse behavior, which the
                                            # launcher transport bypasses by design)
+HTTP=1 scripts/run_tests.sh ...           # main worker as one `--http` server (make test_integration_http)
 ```
 
 Output is cached under `/tmp/vgi-csharp-test-cache/` (`run.log`, `failures`, `summary`) —

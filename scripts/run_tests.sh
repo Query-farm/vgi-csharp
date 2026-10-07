@@ -13,6 +13,12 @@
 #   scripts/run_tests.sh "test/sql/integration/table/sequence.test"   # one file (path relative to vgi checkout)
 #   scripts/run_tests.sh --no-build ...       # skip dotnet build
 #   SUBPROCESS=1 scripts/run_tests.sh ...     # bare-subprocess transport instead of launch: (slower; use to isolate a launcher-specific bug)
+#   HTTP=1 scripts/run_tests.sh ...           # the main worker as one long-lived `--http` server (the HTTP lane)
+#
+# Every run passes `--test-config $VGI_EXT/test/configs/no_error_skip.json`. Without a config,
+# DuckDB's sqllogictest runner turns any error whose text contains "HTTP" or "Unable to connect"
+# into a SKIP; over the HTTP transport every worker error contains "HTTP", so real failures read
+# as skips. The file comes from the extension checkout this script drives (vgi main >= f5aa489).
 #
 # Caches output under /tmp/vgi-csharp-test-cache/:
 #   run.log        full unittest stdout/stderr
@@ -41,6 +47,12 @@ VERSIONED_TABLES_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.VersionedTablesWorker/b
 # pooling/launcher interaction needed.
 BAD_ENUM_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.BadEnumWorker/bin/Debug/net10.0/vgi-bad-enum-worker"
 
+TEST_CONFIG="${TEST_CONFIG:-$VGI_EXT/test/configs/no_error_skip.json}"
+if [[ ! -f "$TEST_CONFIG" ]]; then
+  echo "[harness] missing $TEST_CONFIG (needs a vgi checkout at main >= f5aa489, or set TEST_CONFIG)"
+  exit 1
+fi
+
 CACHE="/tmp/vgi-csharp-test-cache"
 mkdir -p "$CACHE"
 
@@ -67,7 +79,35 @@ else
 fi
 
 ENV_ARGS=()
-if [[ "${SUBPROCESS:-0}" == "1" ]]; then
+HTTP_PID=""
+if [[ "${HTTP:-0}" == "1" ]]; then
+  # One long-lived HTTP server for the whole run, on an ephemeral port it reports on stdout as
+  # `PORT:<n>` (ci/run-integration.sh's http lane does the same). The small stateful and
+  # deliberately-incompatible fixtures stay bare subprocesses, as there.
+  # Started from $VGI_EXT, the directory unittest runs its tests from: COPY TO/FROM paths are
+  # relative (duckdb_unittest_tempdir/...) and the worker opens them itself, so it must resolve
+  # them where unittest does. A launch:/subprocess worker inherits that cwd; a server does not.
+  HTTP_LOG="$CACHE/http-worker.log"
+  ( cd "$VGI_EXT" && exec "$EXAMPLE_BIN" --http ) > "$HTTP_LOG" 2>&1 &
+  HTTP_PID=$!
+  trap '[[ -n "$HTTP_PID" ]] && kill -TERM "$HTTP_PID" 2>/dev/null || true' EXIT
+  PORT=""
+  for _ in $(seq 1 120); do
+    kill -0 "$HTTP_PID" 2>/dev/null || { echo "[harness] http worker exited before reporting a port"; cat "$HTTP_LOG"; exit 1; }
+    PORT="$(sed -n 's/.*PORT:\([0-9]*\).*/\1/p' "$HTTP_LOG" | head -1)"
+    [[ -n "$PORT" ]] && break
+    sleep 0.5
+  done
+  [[ -n "$PORT" ]] || { echo "[harness] http worker never reported a port"; cat "$HTTP_LOG"; exit 1; }
+  TEST_WORKER="http://localhost:$PORT"
+  WRITABLE_WORKER="$WRITABLE_BIN"
+  VERSIONED_WORKER="$VERSIONED_BIN"
+  VERSIONED_TABLES_WORKER="$VERSIONED_TABLES_BIN"
+  # database_worker/package.test packages a worker the database:// resolver execs locally,
+  # whatever transport the lane tests, so it needs a command, not this URL. The extension's
+  # fixture wrapper runs ${VGI_DATABASE_PACKAGE_WORKER:-${VGI_TEST_WORKER#launch:}}.
+  ENV_ARGS+=(VGI_DATABASE_PACKAGE_WORKER="$EXAMPLE_BIN")
+elif [[ "${SUBPROCESS:-0}" == "1" ]]; then
   TEST_WORKER="$EXAMPLE_BIN"
   WRITABLE_WORKER="$WRITABLE_BIN"
   VERSIONED_WORKER="$VERSIONED_BIN"
@@ -101,7 +141,7 @@ if [[ -x "$BAD_ENUM_BIN" ]]; then
 fi
 
 echo "[harness] running: ${ARGS[*]} (worker: $TEST_WORKER)"
-env "${ENV_ARGS[@]}" "$UNITTEST" "${ARGS[@]}" > "$CACHE/run.log" 2>&1
+env "${ENV_ARGS[@]}" "$UNITTEST" --test-config "$TEST_CONFIG" "${ARGS[@]}" > "$CACHE/run.log" 2>&1
 RC=$?
 
 grep -B1 -A20 -iE 'unexpectedly|FAILED|Mismatch|Worker Exception|Error:' "$CACHE/run.log" > "$CACHE/summary" 2>/dev/null

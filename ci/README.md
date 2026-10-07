@@ -45,9 +45,10 @@ construction: the pipe transport never synthesizes a turn and never re-encodes b
 
 Two things differ by lane, both for reasons intrinsic to the test rather than to the worker:
 
-- `database_worker/package.test` is excluded on **http**. It packages `$VGI_TEST_WORKER` as an
-  executable artifact into a DuckDB table and runs it; a URL is not an executable. It runs, and
-  must pass, on the launch lane.
+- `VGI_DATABASE_PACKAGE_WORKER` is set on **http** to the example worker's command.
+  `database_worker/package.test` packages a worker that the `database://` resolver execs
+  locally, whatever transport the lane tests; the suite's fixture wrapper runs
+  `${VGI_DATABASE_PACKAGE_WORKER:-${VGI_TEST_WORKER#launch:}}`, and a URL is not a command.
 - `VGI_REQUIRE_LAUNCHER_TRANSPORT` is set only on **launch**.
 
 `VGI_HTTP_TRANSPORT` is **not** set on either lane yet, which leaves five HTTP-only files
@@ -84,8 +85,12 @@ not theoretical: during the work that added this lane, an intermediate state of 
 existed while reading as "2 skipped". The suite's own files narrow the default where it matters to
 them (`bearer_auth/bearer_token.test` sets `ignore_error_messages Unable to connect`;
 `http/no_compression.test` clears it), which is upstream agreeing that the HTTP entry is wrong for
-VGI tests — but it cannot be cleared from outside a `.test` file, so the count guard stands in for
-it here.
+VGI tests. It can now be cleared from outside a `.test` file too: the extension ships
+`test/configs/no_error_skip.json` (vgi main >= `f5aa489`), and `run-integration.sh` passes it as
+`--test-config` on both lanes, taken from the same `VGI_SRC` checkout whose suite it runs. (An empty
+`skip_error_messages` list crashes the runner, so the file lists one string no error contains.)
+`scripts/run_tests.sh` and the Makefile's `test_integration*` targets pass the same file. The count
+guard stays as a tripwire for a config that stops applying.
 
 The threshold is **zero**, not a tolerance. That was established rather than assumed: the whole
 suite was re-run once with `set ignore_error_messages Unable to connect` injected into every

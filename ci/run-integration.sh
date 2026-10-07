@@ -32,6 +32,13 @@ case "$TRANSPORT" in
 esac
 INTEGRATION="$VGI_SRC/test/sql/integration"
 [ -d "$INTEGRATION" ] || { echo "::error::no test/sql/integration under VGI_SRC=$VGI_SRC"; exit 1; }
+# Passed to every suite run as --test-config. Without a config, DuckDB's sqllogictest runner turns
+# any error whose text contains "HTTP" or "Unable to connect" into a SKIP; over the HTTP transport
+# every worker error contains "HTTP", so real failures read as skips. The file ships in the
+# extension checkout (vgi main >= f5aa489), which is the one whose suite this runs.
+TEST_CONFIG="${TEST_CONFIG:-$VGI_SRC/test/configs/no_error_skip.json}"
+[ -f "$TEST_CONFIG" ] || { echo "::error::missing $TEST_CONFIG (the vgi checkout predates test/configs/no_error_skip.json)"; exit 1; }
+TEST_CONFIG="$(cd "$(dirname "$TEST_CONFIG")" && pwd)/$(basename "$TEST_CONFIG")"
 
 # Unlike vgi-go's single shared BIN_DIR (its `make build` places every worker binary in one
 # place), each fixture here is its own .csproj with .NET's standard per-project bin/ layout —
@@ -78,16 +85,8 @@ done
 #                                   catches up.
 # ---------------------------------------------------------------------------
 AWK_HTTP=0
-# database_worker/package.test packages $VGI_TEST_WORKER as an EXECUTABLE artifact into a DuckDB
-# table and then runs it (test/support/database_worker_fixture.sh is a wrapper that execs it). On
-# the http lane VGI_TEST_WORKER is a URL, so the fixture fails with
-# `/bin/sh: http://localhost:NNNNN: No such file or directory`. The test's premise is a local
-# worker binary; there is nothing for an HTTP worker to package. Excluded on that lane only — it
-# runs, and must pass, on the launch lane.
-EXTRA_EXCLUDES=()
 if [ "$TRANSPORT" = http ]; then
   AWK_HTTP=1
-  EXTRA_EXCLUDES=(-not -path './database_worker/package.test')
 fi
 
 echo "Staging preprocessed tests into $STAGE (transport=$TRANSPORT) ..."
@@ -98,7 +97,7 @@ mkdir -p "$STAGE/test/sql/integration"
        -not -name 'nested_type_combinations.test' \
        -not -path './cache/secret_ineligible.test' \
        -not -path './macro/macros.test' \
-       ${EXTRA_EXCLUDES[@]+"${EXTRA_EXCLUDES[@]}"} | while read -r f; do
+       | while read -r f; do
     mkdir -p "$STAGE/test/sql/integration/$(dirname "$f")"
     awk -v http="$AWK_HTTP" -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/integration/$f"
   done )
@@ -139,6 +138,11 @@ else
   [ -n "$port" ] || { echo "::error::http worker never reported a port"; cat "$HTTP_LOG"; exit 1; }
   echo "http worker pid=$HTTP_PID port=$port"
   export VGI_TEST_WORKER="http://localhost:${port}"
+  # database_worker/package.test packages a worker that the database:// resolver execs locally,
+  # whatever transport the lane tests, so it needs a command rather than this URL. The suite's
+  # fixture wrapper (test/support/database_worker_fixture.sh) runs
+  # ${VGI_DATABASE_PACKAGE_WORKER:-${VGI_TEST_WORKER#launch:}} and errors clearly on a URL.
+  export VGI_DATABASE_PACKAGE_WORKER="$WORKER"
   # DELIBERATELY NOT SET: VGI_HTTP_TRANSPORT, which would un-gate the suite's five HTTP-only
   # files. Four of them (http/capability_probe, http/producer_turns, http/small_body_encoding,
   # cache/partition_scope_identity) were verified to pass here as-is; the fifth,
@@ -182,7 +186,7 @@ rm -f "$STAGE/test/_warm.test"
 echo "Running suite (test/sql/integration/*) ..."
 log="$(mktemp)"
 rc=0
-"$HAYBARN_UNITTEST" "test/sql/integration/*" 2>&1 | tee "$log" && rc=0 || rc="${PIPESTATUS[0]}"
+"$HAYBARN_UNITTEST" --test-config "$TEST_CONFIG" "test/sql/integration/*" 2>&1 | tee "$log" && rc=0 || rc="${PIPESTATUS[0]}"
 
 if grep -q 'No test cases matched\|No tests ran' "$log"; then
   echo "::error::the runner matched no test cases — the glob or the staging is wrong (an empty stage still exits 0)."
@@ -194,7 +198,9 @@ fi
 #
 # DuckDB's sqllogictest runner defaults `ignore_error_messages` to
 # {"HTTP", "Unable to connect"} — a statement whose error text contains "HTTP" is
-# SKIPPED, not failed. On a lane that reaches the worker over HTTP that default is
+# SKIPPED, not failed. --test-config no_error_skip.json (above) now replaces that
+# default, so this count should never be non-zero; the check stays as a tripwire for a
+# config that stops applying (a runner that ignores the file, a renamed key). On a lane that reaches the worker over HTTP that default is
 # a live hazard rather than a convenience: a worker returning 500 produces an error
 # message containing "HTTP", so a whole class of server-side crashes reads as
 # "skipped" and the lane still exits 0. Observed directly: an intermediate state of
