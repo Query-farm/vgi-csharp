@@ -105,7 +105,7 @@ public sealed class AttachTicketTests
     public void Reject_RefusesWithTheVectorKind(string name)
     {
         var c = Case("reject", name);
-        var error = Assert.ThrowsAny<RpcException>(() =>
+        var error = Assert.ThrowsAny<AttachTicketError>(() =>
             AttachTickets.Open(KeyOf(c), c.GetProperty("token").GetString()!, c.GetProperty("principal").GetString(), NowOf(c)));
         Assert.Equal(c.GetProperty("error_kind").GetString(), error.ErrorKind);
         Assert.DoesNotContain(c.GetProperty("token").GetString()!, error.Message, StringComparison.Ordinal);
@@ -127,7 +127,7 @@ public sealed class AttachTicketTests
 
         if (c.TryGetProperty("error_kind", out var kind))
         {
-            var error = Assert.ThrowsAny<RpcException>(() => AttachTickets.Redeem(incoming, KeyOf(c), auth, NowOf(c)));
+            var error = Assert.ThrowsAny<AttachTicketError>(() => AttachTickets.Redeem(incoming, KeyOf(c), auth, NowOf(c)));
             Assert.Equal(kind.GetString(), error.ErrorKind);
             return;
         }
@@ -154,7 +154,7 @@ public sealed class AttachTicketTests
     {
         var token = Case("accept", "probe_with_options_opens").GetProperty("token").GetString()!;
         var request = new CatalogAttachRequest { Name = "x", Options = OptionsIpc([(AttachTickets.OptionName, token)]) };
-        var error = Assert.Throws<AttachTicketInvalidException>(() =>
+        var error = Assert.Throws<AttachTicketInvalidError>(() =>
             AttachTickets.Redeem(request, null, new AuthContext("grant", true, "alice"), 1790000010));
         Assert.Equal(ErrorCodes.InvalidArgument, error.ErrorCode);
     }
@@ -166,7 +166,7 @@ public sealed class AttachTicketTests
             new Schema([new Field(AttachTickets.OptionName, Int64Type.Default, true)], null),
             [new Int64Array.Builder().Append(1).Build()], 1);
         var request = new CatalogAttachRequest { Name = "x", Options = RecordBatchIpc.Write(batch) };
-        Assert.Throws<AttachTicketInvalidException>(() =>
+        Assert.Throws<AttachTicketInvalidError>(() =>
             AttachTickets.Redeem(request, KeyOf(Defaults), new AuthContext("grant", true, "alice")));
     }
 
@@ -263,7 +263,7 @@ public sealed class AttachTicketTests
     public async Task SealAttach_AnonymousIsActionDenied()
     {
         var service = Service();
-        var error = await Assert.ThrowsAnyAsync<RpcException>(() => service.SealAttachAsync(
+        var error = await Assert.ThrowsAnyAsync<AttachTicketError>(() => service.SealAttachAsync(
             new SealAttachRequest { CatalogName = TicketProbeSetup.CatalogName, Options = OptionsIpc([("api_key", "k")]) },
             new Ctx(AuthContext.Anonymous)));
         Assert.Equal(("action_denied", ErrorCodes.PermissionDenied), (error.ErrorKind, error.ErrorCode));
@@ -273,7 +273,7 @@ public sealed class AttachTicketTests
     public async Task SealAttach_ReportsEveryViolationTogether()
     {
         var service = Service();
-        var error = await Assert.ThrowsAnyAsync<RpcException>(() => service.SealAttachAsync(
+        var error = await Assert.ThrowsAnyAsync<AttachTicketError>(() => service.SealAttachAsync(
             new SealAttachRequest
             {
                 CatalogName = TicketProbeSetup.CatalogName,
@@ -282,12 +282,12 @@ public sealed class AttachTicketTests
             },
             new Ctx(s_alice)));
         Assert.Equal(("invalid_request", ErrorCodes.InvalidArgument), (error.ErrorKind, error.ErrorCode));
-        var fields = error.GetBadRequest()!.FieldViolations.Select(v => v.Field).ToList();
+        var fields = error.Details().OfType<BadRequest>().Single().FieldViolations.Select(v => v.Field).ToList();
         Assert.Equal(["ttl_seconds", "options.nope", "options.Vgi_Attach_Ticket", "options.api_key"], fields);
 
-        var unknown = await Assert.ThrowsAnyAsync<RpcException>(() => service.SealAttachAsync(
+        var unknown = await Assert.ThrowsAnyAsync<AttachTicketError>(() => service.SealAttachAsync(
             new SealAttachRequest { CatalogName = "no_such_catalog" }, new Ctx(s_alice)));
-        Assert.Equal(["catalog_name"], unknown.GetBadRequest()!.FieldViolations.Select(v => v.Field));
+        Assert.Equal(["catalog_name"], unknown.Details().OfType<BadRequest>().Single().FieldViolations.Select(v => v.Field));
     }
 
     [Theory]
@@ -427,6 +427,8 @@ public sealed class AttachTicketTests
                 Options = OptionsIpc([(AttachTickets.OptionName, sealedTicket.Ticket), ("region", "us-west-1")]),
             }));
         Assert.Equal("invalid_request", beside.ErrorKind);
+        // The detail alone, as the reference sends it: no "Type: " prefix.
+        Assert.Equal(("StatusError", "vgi_attach_ticket must be the only attach option"), (beside.ErrorType, beside.ErrorMessage));
 
         // Bob's grant with Alice's ticket.
         await using var bobIdentity = Client(IdentityProtocol.ProtocolName, "vgi-test-bob");
@@ -435,6 +437,7 @@ public sealed class AttachTicketTests
         var refused = await Assert.ThrowsAnyAsync<RpcException>(() => bobRunner.CreateProxy<IVgiAttachClient>().CatalogAttachAsync(
             new CatalogAttachRequest { Name = "anything", Options = OptionsIpc([(AttachTickets.OptionName, sealedTicket.Ticket)]) }));
         Assert.Equal((AttachTickets.InvalidKind, ErrorCodes.InvalidArgument), (refused.ErrorKind, refused.ErrorCode));
+        Assert.Equal(("AttachTicketInvalidError", "attach ticket failed verification"), (refused.ErrorType, refused.ErrorMessage));
         Assert.DoesNotContain(sealedTicket.Ticket, refused.Message, StringComparison.Ordinal);
 
         // An anonymous caller cannot seal.

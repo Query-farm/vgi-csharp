@@ -30,29 +30,53 @@ public sealed record AttachTicketClaims(
     string ImplementationVersion,
     byte[] OptionsIpc);
 
+/// <summary>An attach-ticket error as it goes on the wire: its message is the detail alone, its
+/// type name is the reference's (<c>AttachTicketInvalidError</c>, ...), and it carries the error
+/// model's code, kind and details.</summary>
+/// <remarks>Deliberately not an <see cref="RpcException"/>, whose message carries its type as a
+/// prefix (<c>"AttachTicketInvalidError: ..."</c>) where the reference sends the detail alone. Named
+/// <c>...Error</c> rather than <c>...Exception</c> for the same reason: the CLR type name is the wire
+/// type name.</remarks>
+public abstract class AttachTicketError(string message, string code, string? kind, IEnumerable<ErrorDetail> details)
+    : Exception(message), IRpcErrorModel
+{
+    /// <inheritdoc/>
+    public string ErrorCode { get; } = code;
+
+    /// <inheritdoc/>
+    public string? ErrorKind { get; } = kind;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<System.Text.Json.JsonElement> ErrorDetails { get; } = ErrorModel.ToJson(details);
+
+    /// <summary>The details this library understands, in order.</summary>
+    public IReadOnlyList<ErrorDetail> Details() => ErrorModel.Typed(ErrorDetails);
+}
+
 /// <summary>A ticket this worker cannot accept: malformed, wrong prefix, non-canonical, wrong key,
 /// wrong principal, tampered or a bad payload. One type for every cause, so a caller cannot tell a
 /// forged ticket from another user's. <c>INVALID_ARGUMENT</c> / <c>attach_ticket_invalid</c>. The
 /// message never contains the ticket.</summary>
-public sealed class AttachTicketInvalidException(string detail = "attach ticket not accepted")
-    : RpcException(
-        "AttachTicketInvalidError",
+public sealed class AttachTicketInvalidError(string detail = "attach ticket not accepted")
+    : AttachTicketError(
         detail,
-        errorKind: AttachTickets.InvalidKind,
-        errorCode: ErrorCodes.InvalidArgument,
-        errorDetails: ErrorModel.ToJson([new BadRequest([new FieldViolation(AttachTickets.OptionName, detail)])]));
+        ErrorCodes.InvalidArgument,
+        AttachTickets.InvalidKind,
+        [new BadRequest([new FieldViolation(AttachTickets.OptionName, detail)])]);
 
 /// <summary>An authentic ticket outside its lifetime. <c>FAILED_PRECONDITION</c> /
 /// <c>attach_ticket_expired</c>: the remedy is a fresh export from a logged-in session, not a
 /// retry. Only raised once the ticket has opened under the caller's principal.</summary>
-public sealed class AttachTicketExpiredException(string detail = "attach ticket has expired")
-    : RpcException(
-        "AttachTicketExpiredError",
+public sealed class AttachTicketExpiredError(string detail = "attach ticket has expired")
+    : AttachTicketError(
         detail,
-        errorKind: AttachTickets.ExpiredKind,
-        errorCode: ErrorCodes.FailedPrecondition,
-        errorDetails: ErrorModel.ToJson(
-            [new PreconditionFailure([new PreconditionViolation("ATTACH_TICKET", AttachTickets.OptionName, detail)])]));
+        ErrorCodes.FailedPrecondition,
+        AttachTickets.ExpiredKind,
+        [new PreconditionFailure([new PreconditionViolation("ATTACH_TICKET", AttachTickets.OptionName, detail)])]);
+
+/// <summary><c>invalid_request</c> / <c>action_denied</c>, as the reference's <c>StatusError</c>.</summary>
+public sealed class StatusError(string message, string code, string kind, IEnumerable<ErrorDetail> details)
+    : AttachTicketError(message, code, kind, details);
 
 /// <summary>Request for <see cref="IAttachTickets.SealAttachAsync"/>.</summary>
 public sealed class SealAttachRequest
@@ -224,30 +248,30 @@ public static partial class AttachTickets
     /// <param name="token">The ticket text, exactly as presented.</param>
     /// <param name="principal">The caller's principal; null or empty (anonymous) never opens one.</param>
     /// <param name="now">Override the clock (Unix seconds), for tests and vectors.</param>
-    /// <exception cref="AttachTicketInvalidException">Any cause but the lifetime.</exception>
-    /// <exception cref="AttachTicketExpiredException">Authentic but outside its lifetime.</exception>
+    /// <exception cref="AttachTicketInvalidError">Any cause but the lifetime.</exception>
+    /// <exception cref="AttachTicketExpiredError">Authentic but outside its lifetime.</exception>
     public static AttachTicketClaims Open(byte[] signingKey, string token, string? principal, double? now = null)
     {
         ArgumentNullException.ThrowIfNull(signingKey);
         if (token is null || !token.StartsWith(Prefix, StringComparison.Ordinal))
         {
-            throw new AttachTicketInvalidException("not an attach ticket");
+            throw new AttachTicketInvalidError("not an attach ticket");
         }
 
         if (token.Length > MaxTicketChars)
         {
-            throw new AttachTicketInvalidException("attach ticket is too long");
+            throw new AttachTicketInvalidError("attach ticket is too long");
         }
 
         var envelope = Base64UrlDecodeStrict(token[Prefix.Length..]);
         if (string.IsNullOrEmpty(principal))
         {
-            throw new AttachTicketInvalidException("an anonymous caller cannot redeem an attach ticket");
+            throw new AttachTicketInvalidError("an anonymous caller cannot redeem an attach ticket");
         }
 
         if (envelope.Length < 1 + NonceSize + XChaCha20Poly1305.TagSize || envelope[0] != EnvelopeVersion)
         {
-            throw new AttachTicketInvalidException("attach ticket failed verification");
+            throw new AttachTicketInvalidError("attach ticket failed verification");
         }
 
         byte[] payload;
@@ -258,19 +282,19 @@ public static partial class AttachTickets
         }
         catch (CryptographicException)
         {
-            throw new AttachTicketInvalidException("attach ticket failed verification");
+            throw new AttachTicketInvalidError("attach ticket failed verification");
         }
 
         var claims = DecodePayload(payload);
         var current = now ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
         if (claims.IssuedAt > current + ClockSkewSeconds)
         {
-            throw new AttachTicketExpiredException("attach ticket is not yet valid");
+            throw new AttachTicketExpiredError("attach ticket is not yet valid");
         }
 
         if (claims.ExpiresAt != 0 && current >= claims.ExpiresAt + ClockSkewSeconds)
         {
-            throw new AttachTicketExpiredException("attach ticket has expired");
+            throw new AttachTicketExpiredError("attach ticket has expired");
         }
 
         return claims;
@@ -285,10 +309,10 @@ public static partial class AttachTickets
     /// <returns><see langword="null"/> when the options carry no <c>vgi_attach_ticket</c> (the
     /// request is untouched); otherwise the request the user originally made -- the sealed catalog
     /// name, options and version specs, with this request's client capabilities.</returns>
-    /// <exception cref="StatusException"><c>invalid_request</c>: another option rides beside the
+    /// <exception cref="StatusError"><c>invalid_request</c>: another option rides beside the
     /// ticket. Checked before the ticket is opened.</exception>
-    /// <exception cref="AttachTicketInvalidException">The ticket does not open for this caller.</exception>
-    /// <exception cref="AttachTicketExpiredException">The ticket is outside its lifetime.</exception>
+    /// <exception cref="AttachTicketInvalidError">The ticket does not open for this caller.</exception>
+    /// <exception cref="AttachTicketExpiredError">The ticket is outside its lifetime.</exception>
     public static CatalogAttachRequest? Redeem(
         CatalogAttachRequest request, byte[]? signingKey, AuthContext? auth, double? now = null)
     {
@@ -335,12 +359,12 @@ public static partial class AttachTickets
             };
             if (token is null)
             {
-                throw new AttachTicketInvalidException($"{OptionName} must be a string");
+                throw new AttachTicketInvalidError($"{OptionName} must be a string");
             }
 
             if (signingKey is null)
             {
-                throw new AttachTicketInvalidException("this worker does not redeem attach tickets");
+                throw new AttachTicketInvalidError("this worker does not redeem attach tickets");
             }
 
             var claims = Open(signingKey, token, CallerPrincipal(auth), now);
@@ -352,7 +376,7 @@ public static partial class AttachTickets
                 }
                 catch (Exception)
                 {
-                    throw new AttachTicketInvalidException("attach ticket options are not an Arrow IPC record");
+                    throw new AttachTicketInvalidError("attach ticket options are not an Arrow IPC record");
                 }
             }
 
@@ -395,11 +419,11 @@ public static partial class AttachTickets
     internal static string? CallerPrincipal(AuthContext? auth) =>
         auth is { Authenticated: true, Principal: { Length: > 0 } principal } ? principal : null;
 
-    internal static StatusException InvalidRequest(string message, IEnumerable<(string Field, string Description)> violations) =>
+    internal static StatusError InvalidRequest(string message, IEnumerable<(string Field, string Description)> violations) =>
         new(message, ErrorCodes.InvalidArgument, "invalid_request",
             [new BadRequest(violations.Select(v => new FieldViolation(v.Field, v.Description)).ToList())]);
 
-    internal static StatusException ActionDenied(string message) =>
+    internal static StatusError ActionDenied(string message) =>
         new(message, ErrorCodes.PermissionDenied, "action_denied",
             [new ErrorInfo(new Dictionary<string, string> { ["action"] = "seal_attach" })]);
 
@@ -451,7 +475,7 @@ public static partial class AttachTickets
         {
             if (n < 0 || pos + n > payload.Length)
             {
-                throw new AttachTicketInvalidException("attach ticket payload is truncated");
+                throw new AttachTicketInvalidError("attach ticket payload is truncated");
             }
 
             var chunk = payload.AsSpan(pos, n);
@@ -468,7 +492,7 @@ public static partial class AttachTickets
             }
             catch (DecoderFallbackException)
             {
-                throw new AttachTicketInvalidException("attach ticket payload is not UTF-8");
+                throw new AttachTicketInvalidError("attach ticket payload is not UTF-8");
             }
         }
 
@@ -481,28 +505,28 @@ public static partial class AttachTickets
         var optionsLength = BinaryPrimitives.ReadUInt32LittleEndian(Take(4));
         if (optionsLength > MaxOptionsBytes)
         {
-            throw new AttachTicketInvalidException("attach ticket options exceed 16 KiB");
+            throw new AttachTicketInvalidError("attach ticket options exceed 16 KiB");
         }
 
         var options = Take((int)optionsLength).ToArray();
         if (pos != payload.Length)
         {
-            throw new AttachTicketInvalidException("attach ticket payload has trailing bytes");
+            throw new AttachTicketInvalidError("attach ticket payload has trailing bytes");
         }
 
         if (!TicketIdPattern().IsMatch(ticketId))
         {
-            throw new AttachTicketInvalidException("attach ticket id is not 32 lowercase hex");
+            throw new AttachTicketInvalidError("attach ticket id is not 32 lowercase hex");
         }
 
         if (catalogName.Length == 0)
         {
-            throw new AttachTicketInvalidException("attach ticket names no catalog");
+            throw new AttachTicketInvalidError("attach ticket names no catalog");
         }
 
         if (expiresAt != 0 && expiresAt <= issuedAt)
         {
-            throw new AttachTicketInvalidException("attach ticket lifetime is empty");
+            throw new AttachTicketInvalidError("attach ticket lifetime is empty");
         }
 
         return new AttachTicketClaims(issuedAt, expiresAt, ticketId, catalogName, dataVersionSpec, implementationVersion, options);
@@ -517,7 +541,7 @@ public static partial class AttachTickets
         if (text.Length == 0 || text.Length % 4 == 1
             || !text.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
         {
-            throw new AttachTicketInvalidException("attach ticket is not unpadded base64url");
+            throw new AttachTicketInvalidError("attach ticket is not unpadded base64url");
         }
 
         byte[] raw;
@@ -528,12 +552,12 @@ public static partial class AttachTickets
         }
         catch (FormatException)
         {
-            throw new AttachTicketInvalidException("attach ticket is not unpadded base64url");
+            throw new AttachTicketInvalidError("attach ticket is not unpadded base64url");
         }
 
         if (!string.Equals(Base64UrlEncode(raw), text, StringComparison.Ordinal))
         {
-            throw new AttachTicketInvalidException("attach ticket is not canonical base64url");
+            throw new AttachTicketInvalidError("attach ticket is not canonical base64url");
         }
 
         return raw;
