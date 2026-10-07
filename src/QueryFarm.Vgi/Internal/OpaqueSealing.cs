@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.VgiRpc.Errors;
+using QueryFarm.VgiRpc.Identity;
 using QueryFarm.VgiRpc.Server;
 
 namespace QueryFarm.Vgi.Internal;

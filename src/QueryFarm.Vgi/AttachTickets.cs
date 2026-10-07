@@ -8,6 +8,7 @@ using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.VgiRpc.Attributes;
 using QueryFarm.VgiRpc.Errors;
+using QueryFarm.VgiRpc.Identity;
 using QueryFarm.VgiRpc.Server;
 
 namespace QueryFarm.Vgi;
