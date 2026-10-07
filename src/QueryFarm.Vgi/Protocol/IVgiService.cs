@@ -39,6 +39,10 @@ public interface IVgiService
 {
     Task<BindResponse> BindAsync(BindRequest request, ICallContext? ctx = null);
 
+    /// <summary>Opens a function's execution stream. Its header is the <see cref="GlobalInitResponse"/>
+    /// every phase emits first; declared here because the header schema is part of the protocol hash
+    /// (the framework cannot see a header that is only supplied at run time).</summary>
+    [StreamHeader(typeof(GlobalInitResponse))]
     Task<RpcStream<StreamState>> InitAsync(InitRequest request, ICallContext? ctx = null);
 
     /// <summary>Scan planning (splits) — see <see cref="Table.ITableFunction.Plan"/>. Only ever
@@ -302,4 +306,82 @@ public interface IVgiService
         byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_view_comment_set");
+
+    // ------------------------------------------------------------------------------------------
+    // Registered, not implemented. Every port hosts the whole vgi.v2 surface with the reference's
+    // schemas -- the protocol is the unit of optionality, so reflection reports one vgi.v2 hash
+    // across every SDK (VgiProtocolHashTests pins it). These are the methods this port has no
+    // implementation for; each answers UNIMPLEMENTED / method_not_implemented, never a silent
+    // success. Implementing one means overriding it in VgiServiceImpl, not changing its signature:
+    // the signature is the wire schema.
+    // ------------------------------------------------------------------------------------------
+
+    Task<AggregateStreamingOpenResult> AggregateStreamingOpenAsync(AggregateStreamingOpenRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("aggregate_streaming_open");
+
+    Task<AggregateStreamingChunkResult> AggregateStreamingChunkAsync(AggregateStreamingChunkRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("aggregate_streaming_chunk");
+
+    Task<AggregateStreamingCloseResult> AggregateStreamingCloseAsync(AggregateStreamingCloseRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("aggregate_streaming_close");
+
+    Task<AggregateWindowResult> AggregateWindowAsync(AggregateWindowRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("aggregate_window");
+
+    Task<AggregateWindowInitResult> AggregateWindowInitAsync(AggregateWindowInitRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("aggregate_window_init");
+
+    Task<AggregateWindowBatchResult> AggregateWindowBatchAsync(AggregateWindowBatchRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("aggregate_window_batch");
+
+    Task<AggregateWindowDestructorResult> AggregateWindowDestructorAsync(AggregateWindowDestructorRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("aggregate_window_destructor");
+
+    Task CatalogCreateAsync(CatalogCreateRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_create");
+
+    Task CatalogDropAsync(string name, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_drop");
+
+    Task<byte[]> CatalogTableScanFunctionGetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_table_scan_function_get");
+
+    Task<byte[]> CatalogTableInsertFunctionGetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData,
+        string? writableBranchFunctionName, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_table_insert_function_get");
+
+    Task<byte[]> CatalogTableUpdateFunctionGetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_table_update_function_get");
+
+    Task<byte[]> CatalogTableDeleteFunctionGetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_table_delete_function_get");
+
+    Task CatalogMacroCreateAsync(MacroCreateRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_macro_create");
+
+    Task CatalogMacroDropAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_macro_drop");
+
+    Task<ItemsResponse> CatalogSchemaContentsIndexesAsync(
+        byte[] attachOpaqueData, List<string> path, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_schema_contents_indexes");
+
+    Task<ItemsResponse> CatalogIndexGetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_index_get");
+
+    Task CatalogIndexCreateAsync(IndexCreateRequest request, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_index_create");
+
+    Task CatalogIndexDropAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw UnimplementedMethod.For("catalog_index_drop");
 }
