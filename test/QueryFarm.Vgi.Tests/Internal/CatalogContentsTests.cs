@@ -591,10 +591,10 @@ public class CatalogContentsTests
             item => EmbeddedIpc.Decode<ViewInfo>(item).Name == "late_view");
     }
 
-    /// <summary>A decorating service's default <see cref="IVgiService.CatalogContentsAsync"/> has no
-    /// etag and ignores <c>if_none_match</c>.</summary>
+    /// <summary>A decorating service's <see cref="CatalogContentsComposer.ServeAsync"/> composition has
+    /// no etag and ignores <c>if_none_match</c>.</summary>
     [Fact]
-    public async Task InterfaceDefault_HasNoEtag()
+    public async Task ComposedContents_HasNoEtag()
     {
         var registry = PopulatedRegistry();
         registry.CatalogContentsEtag = CatalogContentsEtagMode.ContentHash; // the decorator does not use it
@@ -607,10 +607,19 @@ public class CatalogContentsTests
         Assert.NotEmpty(Decode(response));
     }
 
-    /// <summary>Forwards to a real service and records which per-kind RPCs the default
-    /// <see cref="IVgiService.CatalogContentsAsync"/> composition issues through it.</summary>
+    /// <summary>Forwards to a real service and records which per-kind RPCs the
+    /// <see cref="CatalogContentsComposer"/> composition issues through it.</summary>
     private sealed class CountingService(IVgiService real) : IVgiService
     {
+        /// <summary>The composition under test, issued through this decorator's own RPCs.</summary>
+        public Task<CatalogContentsResponse> CatalogContentsAsync(
+            byte[] attachOpaqueData, string? ifNoneMatch = null, VgiRpc.Server.ICallContext? ctx = null) =>
+            CatalogContentsComposer.ServeAsync(this, attachOpaqueData, ifNoneMatch, ctx);
+
+        public Task<CatalogVersionResponse> CatalogVersionAsync(
+            byte[] attachOpaqueData, byte[]? transactionOpaqueData = null, VgiRpc.Server.ICallContext? ctx = null) =>
+            real.CatalogVersionAsync(attachOpaqueData, transactionOpaqueData, ctx);
+
         public List<SchemaObjectType> FunctionKindsFetched { get; } = [];
 
         public int OtherKindFetches { get; private set; }

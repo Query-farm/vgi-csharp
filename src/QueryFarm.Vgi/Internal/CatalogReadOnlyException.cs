@@ -1,9 +1,9 @@
 namespace QueryFarm.Vgi.Internal;
 
 /// <summary>
-/// Thrown by every catalog DDL RPC's default <see cref="Protocol.IVgiService"/> implementation, and
-/// by <see cref="VgiServiceImpl"/> for every catalog except a DDL-capable in-memory one
-/// (<see cref="Worker.RegisterInMemoryCatalog"/>). Declarative catalogs support no schema/table/view
+/// Thrown by <see cref="VgiServiceImpl"/>'s catalog DDL RPCs for every catalog except a DDL-capable
+/// in-memory one (<see cref="Worker.RegisterInMemoryCatalog"/>), which serves schema/table/view
+/// create and drop. Declarative catalogs support no schema/table/view
 /// DDL (a declarative
 /// <see cref="Catalog.CatalogTable"/>/<see cref="Catalog.CatalogView"/> is registered once at
 /// worker startup, not created at runtime) — every DDL call fails the same way a real read-only

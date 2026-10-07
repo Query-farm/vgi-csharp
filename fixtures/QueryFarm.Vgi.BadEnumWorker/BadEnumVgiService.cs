@@ -152,10 +152,9 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
         real.CatalogTransactionRollbackAsync(attachOpaqueData, transactionOpaqueData, ctx);
 
     // -------------------------------------------------------------------------------------------
-    // Catalog DDL — this fixture's catalog is as read-only as ExampleWorker's, so `real` never
-    // overrides any of these either; they still forward explicitly (see the class doc comment for
-    // why relying on the interface default here would happen to also be correct, but forwarding is
-    // what stays correct if `real` ever does start overriding one).
+    // Catalog DDL — this fixture's catalog is as read-only as ExampleWorker's, so `real` refuses
+    // every one of these as read-only. They forward explicitly, because the generated interface's
+    // default for each is UNIMPLEMENTED, not `real`'s read-only answer (see the class doc comment).
     // -------------------------------------------------------------------------------------------
 
     public Task CatalogSchemaCreateAsync(

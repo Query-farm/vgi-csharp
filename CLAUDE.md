@@ -79,7 +79,7 @@ here" error.
   The protocol's schemas are emitted alongside into
   `test/QueryFarm.Vgi.Tests/Generated/VgiProtocolSchemas.g.cs` by `vgi.codegen.csharp_schemas`, and
   `Protocol/GeneratedProtocolConformanceTests` checks what this port actually serializes —
-  every record, plus `IVgiService`'s hand-written flat params and result types — against them.
+  every record, plus `IVgiService`'s flat params and result types — against them.
   To change a protocol type, change the dataclass in vgi-python and regenerate both files:
 
   ```bash
@@ -93,8 +93,14 @@ here" error.
   C#-only helpers go in a separate hand-written file, not in the generated one. Every `binary`
   column is a `byte[]` of raw IPC bytes — including ones Python annotates as `pa.RecordBatch` —
   so decode with `Internal.RecordBatchIpc`/`SchemaIpc`/`EmbeddedIpc` where you need the value.
-  Not generated: `IVgiService` (method signatures), `AttachContext` (a C# API type, not a wire
-  type), `ArgumentMonotonicity`.
+  `IVgiService` — the whole `vgi.v2` registry — is generated too, into
+  `Protocol/Generated/IVgiService.g.cs` by `vgi.codegen.csharp_registry`: every method of the
+  reference with its exact signature (vgi-rpc-csharp derives the schemas from it, so it is the
+  registration) and a default body that throws `UnimplementedMethod.For(...)`. `VgiServiceImpl`
+  implements what this port serves; anything it does not declare answers `UNIMPLEMENTED`, and a
+  method added to vgi-python appears here as such a stub on regeneration. A decorator wrapping
+  another `IVgiService` must forward every method it wants served. Not generated: `AttachContext`
+  (a C# API type, not a wire type), `ArgumentMonotonicity`.
 - **No IDL** — RPC method dispatch/versioning rides as `vgi_rpc.*` custom metadata on
   Arrow IPC batches, not a schema-defined wire format.
 - **Two-tier dataclass rule**: a method's own top-level parameter/return type embeds as IPC inside

@@ -6,8 +6,10 @@ namespace QueryFarm.Vgi.Internal;
 
 /// <summary>
 /// Builds a <c>catalog_contents</c> answer out of a service's own per-schema catalog RPCs — the
-/// body of <see cref="IVgiService.CatalogContentsAsync"/>'s default, mirroring vgi-python's
-/// <c>CatalogInterface.catalog_contents</c> default.
+/// default snapshot for a service whose catalog supplies none of its own, mirroring vgi-python's
+/// <c>CatalogInterface.catalog_contents</c> default. A service opts in by implementing
+/// <see cref="IVgiService.CatalogContentsAsync"/> with <see cref="ServeAsync"/>: the generated
+/// interface's own default answers <c>UNIMPLEMENTED</c>.
 /// </summary>
 /// <remarks>
 /// <para>Every item is taken verbatim from the <see cref="ItemsResponse.Items"/> the matching

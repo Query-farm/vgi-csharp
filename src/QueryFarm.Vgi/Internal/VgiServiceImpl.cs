@@ -1233,7 +1233,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     // ------------------------------------------------------------------------------------------
     // Catalog DDL: served by an in-memory catalog's private state (Worker.RegisterInMemoryCatalog);
-    // every declarative catalog is read-only and fails exactly as IVgiService's defaults do.
+    // every declarative catalog is read-only and fails with CatalogReadOnlyException.
     // ------------------------------------------------------------------------------------------
 
     private InMemoryCatalogState MemoryOrReadOnly(byte[] attachOpaqueData, string operation) =>
@@ -1283,6 +1283,75 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         MemoryOrReadOnly(attachOpaqueData, "catalog_view_drop").DropView(schemaPath, name, ignoreNotFound);
         return Task.CompletedTask;
     }
+
+    // ALTER TABLE / ALTER VIEW: no catalog this port hosts supports them, in-memory ones included,
+    // so they fail as read-only (attach/ddl_wire_contract.test pins the message). Not left to the
+    // generated interface's UNIMPLEMENTED default: the method exists, the catalog refuses it.
+
+    public Task CatalogTableRenameAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string newName, bool ignoreNotFound,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_rename");
+
+    public Task CatalogTableCommentSetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_comment_set");
+
+    public Task CatalogTableColumnAddAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[] columnDefinition, bool ignoreNotFound,
+        bool ifColumnNotExists, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_column_add");
+
+    public Task CatalogTableColumnDropAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
+        bool ifColumnExists, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_column_drop");
+
+    public Task CatalogTableColumnRenameAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string newColumnName,
+        bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_column_rename");
+
+    public Task CatalogTableColumnCommentSetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string? comment,
+        bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_column_comment_set");
+
+    public Task CatalogTableColumnDefaultSetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string expression,
+        bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_column_default_set");
+
+    public Task CatalogTableColumnDefaultDropAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_column_default_drop");
+
+    public Task CatalogTableColumnTypeChangeAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[] columnDefinition, string? expression,
+        bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_column_type_change");
+
+    public Task CatalogTableNotNullSetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_not_null_set");
+
+    public Task CatalogTableNotNullDropAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_table_not_null_drop");
+
+    public Task CatalogViewRenameAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string newName, bool ignoreNotFound,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_view_rename");
+
+    public Task CatalogViewCommentSetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,
+        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        throw new CatalogReadOnlyException("catalog_view_comment_set");
 
     /// <summary>Pre-<c>ATTACH</c> discovery — <c>vgi_catalogs('&lt;location&gt;')</c> — see
     /// <see cref="CatalogRegistry.Catalogs"/>'s doc comment.</summary>
