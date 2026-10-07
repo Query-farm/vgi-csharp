@@ -21,7 +21,11 @@ public sealed class AttachContext
     /// <summary>Extra bytes appended to the attach envelope after the identity/GUID prefix,
     /// opaque to the framework — read back by any function via the <c>AttachOpaqueData</c> it
     /// already receives on every call (split off everything after the first NUL byte and the
-    /// following 16-byte GUID). Fixture-defined format; the framework never inspects it.</summary>
+    /// following 16-byte GUID). Fixture-defined format; the framework never inspects it.
+    /// <para>Never put a <c>secret</c> attach option (or anything derived from one that would reveal
+    /// it) here: over HTTP the value is sealed, but on stdio and unix sockets it travels to the
+    /// client in plaintext (vgi-opaque-data-sealing.md rule 5). Keep a secret server-side, or keep
+    /// only a digest of it.</para></summary>
     public byte[]? ExtraOpaqueData { get; init; }
 
     /// <summary>Fed onto <see cref="CatalogAttachResult.ResolvedDataVersion"/> — the concrete

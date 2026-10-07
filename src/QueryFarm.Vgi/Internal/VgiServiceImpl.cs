@@ -1160,7 +1160,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// <paramref name="attachOpaqueData"/> or to any other transaction, only global uniqueness so
     /// <see cref="FunctionStorage"/> never aliases two different transactions' state.</summary>
     public Task<TransactionBeginResponse> CatalogTransactionBeginAsync(byte[] attachOpaqueData, ICallContext? ctx = null) =>
-        Task.FromResult(new TransactionBeginResponse { TransactionOpaqueData = Guid.NewGuid().ToByteArray() });
+        Task.FromResult(new TransactionBeginResponse
+        {
+            // CSPRNG (vgi-opaque-data-sealing.md rule 6): the id is the transaction's storage key.
+            TransactionOpaqueData = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16),
+        });
 
     /// <summary>Clears every namespace/key this transaction wrote via <see cref="FunctionStorage"/>
     /// (e.g. <c>TxCachedValueFunction</c>'s per-key cache) — a plain <see cref="FunctionStorage.DeleteAll"/>
@@ -1806,7 +1810,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static byte[] EncodeIdentity(string identity, byte[]? extra = null)
     {
         var nameBytes = Encoding.UTF8.GetBytes(identity);
-        var suffix = Guid.NewGuid().ToByteArray();
+        // CSPRNG, not Guid.NewGuid (whose randomness .NET does not promise): the attach id is the
+        // per-session storage key and rides inside a client-held value (vgi-opaque-data-sealing.md
+        // rule 6).
+        var suffix = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
         var extraLength = extra?.Length ?? 0;
         var encoded = new byte[nameBytes.Length + 1 + suffix.Length + extraLength];
         nameBytes.CopyTo(encoded, 0);

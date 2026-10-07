@@ -67,6 +67,8 @@ public sealed class Worker
     private RpcHttpEndpoints.AuthenticateDelegate? _httpAuthenticate;
     private GrantKeys? _grantKeys;
     private IReadOnlyList<string>? _grantKeyArgs;
+    private byte[]? _signingKey;
+    private byte[]? _generatedSigningKey;
 
     /// <summary>The transport a server is being built for. Only <see cref="Http"/> changes what is
     /// hosted (identity); the rest are named so that decision lives in <see cref="NewRpcServer"/>
@@ -180,6 +182,62 @@ public sealed class Worker
         _grantKeys = keys;
         return this;
     }
+
+    /// <summary>The deployment's signing key, overriding <c>VGI_SIGNING_KEY</c>: it seals the values
+    /// a client holds for the worker over HTTP (<c>attach_opaque_data</c>,
+    /// <c>transaction_opaque_data</c>).</summary>
+    /// <remarks>
+    /// <para>Over HTTP every <c>attach_opaque_data</c> and <c>transaction_opaque_data</c> the worker
+    /// hands out is sealed with XChaCha20-Poly1305 under this key, bound to the caller and (for a
+    /// transaction) to its parent attach, and anything that fails to open is rejected as
+    /// <c>"&lt;field&gt; not recognized"</c> (vgi-python <c>docs/protocol/vgi-opaque-data-sealing.md</c>).
+    /// Without a configured key the HTTP worker generates one per process, so values do not survive
+    /// a restart. Any length works; a key that is not 32 bytes is SHA-256'd. Rotating it invalidates
+    /// every outstanding value: clients re-attach.</para>
+    /// </remarks>
+    public Worker SigningKey(byte[] key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (key.Length == 0)
+        {
+            throw new ArgumentException("A signing key cannot be empty.", nameof(key));
+        }
+
+        _signingKey = key;
+        return this;
+    }
+
+    /// <summary>The environment variable holding the signing key.</summary>
+    public const string SigningKeyEnvironmentVariable = "VGI_SIGNING_KEY";
+
+    /// <summary>Set beside <see cref="SigningKeyEnvironmentVariable"/> by a server that minted the
+    /// key itself (vgi-python's pre-fork <c>vgi-serve</c>); such a key does not count as configured.</summary>
+    public const string SigningKeyMintedEnvironmentVariable = "VGI_SIGNING_KEY_MINTED";
+
+    /// <summary>The explicitly configured signing key: <see cref="SigningKey"/>, else a non-empty
+    /// <c>VGI_SIGNING_KEY</c> -- unless <c>VGI_SIGNING_KEY_MINTED=1</c> marks it as minted by a
+    /// server for itself, which would make every ticket die on restart.</summary>
+    internal byte[]? ResolveSigningKey()
+    {
+        if (_signingKey is not null)
+        {
+            return _signingKey;
+        }
+
+        var value = Environment.GetEnvironmentVariable(SigningKeyEnvironmentVariable);
+        if (string.IsNullOrEmpty(value)
+            || Environment.GetEnvironmentVariable(SigningKeyMintedEnvironmentVariable) == "1")
+        {
+            return null;
+        }
+
+        return System.Text.Encoding.UTF8.GetBytes(value);
+    }
+
+    /// <summary>The key HTTP seals client-held values with: the configured one, else one generated
+    /// for this process (kept, so every server this worker builds agrees).</summary>
+    internal byte[] ResolveSealingKey() =>
+        ResolveSigningKey() ?? (_generatedSigningKey ??= System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
     /// <summary>The sealed-grant configuration HTTP serves with: <see cref="SealedGrants"/>,
     /// else <c>--grant-key</c>, else <c>VGI_RPC_GRANT_KEYS</c>; <see langword="null"/> when none.</summary>
@@ -663,8 +721,17 @@ public sealed class Worker
         var identity = transport == ServerTransport.Http ? BuildIdentity(grantKeys) : null;
         try
         {
+            // HTTP authenticates callers, so every value a client holds for the worker is sealed and
+            // bound to its caller there (vgi-opaque-data-sealing.md); the OS owns the boundary on
+            // stdio/unix, where values stay plaintext and never carry a secret option.
+            IVgiService service = new VgiServiceImpl(_catalog);
+            if (transport == ServerTransport.Http)
+            {
+                service = OpaqueSealingProxy.Wrap(service, new OpaqueSealer(ResolveSealingKey()));
+            }
+
             return new RpcServer(
-                typeof(IVgiService), new VgiServiceImpl(_catalog), serverId: serverId,
+                typeof(IVgiService), service, serverId: serverId,
                 expectedProtocolVersion: _protocolVersion, identity: identity, additionalProtocols: extra,
                 grantKeys: grantKeys, grantKeysFromEnvironment: false);
         }
