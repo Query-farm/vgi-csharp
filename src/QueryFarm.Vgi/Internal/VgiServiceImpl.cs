@@ -1119,6 +1119,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// it. See <c>ExampleWorker.Table.TxCachedValueFunction</c> for the fixture this backs.</summary>
     public Task<CatalogAttachResult> CatalogAttachAsync(CatalogAttachRequest request, ICallContext? ctx = null)
     {
+        // An attach ticket is redeemed before any catalog code: the sealed catalog name, options
+        // and version specs replace the request (so the sealed name, not the incoming one, picks
+        // the catalog identity below). Never logged.
+        request = AttachTickets.Redeem(request, catalog.SigningKey, ctx?.Auth) ?? request;
+
         // See Worker.OnAttach's doc comment: a registered handler may throw (propagates as the
         // ATTACH failure, unchanged by anything below) or return an AttachContext customizing the
         // result — a null handler, or one that returns null, keeps every field below at today's

@@ -194,6 +194,14 @@ public sealed class Worker
     /// Without a configured key the HTTP worker generates one per process, so values do not survive
     /// a restart. Any length works; a key that is not 32 bytes is SHA-256'd. Rotating it invalidates
     /// every outstanding value: clients re-attach.</para>
+    /// <para>A ticket seals a user's ATTACH (catalog, options -- secret ones included -- and version
+    /// specs) so a runner holding that user's grant can reattach later with the single option
+    /// <c>vgi_attach_ticket</c>, without ever seeing an option. See <see cref="AttachTickets"/>.</para>
+    /// <para><c>vgi.attach_tickets.v1</c> is hosted on HTTP only, and only when the key is configured explicitly (this
+    /// call, or a non-empty <c>VGI_SIGNING_KEY</c>, as UTF-8 bytes) <em>and</em> the worker can issue
+    /// grants (<see cref="SealedGrants"/> / <c>VGI_RPC_GRANT_KEYS</c>, or a <c>mintGrant</c> hook):
+    /// a ticket is useless without a grant. Any length works; a key that is not 32 bytes is
+    /// SHA-256'd. Rotating it invalidates every ticket.</para>
     /// </remarks>
     public Worker SigningKey(byte[] key)
     {
@@ -216,7 +224,7 @@ public sealed class Worker
 
     /// <summary>The explicitly configured signing key: <see cref="SigningKey"/>, else a non-empty
     /// <c>VGI_SIGNING_KEY</c> -- unless <c>VGI_SIGNING_KEY_MINTED=1</c> marks it as minted by a
-    /// server for itself, which would make every ticket die on restart.</summary>
+    /// server for itself, which would make every sealed value and ticket die on restart.</summary>
     internal byte[]? ResolveSigningKey()
     {
         if (_signingKey is not null)
@@ -719,6 +727,15 @@ public sealed class Worker
         // never left to vgi-rpc's own environment default, which would host them on every transport.
         var grantKeys = transport == ServerTransport.Http ? ResolveGrantKeys() : null;
         var identity = transport == ServerTransport.Http ? BuildIdentity(grantKeys) : null;
+        // catalog_attach redeems tickets with this key on every transport; off HTTP the caller is
+        // anonymous, so a ticket never opens there.
+        var signingKey = ResolveSigningKey();
+        _catalog.SigningKey = signingKey;
+        if (transport == ServerTransport.Http && BuildAttachTickets(signingKey, grantKeys) is { } tickets)
+        {
+            extra.Add(tickets);
+        }
+
         try
         {
             // HTTP authenticates callers, so every value a client holds for the worker is sealed and
@@ -742,6 +759,23 @@ public sealed class Worker
     }
 
     private const string HookName = "Worker.HostedProtocols hook";
+
+    /// <summary><c>vgi.attach_tickets.v1</c>, or <see langword="null"/>: hosted only when both
+    /// halves of an unattended session can be issued -- an explicitly configured signing key and
+    /// the ability to mint grants. Absent rather than hosted-and-refusing, so a client learns the
+    /// answer from reflection.</summary>
+    private HostedProtocol? BuildAttachTickets(byte[]? signingKey, GrantKeys? grantKeys)
+    {
+        if (signingKey is null || (grantKeys is null && _mintGrant is null))
+        {
+            return null;
+        }
+
+        return new HostedProtocol(
+            typeof(IAttachTickets),
+            new AttachTicketsService(_catalog, signingKey, AttachTickets.ResolveMaxTtl(grantKeys)),
+            AttachTickets.ProtocolVersion);
+    }
 
     /// <summary>Calls the hook once and checks what it returned, so an error names the hook rather
     /// than only the protocol type vgi-rpc would name.</summary>

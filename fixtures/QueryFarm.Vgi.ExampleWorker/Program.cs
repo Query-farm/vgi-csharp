@@ -26,6 +26,7 @@ using QueryFarm.Vgi.ExampleWorker.Scalar;
 using QueryFarm.Vgi.ExampleWorker.Splits;
 using QueryFarm.Vgi.ExampleWorker.Table;
 using QueryFarm.Vgi.ExampleWorker.TableInOut;
+using QueryFarm.Vgi.ExampleWorker.TicketProbe;
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.VgiRpc.Server;
 
@@ -373,7 +374,7 @@ var worker = new Worker()
     .RegisterTable(new EchoAttachOptionsFunction(), identity: "attach_options")
     // attach/attach_options_echo.test + attach/attach_options_required.test's catalog_attach
     // validation/echo hook.
-    .OnAttach(request => AttachOptionsSetup.Handle(request) ?? CatalogContentsSetup.Handle(request));
+    .OnAttach(request => AttachOptionsSetup.Handle(request) ?? CatalogContentsSetup.Handle(request) ?? TicketProbeSetup.Handle(request));
 
 // table/function_registration.test — PASSES (exactly 162 table-type functions, matching the
 // vgi-python reference worker's roster count). Closed via a full class-hierarchy diff of every
@@ -745,6 +746,13 @@ worker.CatalogContents(Environment.GetEnvironmentVariable("VGI_CATALOG_CONTENTS"
 // conditional calls exercise) plus the six contents_* catalogs (static probe/broken/legacy, and the
 // DDL-capable in-memory memory/reval/hash) — see CatalogContents/CatalogContentsSetup.cs.
 CatalogContentsSetup.Register(worker);
+
+// ticket_probe: attach tickets (vgi.attach_tickets.v1) -- one plain and one secret attach option
+// whose effect a table reveals. See TicketProbe/TicketProbeSetup.cs. Over HTTP the protocol is
+// hosted when VGI_SIGNING_KEY and VGI_RPC_GRANT_KEYS are both set, and the test bearers
+// (vgi-test-alice / vgi-test-bob, fresh logins) let a client mint grants.
+TicketProbeSetup.Register(worker);
+worker.HttpAuthenticate(TestBearers.Create(TestBearers.GrantsConfigured(args)));
 
 // conformance.Secondary.v1 through the ordinary hosting hook -- hosted on every transport after
 // vgi.v2 -- so vgi-rpc's shared hosted-protocols group (`vgi-rpc-test-hosted --expect

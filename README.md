@@ -291,6 +291,48 @@ credential that is not yours), then sealed grants, then `resolveToken`. A bad `v
 401 that never reaches the resolver; a resolver outage (`AuthUnavailableException`) is a 503.
 Behind the Iroh bridge the bearers are checked inside the peer-identity policy, never beside it.
 
+### Attach tickets (`vgi.attach_tickets.v1`)
+
+An attach ticket lets a runner reattach a user's catalog later, as that user, without ever seeing
+the user's attach options. While the user is attached and logged in, the client calls
+`seal_attach`. The worker seals the catalog name, the options (secret ones included) and the
+version specs into a `vgia1.` ticket that only this worker can open. Later a runner presents
+`Authorization: Bearer <grant>` plus a single option:
+
+```sql
+ATTACH 'ticket_probe' (TYPE vgi, LOCATION 'https://…', vgi_attach_ticket 'vgia1.…');
+```
+
+`catalog_attach` redeems the ticket before any catalog code runs. Any other option beside it is
+`invalid_request`. The ticket opens only under the caller's principal (`attach_ticket_invalid`
+otherwise) and only within its lifetime (`attach_ticket_expired`). The sealed request then
+replaces the incoming one, so your `OnAttach` handler sees exactly what the user attached with,
+and the name the runner typed is ignored. A ticket carries no authority of its own: without a
+grant or login for the same principal, it attaches nothing.
+
+```csharp
+worker
+    .SigningKey(Encoding.UTF8.GetBytes(Environment.GetEnvironmentVariable("MY_SIGNING_KEY")!)) // or VGI_SIGNING_KEY
+    .SealedGrants(grantKeys);                                                             // or VGI_RPC_GRANT_KEYS
+```
+
+The protocol is hosted on HTTP only, and only when the signing key is configured explicitly
+(`SigningKey(...)` or a non-empty `VGI_SIGNING_KEY`) **and** the worker can issue grants (grant
+keys, or `Identity(mintGrant: ...)`). Otherwise it is absent, so a client learns from reflection
+that it is unavailable. Tickets expire at the worker's grant maximum (`ttl_seconds = 0` asks for
+the maximum); with no maximum they don't expire. Rotating the signing key invalidates every
+ticket. `vgi_attach_ticket` is a reserved attach-option name, so declaring it in any letter case
+fails at definition or at `RegisterCatalog`. Neither the ticket nor a restored option is ever
+logged. Spec: vgi-python `docs/protocol/vgi-attach-tickets.md`. The format lives in
+`AttachTickets`, checked byte for byte against the cross-SDK vectors in
+`test/QueryFarm.Vgi.Tests/Vectors/`.
+
+The example worker serves the cross-SDK `ticket_probe` catalog. It has options `region` (default
+`'us-east-1'`) and `api_key` (required, secret), and table `main.probe` returns `region` and the
+first 12 hex characters of `sha256(api_key)`. Over HTTP the worker accepts the test bearers
+`vgi-test-alice` and `vgi-test-bob` as fresh logins, so a client can mint grants. It hosts tickets
+when `VGI_SIGNING_KEY` and `VGI_RPC_GRANT_KEYS` are both set.
+
 ## Protocol overview
 
 VGI uses `vgi_rpc`, an Apache Arrow IPC-based RPC framework, for all client-worker communication —

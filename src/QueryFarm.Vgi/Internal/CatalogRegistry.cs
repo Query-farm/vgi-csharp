@@ -107,6 +107,12 @@ public sealed class CatalogRegistry
     /// registrations reach it.</param>
     public void RegisterCatalog(Protocol.CatalogInfo info, bool exclusive = false)
     {
+        ArgumentNullException.ThrowIfNull(info);
+        foreach (var raw in info.AttachOptionSpecs ?? [])
+        {
+            AttachOptionSpecBuilder.RejectReservedName(EmbeddedIpc.Decode<Protocol.AttachOptionSpec>(raw).Name);
+        }
+
         _catalogs.Add(info);
         if (exclusive)
         {
@@ -132,6 +138,11 @@ public sealed class CatalogRegistry
     }
 
     public IReadOnlyList<Protocol.CatalogInfo> Catalogs => _catalogs;
+
+    /// <summary>The explicitly configured signing key <c>catalog_attach</c> opens attach tickets
+    /// with (see <see cref="Worker.SigningKey"/>); <see langword="null"/> when none is configured,
+    /// where every ticket is <c>attach_ticket_invalid</c>.</summary>
+    internal byte[]? SigningKey { get; set; }
 
     /// <summary>The DDL-capable in-memory catalogs (<see cref="Worker.RegisterInMemoryCatalog"/>) and
     /// the private catalog of every live attach of one.</summary>

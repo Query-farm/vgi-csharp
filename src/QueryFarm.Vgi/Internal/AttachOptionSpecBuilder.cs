@@ -18,6 +18,7 @@ public static class AttachOptionSpecBuilder
 {
     public static AttachOptionSpec Build(string name, string description, IArrowType type, IArrowArray? defaultValue, bool required = false, bool secret = false)
     {
+        RejectReservedName(name);
         var valueSchema = new Schema([new Field("value", type, nullable: true)], metadata: null);
         byte[]? defaultBytes = null;
         if (defaultValue is not null)
@@ -34,5 +35,19 @@ public static class AttachOptionSpecBuilder
             Required = required,
             Secret = secret,
         };
+    }
+
+    /// <summary>Refuses <c>vgi_attach_ticket</c> (any letter case) as an attach-option name: the
+    /// framework reads it as an attach ticket before any catalog code runs.</summary>
+    /// <exception cref="ArgumentException">The name is reserved.</exception>
+    public static void RejectReservedName(string name)
+    {
+        if (string.Equals(name, AttachTickets.OptionName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Attach option '{name}' uses the reserved name '{AttachTickets.OptionName}': the framework reads it "
+                + "as an attach ticket before any catalog code runs. Rename the option.",
+                nameof(name));
+        }
     }
 }
