@@ -20,6 +20,11 @@
 # into a SKIP; over the HTTP transport every worker error contains "HTTP", so real failures read
 # as skips. The file comes from the extension checkout this script drives (vgi main >= f5aa489).
 #
+# Every run also passes `--test-dir $VGI_EXT`. A locally built unittest otherwise chdirs to the
+# source tree it was compiled from and runs THAT tree's tests, silently: a newer test is missing,
+# and the HTTP lane's server (started in $VGI_EXT) no longer shares a temp dir with unittest, so
+# the copy_* tests fail.
+#
 # Caches output under /tmp/vgi-csharp-test-cache/:
 #   run.log        full unittest stdout/stderr
 #   failures       unique failing .test paths
@@ -141,7 +146,7 @@ if [[ -x "$BAD_ENUM_BIN" ]]; then
 fi
 
 echo "[harness] running: ${ARGS[*]} (worker: $TEST_WORKER)"
-env "${ENV_ARGS[@]}" "$UNITTEST" --test-config "$TEST_CONFIG" "${ARGS[@]}" > "$CACHE/run.log" 2>&1
+env "${ENV_ARGS[@]}" "$UNITTEST" --test-dir "$VGI_EXT" --test-config "$TEST_CONFIG" "${ARGS[@]}" > "$CACHE/run.log" 2>&1
 RC=$?
 
 grep -B1 -A20 -iE 'unexpectedly|FAILED|Mismatch|Worker Exception|Error:' "$CACHE/run.log" > "$CACHE/summary" 2>/dev/null
