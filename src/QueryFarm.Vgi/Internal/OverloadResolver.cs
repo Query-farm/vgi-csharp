@@ -109,7 +109,7 @@ public static class OverloadResolver
 
     private static T Resolve<T>(List<T> matches, string name) => matches.Count switch
     {
-        0 => throw new InvalidOperationException($"'{name}': no registered overload matches the call-site argument types."),
+        0 => throw new VgiInvalidArgumentException($"'{name}': no registered overload matches the call-site argument types."),
         1 => matches[0],
         _ => throw new InvalidOperationException($"'{name}': {matches.Count} registered overloads ambiguously match the call-site argument types."),
     };

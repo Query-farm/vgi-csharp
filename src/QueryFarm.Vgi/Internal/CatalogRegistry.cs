@@ -455,7 +455,7 @@ public sealed class CatalogRegistry
     {
         1 => candidates[0],
         0 => throw new InvalidOperationException($"'{name}': no candidates registered (unreachable — caller already checked null)."),
-        _ => throw new NotSupportedException($"'{name}' has {candidates.Count} overloads, but this function kind's registry lookup doesn't support disambiguating them yet."),
+        _ => throw new VgiUnimplementedException($"'{name}' has {candidates.Count} overloads, but this function kind's registry lookup doesn't support disambiguating them yet."),
     };
 
     /// <summary>Every aggregate function (every overload) visible under the given attach identity —

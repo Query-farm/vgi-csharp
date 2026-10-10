@@ -539,7 +539,7 @@ public class CatalogTableScanBranchesGetTests
     {
         var service = NewService(new CatalogRegistry());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<VgiNotFoundException>(
             () => service.CatalogTableScanBranchesGetAsync([], ["data"], "nope", null, null, null));
     }
 }

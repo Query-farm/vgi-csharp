@@ -139,10 +139,10 @@ public class InMemoryCatalogTests
         Assert.Equal("SELECT 3", view.Definition);
         Assert.Equal(3, (await service.CatalogVersionAsync(attach, null)).Version);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<VgiNotFoundException>(() =>
             service.CatalogTableDropAsync(attach, ["main"], "missing", false, false, null));
         await service.CatalogTableDropAsync(attach, ["main"], "missing", true, false, null);
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<VgiNotFoundException>(() =>
         {
             var request = CreateTable(attach, "t");
             request.SchemaPath = ["nope"];

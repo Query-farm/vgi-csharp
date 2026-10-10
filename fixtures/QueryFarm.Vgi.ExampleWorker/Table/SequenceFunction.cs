@@ -95,7 +95,7 @@ public sealed class SequenceFunction : ITableFunction
         var countArray = args.PositionalArray(0);
         if (countArray is null || countArray.IsNull(0))
         {
-            throw new InvalidOperationException("Argument 'count' cannot be NULL");
+            throw new VgiInvalidArgumentException("Argument 'count' cannot be NULL");
         }
 
         RequirePositiveNamed(args, "batch_size");
@@ -112,12 +112,12 @@ public sealed class SequenceFunction : ITableFunction
 
         if (array.IsNull(0))
         {
-            throw new InvalidOperationException($"Argument '{name}' cannot be NULL");
+            throw new VgiInvalidArgumentException($"Argument '{name}' cannot be NULL");
         }
 
         if (Convert.ToInt64(args.Named(name)) < 1)
         {
-            throw new InvalidOperationException($"Argument '{name}' must be >= 1");
+            throw new VgiInvalidArgumentException($"Argument '{name}' must be >= 1");
         }
     }
 

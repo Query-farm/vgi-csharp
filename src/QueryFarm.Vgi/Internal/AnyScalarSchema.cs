@@ -44,7 +44,7 @@ public static class AnyScalarSchema
     {
         if (!TypeRules.IsAddable(type))
         {
-            throw new InvalidOperationException($"{functionName}: _is_multipliable_type rejects type '{type}'.");
+            throw new VgiInvalidArgumentException($"{functionName}: _is_multipliable_type rejects type '{type}'.");
         }
     }
 }

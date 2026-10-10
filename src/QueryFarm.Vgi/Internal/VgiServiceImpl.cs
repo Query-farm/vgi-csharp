@@ -123,7 +123,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return Task.FromResult(InitTableBuffering(buffering, bindRequest, request));
         }
 
-        throw new InvalidOperationException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        throw new VgiNotFoundException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
     }
 
     /// <summary>Scan planning (splits). Only ever called by the C++ client when the target table
@@ -698,7 +698,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return buffering.ResolveOutputSchema(bindParams);
         }
 
-        throw new InvalidOperationException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        throw new VgiNotFoundException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
     }
 
     private static Apache.Arrow.Schema BindTable(ITableFunction function, BindRequest request)
@@ -1531,7 +1531,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         var identity = DecodeIdentity(attachOpaqueData);
         var table = catalog.FindCatalogTable(identity, schemaPath, name)
-            ?? throw new InvalidOperationException($"Unknown table: '{string.Join('.', schemaPath)}.{name}'.");
+            ?? throw new VgiNotFoundException($"Unknown table: '{string.Join('.', schemaPath)}.{name}'.");
 
         List<ScanBranch> branches;
         List<string> requiredExtensions;
@@ -1808,15 +1808,15 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     private IScalarFunction ResolveScalar(string identity, IReadOnlyList<string> schemaPath, string name, byte[] constArguments, Apache.Arrow.Schema? paramSchema) =>
         catalog.FindScalar(identity, schemaPath, name, constArguments, paramSchema)
-        ?? throw new InvalidOperationException($"Unknown scalar function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        ?? throw new VgiNotFoundException($"Unknown scalar function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
     private ITableBufferingFunction ResolveTableBuffering(string identity, IReadOnlyList<string> schemaPath, string name) =>
         catalog.FindTableBuffering(identity, schemaPath, name)
-        ?? throw new InvalidOperationException($"Unknown table-buffering function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        ?? throw new VgiNotFoundException($"Unknown table-buffering function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
     private IAggregateFunction ResolveAggregate(string identity, IReadOnlyList<string> schemaPath, string name) =>
         catalog.FindAggregate(identity, schemaPath, name)
-        ?? throw new InvalidOperationException($"Unknown aggregate function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        ?? throw new VgiNotFoundException($"Unknown aggregate function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
     /// <summary>Synthetic column the C++ side prepends to every <c>aggregate_update</c>
     /// <c>input_batch</c> — see <c>VgiAggregateUpdate</c>'s <c>__vgi_group_id</c> field.</summary>

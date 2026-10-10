@@ -59,12 +59,12 @@ public sealed class NestedSequenceFunction : ITableFunction
 
         if (historySize.IsNull(0))
         {
-            throw new InvalidOperationException("Argument 'history_size' cannot be NULL");
+            throw new VgiInvalidArgumentException("Argument 'history_size' cannot be NULL");
         }
 
         if (bindParams.Arguments.Int64Named("history_size", DefaultHistorySize) < 1)
         {
-            throw new InvalidOperationException("Argument 'history_size' must be >= 1");
+            throw new VgiInvalidArgumentException("Argument 'history_size' must be >= 1");
         }
     }
 

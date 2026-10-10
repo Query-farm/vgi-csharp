@@ -92,7 +92,7 @@ public class NestedSequenceFixtureTests
     {
         var function = new NestedSequenceFunction();
 
-        var error = Assert.Throws<InvalidOperationException>(() => function.Bind(new TableBindParams
+        var error = Assert.Throws<VgiInvalidArgumentException>(() => function.Bind(new TableBindParams
         {
             FunctionName = function.Name,
             Arguments = Args(10, historySize),

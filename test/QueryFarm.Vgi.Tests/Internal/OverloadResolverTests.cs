@@ -139,7 +139,7 @@ public class OverloadResolverTests
 
         // Mixed types across the vararg columns match NEITHER overload.
         var mixed = new Schema([new Field("a", Int64Type.Default, nullable: true), new Field("b", StringType.Default, nullable: true)], metadata: null);
-        Assert.Throws<InvalidOperationException>(() => OverloadResolver.SelectScalar(candidates, s => s, NoConstArgs, mixed, "concat_values"));
+        Assert.Throws<VgiInvalidArgumentException>(() => OverloadResolver.SelectScalar(candidates, s => s, NoConstArgs, mixed, "concat_values"));
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public class OverloadResolverTests
         var candidates = new List<Schema> { only, other };
 
         var boolInput = new Schema([new Field("value", BooleanType.Default, nullable: true)], metadata: null);
-        var ex = Assert.Throws<InvalidOperationException>(() => OverloadResolver.SelectScalar(candidates, s => s, NoConstArgs, boolInput, "f"));
+        var ex = Assert.Throws<VgiInvalidArgumentException>(() => OverloadResolver.SelectScalar(candidates, s => s, NoConstArgs, boolInput, "f"));
         Assert.Contains("no registered overload", ex.Message);
     }
 
@@ -238,7 +238,7 @@ public class OverloadResolverTests
         var candidates = new List<Schema> { twoArg, threeArg };
 
         var oneColumnInput = new Schema([new Field("latitude", DoubleType.Default, nullable: true)], metadata: null);
-        var ex = Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<VgiInvalidArgumentException>(
             () => OverloadResolver.SelectTableInOut(candidates, s => s, oneColumnInput, "geo_encode"));
         Assert.Contains("no registered overload", ex.Message);
     }
