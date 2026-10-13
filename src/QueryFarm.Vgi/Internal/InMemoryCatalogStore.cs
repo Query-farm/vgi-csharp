@@ -241,7 +241,7 @@ internal sealed class InMemoryCatalogState
         }
     }
 
-    public void CreateView(IReadOnlyList<string> path, string name, string definition, OnConflict onConflict)
+    public void CreateView(IReadOnlyList<string> path, string name, string definition, OnConflict onConflict, List<string>? aliases = null)
     {
         lock (_lock)
         {
@@ -256,6 +256,7 @@ internal sealed class InMemoryCatalogState
                 Name = name,
                 SchemaPath = [.. schema.Path],
                 Definition = definition,
+                Aliases = aliases is null ? [] : [.. aliases],
             });
             _version++;
         }

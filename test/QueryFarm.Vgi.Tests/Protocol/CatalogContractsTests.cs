@@ -12,6 +12,13 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 public class CatalogContractsTests
 {
     [Fact]
+    public void ViewAliasesPreserveRawIdentifiers()
+    {
+        Assert.Equal(["a.b", "with\"quote"], RoundTrip<ViewInfo>("view_info").Aliases);
+        Assert.Empty(RoundTrip<ViewInfo>("view_info_implicit").Aliases);
+    }
+
+    [Fact]
     public void ColumnRequestsUseActualServiceParameterTypes()
     {
         var operations = new[] { "ColumnAdd", "ColumnDrop", "ColumnRename", "ColumnTypeChange",

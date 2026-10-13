@@ -14,6 +14,8 @@ public sealed class CatalogView
 
     public required string Definition { get; init; }
 
+    public List<string> Aliases { get; init; } = [];
+
     public string? Comment { get; init; }
 
     public Dictionary<string, string> Tags { get; init; } = [];

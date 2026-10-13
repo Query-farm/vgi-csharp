@@ -1273,9 +1273,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     public Task CatalogViewCreateAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, string definition, OnConflict onConflict,
-        byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[]? transactionOpaqueData, List<string>? aliases = null, ICallContext? ctx = null)
     {
-        MemoryOrReadOnly(attachOpaqueData, "catalog_view_create").CreateView(schemaPath, name, definition, onConflict);
+        MemoryOrReadOnly(attachOpaqueData, "catalog_view_create").CreateView(schemaPath, name, definition, onConflict, aliases);
         return Task.CompletedTask;
     }
 
@@ -2305,6 +2305,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Name = view.Name,
         SchemaPath = view.EffectiveSchemaPath.ToList(),
         Definition = view.Definition,
+        Aliases = [.. view.Aliases],
         ColumnComments = SortedMap(view.ColumnComments),
     };
 
