@@ -2356,7 +2356,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             CardinalityMax = table.CardinalityMax,
             ColumnStatistics = null,
             BindResult = null,
-            RequiredFilters = table.RequiredFilters.Select(group => group.ToList()).ToList(),
+            RequiredFilters = table.RequiredFilters.Select(group => group.Select(path => path.ToList()).ToList()).ToList(),
         };
     }
 

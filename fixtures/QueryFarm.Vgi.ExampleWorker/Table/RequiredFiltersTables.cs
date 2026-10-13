@@ -88,8 +88,8 @@ public static class RequiredFiltersTables
 
     /// <summary>The four bbox-corner required-filter groups, in the canonical declaration order
     /// every <c>required_filters_*.test</c> error message expects: xmin, xmax, ymin, ymax.</summary>
-    private static IReadOnlyList<IReadOnlyList<string>> BboxRequiredFilters() =>
-        [["bbox.xmin"], ["bbox.xmax"], ["bbox.ymin"], ["bbox.ymax"]];
+    private static IReadOnlyList<IReadOnlyList<IReadOnlyList<string>>> BboxRequiredFilters() =>
+        [[["bbox", "xmin"]], [["bbox", "xmax"]], [["bbox", "ymin"]], [["bbox", "ymax"]]];
 
     private static CatalogTable BuildParquet() => new()
     {
@@ -134,7 +134,7 @@ public static class RequiredFiltersTables
         SchemaName = SchemaName,
         Comment = "required_filters: native Hive delegation requiring a top-level field ('id') + bbox.*",
         Columns = HiveColumns(),
-        RequiredFilters = [["id"], .. BboxRequiredFilters()],
+        RequiredFilters = [[["id"]], .. BboxRequiredFilters()],
         Branches = [HiveGlobBranch()],
     };
 
@@ -158,7 +158,7 @@ public static class RequiredFiltersTables
             Name = "rff_simple",
             SchemaName = SchemaName,
             Comment = "required_filters: single top-level required path on 'a'",
-            RequiredFilters = [["a"]],
+            RequiredFilters = [[["a"]]],
             ScanFunction = new StaticRowsFunction("rff_simple_scan", SchemaName, data),
         };
     }
@@ -204,7 +204,7 @@ public static class RequiredFiltersTables
             Name = "rff_multi",
             SchemaName = SchemaName,
             Comment = "required_filters: mixed top-level + struct subfield requirements ('top', 's.a')",
-            RequiredFilters = [["top"], ["s.a"]],
+            RequiredFilters = [[["top"]], [["s", "a"]]],
             ScanFunction = new StaticRowsFunction("rff_multi_scan", SchemaName, data),
         };
     }
@@ -220,7 +220,7 @@ public static class RequiredFiltersTables
             Name = "rff_struct",
             SchemaName = SchemaName,
             Comment = "required_filters: struct-subfield required paths ('s.a', 's.b')",
-            RequiredFilters = [["s.a"], ["s.b"]],
+            RequiredFilters = [[["s", "a"]], [["s", "b"]]],
             ScanFunction = new StaticRowsFunction("rff_struct_scan", SchemaName, data),
         };
     }
@@ -239,7 +239,7 @@ public static class RequiredFiltersTables
             Name = "rff_nested",
             SchemaName = SchemaName,
             Comment = "required_filters: 3-deep nested struct subfield requirement ('wrapper.mid.leaf')",
-            RequiredFilters = [["wrapper.mid.leaf"]],
+            RequiredFilters = [[["wrapper", "mid", "leaf"]]],
             ScanFunction = new StaticRowsFunction("rff_nested_scan", SchemaName, data),
         };
     }
@@ -255,7 +255,7 @@ public static class RequiredFiltersTables
         Name = "rff_or",
         SchemaName = SchemaName,
         Comment = "required_filters: OR-group — a filter on 'a' OR 'b' satisfies the requirement",
-        RequiredFilters = [["a", "b"]],
+        RequiredFilters = [[["a"], ["b"]]],
         ScanFunction = Simple.ScanFunction,
     };
 
@@ -303,7 +303,7 @@ public static class RequiredFiltersTables
             Name = "rff_rowid",
             SchemaName = SchemaName,
             Comment = "required_filters coexisting with a virtual row-id column",
-            RequiredFilters = [["bbox.xmin"], ["bbox.xmax"], ["bbox.ymin"], ["bbox.ymax"]],
+            RequiredFilters = [[["bbox", "xmin"]], [["bbox", "xmax"]], [["bbox", "ymin"]], [["bbox", "ymax"]]],
             RowIdColumn = "row_id",
             ScanFunction = new RffRowidScanFunction(schema, data),
         };

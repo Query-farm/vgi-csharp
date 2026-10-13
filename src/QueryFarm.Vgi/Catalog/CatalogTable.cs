@@ -135,17 +135,11 @@ public sealed class CatalogTable
 
     public long? CardinalityMax { get; init; }
 
-    /// <summary>Required WHERE-filter groups in conjunctive normal form (CNF): an AND (outer list)
-    /// of OR-groups (inner lists) of dotted-path column references (e.g. <c>"s.a"</c> for a struct
-    /// subfield). A group is satisfied when the query's WHERE clause carries a filter on ANY one of
-    /// its member paths (or a filter on a PREFIX of that path — a filter on the whole struct 's'
-    /// satisfies a required 's.a'); every group must be satisfied or the C++ optimizer refuses the
-    /// query with a <c>BinderException</c> before it runs. A single-path group is a plain mandatory
-    /// filter; a multi-path group like <c>["a", "b"]</c> means "one of a, b". Empty (the default)
-    /// means no enforcement. Surfaced on <see cref="Protocol.TableInfo.RequiredFilters"/> and,
-    /// pre-error, via the extension-injected <c>vgi_required_filters</c>
-    /// <c>duckdb_tables().tags</c> entry.</summary>
-    public IReadOnlyList<IReadOnlyList<string>> RequiredFilters { get; init; } = [];
+    /// <summary>AND-of-OR groups of raw component paths, for example
+    /// <c>[[["bbox", "xmin"]], [["ticker"], ["cik"]]]</c>. Dots and quotes are literal.
+    /// A present component prefix satisfies a path; a child does not satisfy its parent.
+    /// Empty means no enforcement. Read back via <c>vgi_required_filters</c> table tags.</summary>
+    public IReadOnlyList<IReadOnlyList<IReadOnlyList<string>>> RequiredFilters { get; init; } = [];
 
     /// <summary>Explicit multi-branch declaration (<c>catalog_table_scan_branches_get</c>) — when
     /// non-null (even an EMPTY list, to exercise the C++ loud-fail-on-zero-branches contract; see
