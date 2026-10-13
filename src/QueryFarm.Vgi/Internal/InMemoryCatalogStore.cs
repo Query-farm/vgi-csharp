@@ -196,6 +196,11 @@ internal sealed class InMemoryCatalogState
 
     public void CreateTable(TableCreateRequest request)
     {
+        if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
+        {
+            throw UnimplementedMethod.For("catalog_table_create metadata/options/layout");
+        }
+
         lock (_lock)
         {
             var schema = RequireSchema(request.SchemaPath);

@@ -1257,6 +1257,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     public Task CatalogTableCreateAsync(TableCreateRequest request, ICallContext? ctx = null)
     {
+        if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
+            throw UnimplementedMethod.For("catalog_table_create");
         MemoryOrReadOnly(request.AttachOpaqueData, "catalog_table_create").CreateTable(request);
         return Task.CompletedTask;
     }

@@ -70,4 +70,40 @@ public class CatalogContractsTests
         Assert.Equal(["optional", "record"], definitions.CreateNames);
         Assert.Equal(["optional"], definitions.AlterNames);
     }
+
+    [Fact]
+    public void LayoutsRetainOrdersAndClearVersusUnchanged()
+    {
+        var expression = RoundTrip<SqlExpression>("expression");
+        Assert.Equal(["one.two", "nested"], expression.SchemaPath);
+        var key = RoundTrip<SortKey>("sort_key");
+        Assert.Equal(Fixture("expression"), key.Expression);
+        Assert.Equal(SortDirection.Desc, key.Direction);
+        Assert.Equal(NullOrder.First, key.NullOrder);
+        var layout = RoundTrip<TableLayout>("layout");
+        Assert.Equal(Fixture("expression"), Assert.Single(layout.PartitionBy));
+        Assert.Equal(Fixture("sort_key"), Assert.Single(layout.SortedBy));
+        Assert.Equal(LayoutCoverage.AllRows, layout.Coverage);
+        Assert.Empty(RoundTrip<TableLayout>("empty_layout").SortedBy);
+        var change = RoundTrip<TableLayoutChange>("layout_change");
+        Assert.Equal(LayoutChangeMode.Rewrite, change.Mode);
+        Assert.Empty(change.PartitionBy!);
+        Assert.Equal(Fixture("sort_key"), Assert.Single(change.SortedBy!));
+        var clear = RoundTrip<TableLayoutChange>("layout_clear");
+        Assert.Equal(LayoutChangeMode.FutureWrites, clear.Mode);
+        Assert.Null(clear.PartitionBy);
+        Assert.Empty(clear.SortedBy!);
+        var create = RoundTrip<TableCreateRequest>("table_create");
+        Assert.Equal("kept", create.Comment);
+        Assert.Equal(Fixture("values"), create.Options);
+        Assert.Equal(Fixture("layout"), create.Layout);
+        var old = RoundTrip<TableCreateRequest>("table_create_legacy");
+        Assert.Null(old.Comment);
+        Assert.Null(old.Tags);
+        Assert.Null(old.Options);
+        Assert.Null(old.Layout);
+        var info = RoundTrip<TableInfo>("table_info");
+        Assert.Equal(Fixture("state"), info.Options);
+        Assert.Equal(Fixture("layout"), info.Layout);
+    }
 }
