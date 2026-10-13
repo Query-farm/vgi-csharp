@@ -12,6 +12,13 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 public class CatalogContractsTests
 {
     [Fact]
+    public void ViewSecuritySurvivesCodecRoundTrip()
+    {
+        Assert.Equal("regular", RoundTrip<ViewInfo>("view_info").Security);
+        Assert.Equal("barrier", RoundTrip<ViewInfo>("view_info_barrier").Security);
+    }
+
+    [Fact]
     public void ViewAliasesPreserveRawIdentifiers()
     {
         Assert.Equal(["a.b", "with\"quote"], RoundTrip<ViewInfo>("view_info").Aliases);

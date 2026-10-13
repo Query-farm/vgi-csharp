@@ -1273,8 +1273,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     public Task CatalogViewCreateAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, string definition, OnConflict onConflict,
-        byte[]? transactionOpaqueData, List<string>? aliases = null, ICallContext? ctx = null)
+        byte[]? transactionOpaqueData, List<string>? aliases = null, string security = "regular", ICallContext? ctx = null)
     {
+        if (security != "regular") throw new NotSupportedException("view security mode is unsupported");
         MemoryOrReadOnly(attachOpaqueData, "catalog_view_create").CreateView(schemaPath, name, definition, onConflict, aliases);
         return Task.CompletedTask;
     }
@@ -2306,6 +2307,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         SchemaPath = view.EffectiveSchemaPath.ToList(),
         Definition = view.Definition,
         Aliases = [.. view.Aliases],
+        Security = view.Security,
         ColumnComments = SortedMap(view.ColumnComments),
     };
 

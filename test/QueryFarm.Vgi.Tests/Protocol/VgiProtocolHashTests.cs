@@ -20,7 +20,7 @@ public sealed class VgiProtocolHashTests
     /// (2.1.0) does — a new value here means the protocol changed, so take it from the reference,
     /// never from this port's own output.
     /// </remarks>
-    public const string ReferenceVgiV2Hash = "9e1ed05cdcc6e812f9a6cfda36ecaa699005e30680e511489109180251ee6872";
+    public const string ReferenceVgiV2Hash = "b1db9b01e3c78a746e627fe18a4e0e0c191389dce42f15368427067f071cdecc";
 
     [Fact]
     public void HostsTheReferenceVgiV2Surface()

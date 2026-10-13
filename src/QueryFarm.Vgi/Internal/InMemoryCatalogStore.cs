@@ -257,6 +257,7 @@ internal sealed class InMemoryCatalogState
                 SchemaPath = [.. schema.Path],
                 Definition = definition,
                 Aliases = aliases is null ? [] : [.. aliases],
+                Security = "regular",
             });
             _version++;
         }

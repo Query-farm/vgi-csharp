@@ -16,6 +16,8 @@ public sealed class CatalogView
 
     public List<string> Aliases { get; init; } = [];
 
+    public string Security { get; init; } = "regular";
+
     public string? Comment { get; init; }
 
     public Dictionary<string, string> Tags { get; init; } = [];
