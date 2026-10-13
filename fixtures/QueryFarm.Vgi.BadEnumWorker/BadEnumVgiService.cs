@@ -159,8 +159,8 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
 
     public Task CatalogSchemaCreateAsync(
         byte[] attachOpaqueData, List<string> path, OnConflict onConflict, string? comment, Dictionary<string, string>? tags,
-        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogSchemaCreateAsync(attachOpaqueData, path, onConflict, comment, tags, transactionOpaqueData, ctx);
+        byte[]? transactionOpaqueData, byte[]? options = null, ICallContext? ctx = null) =>
+        real.CatalogSchemaCreateAsync(attachOpaqueData, path, onConflict, comment, tags, transactionOpaqueData, options, ctx);
 
     public Task CatalogSchemaDropAsync(
         byte[] attachOpaqueData, List<string> path, bool ignoreNotFound, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>

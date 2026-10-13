@@ -58,4 +58,16 @@ public class CatalogContractsTests
             }));
         Assert.Empty(RoundTrip<RequiredFilterPaths>("empty_paths").Groups);
     }
+    [Fact]
+    public void CapabilityProfilesAndOptionDefinitionsRoundTrip()
+    {
+        var capabilities = RoundTrip<CatalogCapabilities>("capabilities");
+        Assert.Equal(["vgi.schema.options.read.v1"], capabilities.Read);
+        Assert.Equal(["vgi.schema.options.create.v1"], capabilities.Ddl);
+        Assert.Empty(RoundTrip<CatalogCapabilities>("empty_capabilities").Read);
+        var definitions = RoundTrip<OptionDefinitions>("definitions");
+        Assert.Equal(Fixture("values"), definitions.Defaults);
+        Assert.Equal(["optional", "record"], definitions.CreateNames);
+        Assert.Equal(["optional"], definitions.AlterNames);
+    }
 }

@@ -254,4 +254,15 @@ public class InMemoryCatalogTests
         Assert.Equal(2, changed.Schemas.Count);
         Assert.Equal(2, builds);
     }
+    [Fact]
+    public async Task SchemaOptionsRejectBeforeCatalogMutation()
+    {
+        var (service, _) = Service();
+        var (attach, _) = await AttachAsync(service);
+        var error = await Assert.ThrowsAnyAsync<Exception>(() => service.CatalogSchemaCreateAsync(
+            attach, ["unsupported"], options: [1]));
+        Assert.Contains("vgi.schema.options.create.v1", error.Message);
+        Assert.Equal(["main"], await SchemaKeys(service, attach));
+        Assert.Equal(1, (await service.CatalogVersionAsync(attach)).Version);
+    }
 }

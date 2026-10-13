@@ -1241,8 +1241,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     public Task CatalogSchemaCreateAsync(
         byte[] attachOpaqueData, List<string> path, OnConflict onConflict, string? comment, Dictionary<string, string>? tags,
-        byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[]? transactionOpaqueData, byte[]? options = null, ICallContext? ctx = null)
     {
+        if (options is not null) throw UnimplementedMethod.For("catalog_schema_create options require negotiated vgi.schema.options.create.v1");
         MemoryOrReadOnly(attachOpaqueData, "catalog_schema_create").CreateSchema(path, onConflict, comment, tags);
         return Task.CompletedTask;
     }
