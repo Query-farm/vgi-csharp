@@ -231,8 +231,9 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
 
     public Task CatalogViewCreateAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, string definition, OnConflict onConflict,
-        byte[]? transactionOpaqueData, List<string>? aliases = null, string security = "regular", ICallContext? ctx = null) =>
-        real.CatalogViewCreateAsync(attachOpaqueData, schemaPath, name, definition, onConflict, transactionOpaqueData, aliases, security, ctx);
+        byte[]? transactionOpaqueData, List<string>? aliases = null, string security = "regular", string? comment = null,
+        Dictionary<string, string>? tags = null, Dictionary<string, string>? columnComments = null, ICallContext? ctx = null) =>
+        real.CatalogViewCreateAsync(attachOpaqueData, schemaPath, name, definition, onConflict, transactionOpaqueData, aliases, security, comment, tags, columnComments, ctx);
 
     public Task CatalogViewDropAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
@@ -243,6 +244,11 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
         byte[] attachOpaqueData, List<string> schemaPath, string name, string newName, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         real.CatalogViewRenameAsync(attachOpaqueData, schemaPath, name, newName, ignoreNotFound, transactionOpaqueData, ctx);
+
+    public Task CatalogViewColumnCommentSetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, string? comment,
+        bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
+        real.CatalogViewColumnCommentSetAsync(attachOpaqueData, schemaPath, name, columnPath, comment, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogViewCommentSetAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,

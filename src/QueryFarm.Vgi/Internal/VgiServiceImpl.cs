@@ -1273,10 +1273,13 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     public Task CatalogViewCreateAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, string definition, OnConflict onConflict,
-        byte[]? transactionOpaqueData, List<string>? aliases = null, string security = "regular", ICallContext? ctx = null)
+        byte[]? transactionOpaqueData, List<string>? aliases = null, string security = "regular", string? comment = null,
+        Dictionary<string, string>? tags = null, Dictionary<string, string>? columnComments = null, ICallContext? ctx = null)
     {
         if (security != "regular") throw new NotSupportedException("view security mode is unsupported");
-        MemoryOrReadOnly(attachOpaqueData, "catalog_view_create").CreateView(schemaPath, name, definition, onConflict, aliases);
+        if (columnComments is not null && columnComments.Keys.Any(key => string.IsNullOrEmpty(key) || key.Contains('\0')))
+            throw new ArgumentException("view column comments require raw output identifiers");
+        MemoryOrReadOnly(attachOpaqueData, "catalog_view_create").CreateView(schemaPath, name, definition, onConflict, aliases, comment, tags, columnComments);
         return Task.CompletedTask;
     }
 
@@ -1354,8 +1357,21 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     public Task CatalogViewCommentSetAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, string? comment, bool ignoreNotFound,
-        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        throw new CatalogReadOnlyException("catalog_view_comment_set");
+        byte[]? transactionOpaqueData, ICallContext? ctx = null)
+    {
+        MemoryOrReadOnly(attachOpaqueData, "catalog_view_comment_set").SetViewComment(schemaPath, name, null, comment, ignoreNotFound);
+        return Task.CompletedTask;
+    }
+
+    public Task CatalogViewColumnCommentSetAsync(
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, string? comment,
+        bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null)
+    {
+        if (columnPath.Count != 1 || string.IsNullOrEmpty(columnPath[0]) || columnPath[0].Contains('\0'))
+            throw new ArgumentException("view column comments require one raw output identifier");
+        MemoryOrReadOnly(attachOpaqueData, "catalog_view_column_comment_set").SetViewComment(schemaPath, name, columnPath[0], comment, ignoreNotFound);
+        return Task.CompletedTask;
+    }
 
     /// <summary>Pre-<c>ATTACH</c> discovery — <c>vgi_catalogs('&lt;location&gt;')</c> — see
     /// <see cref="CatalogRegistry.Catalogs"/>'s doc comment.</summary>

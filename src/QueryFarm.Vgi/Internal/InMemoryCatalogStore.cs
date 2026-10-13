@@ -241,7 +241,8 @@ internal sealed class InMemoryCatalogState
         }
     }
 
-    public void CreateView(IReadOnlyList<string> path, string name, string definition, OnConflict onConflict, List<string>? aliases = null)
+    public void CreateView(IReadOnlyList<string> path, string name, string definition, OnConflict onConflict, List<string>? aliases = null, string? comment = null,
+        Dictionary<string, string>? tags = null, Dictionary<string, string>? columnComments = null)
     {
         lock (_lock)
         {
@@ -258,7 +259,29 @@ internal sealed class InMemoryCatalogState
                 Definition = definition,
                 Aliases = aliases is null ? [] : [.. aliases],
                 Security = "regular",
+                Comment = comment,
+                Tags = tags is null ? [] : new(tags),
+                ColumnComments = columnComments is null ? [] : new(columnComments),
             });
+            _version++;
+        }
+    }
+
+    public void SetViewComment(IReadOnlyList<string> path, string name, string? column, string? comment, bool ignoreNotFound)
+    {
+        lock (_lock)
+        {
+            var schema = FindSchema(path);
+            if (schema is null || !schema.Views.TryGetValue(name, out var item))
+            {
+                if (ignoreNotFound) return;
+                throw new InvalidOperationException($"View with name {name} does not exist!");
+            }
+            var view = EmbeddedIpc.Decode<ViewInfo>(item);
+            if (column is null) view.Comment = comment;
+            else if (comment is null) view.ColumnComments.Remove(column);
+            else view.ColumnComments[column] = comment;
+            schema.Views[name] = EmbeddedIpc.Encode(view);
             _version++;
         }
     }
