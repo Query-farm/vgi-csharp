@@ -217,8 +217,8 @@ public class VgiServiceImplCatalogTests
         Task Call() => which switch
         {
             "catalog_schema_create" => service.CatalogSchemaCreateAsync(attach, ["s"], OnConflict.Error, null, null, null),
-            "catalog_table_column_add" => service.CatalogTableColumnAddAsync(attach, ["main"], "t", [], false, false, null),
-            "catalog_table_column_drop" => service.CatalogTableColumnDropAsync(attach, ["main"], "t", "c", false, false, false, null),
+            "catalog_table_column_add" => service.CatalogTableColumnAddAsync(attach, ["main"], "t", ["c"], [], false, false, null),
+            "catalog_table_column_drop" => service.CatalogTableColumnDropAsync(attach, ["main"], "t", ["c"], false, false, false, null),
             "catalog_table_drop" => service.CatalogTableDropAsync(attach, ["main"], "t", false, false, null),
             "catalog_view_create" => service.CatalogViewCreateAsync(attach, ["main"], "v", "SELECT 1", OnConflict.Error, null),
             _ => throw new InvalidOperationException(which),

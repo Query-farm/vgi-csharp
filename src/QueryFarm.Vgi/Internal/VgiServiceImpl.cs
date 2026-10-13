@@ -1302,47 +1302,47 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         throw new CatalogReadOnlyException("catalog_table_comment_set");
 
     public Task CatalogTableColumnAddAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[] columnDefinition, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, byte[] columnDefinition, bool ignoreNotFound,
         bool ifColumnNotExists, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_add");
 
     public Task CatalogTableColumnDropAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, bool ignoreNotFound,
         bool ifColumnExists, bool cascade, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_drop");
 
     public Task CatalogTableColumnRenameAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string newColumnName,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, string newColumnName,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_rename");
 
     public Task CatalogTableColumnCommentSetAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string? comment,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, string? comment,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_comment_set");
 
     public Task CatalogTableColumnDefaultSetAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, string expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, string expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_default_set");
 
     public Task CatalogTableColumnDefaultDropAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_default_drop");
 
     public Task CatalogTableColumnTypeChangeAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, byte[] columnDefinition, string? expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, byte[] columnDefinition, string? expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_type_change");
 
     public Task CatalogTableNotNullSetAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_not_null_set");
 
     public Task CatalogTableNotNullDropAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, string columnName, bool ignoreNotFound,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, bool ignoreNotFound,
         byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_not_null_drop");
 

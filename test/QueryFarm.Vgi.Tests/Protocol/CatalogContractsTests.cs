@@ -3,12 +3,41 @@
 using System.Text.Json;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
+using QueryFarm.VgiRpc.Reflection;
+using Apache.Arrow.Ipc;
 using Xunit;
 
 namespace QueryFarm.Vgi.Tests.Protocol;
 
 public class CatalogContractsTests
 {
+    [Fact]
+    public void ColumnRequestsUseActualServiceParameterTypes()
+    {
+        var operations = new[] { "ColumnAdd", "ColumnDrop", "ColumnRename", "ColumnTypeChange",
+            "ColumnDefaultSet", "ColumnDefaultDrop", "ColumnCommentSet", "NotNullSet", "NotNullDrop" };
+        foreach (var operation in operations)
+        {
+            var method = new RpcMethodInfo(typeof(IVgiService).GetMethod($"CatalogTable{operation}Async")!);
+            foreach (var variant in new[] { "literal", "nested" })
+            {
+                var name = method.WireName["catalog_table_".Length..] + "_" + variant;
+                using var stream = new MemoryStream(Fixture(name));
+                using var reader = new ArrowStreamReader(stream);
+                using var batch = reader.ReadNextRecordBatch();
+                Assert.NotNull(batch);
+                var args = ValueCodec.ExtractRow(batch, method.ParameterTypes);
+                using var restoredBatch = ValueCodec.BuildRow(method.ParamsSchema, args);
+                var restored = ValueCodec.ExtractRow(restoredBatch, method.ParameterTypes);
+                for (var i = 0; i < args.Length; i++) Assert.Equivalent(args[i], restored[i]);
+                var pathIndex = method.ParamsSchema.FieldsList.ToList().FindIndex(field => field.Name == "column_path");
+                Assert.Equal(variant == "literal" ? ["a.b"] : new[] { "a", "b.\"quoted" },
+                    Assert.IsType<List<string>>(args[pathIndex]));
+                Assert.Null(reader.ReadNextRecordBatch());
+            }
+        }
+    }
+
     private static byte[] Fixture(string name)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
