@@ -1257,6 +1257,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     public Task CatalogTableCreateAsync(TableCreateRequest request, ICallContext? ctx = null)
     {
+        if (request.ConstraintDefinitions.Count > 0)
+            throw UnimplementedMethod.For("catalog_table_create: canonical constraint enforcement");
+        SchemaIpc.RequireUnconstrainedColumns(request.Columns);
         if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
             throw UnimplementedMethod.For("catalog_table_create");
         MemoryOrReadOnly(request.AttachOpaqueData, "catalog_table_create").CreateTable(request);
@@ -2329,6 +2332,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     private static TableInfo BuildTableInfo(CatalogTable table)
     {
+        if (table.NotNullColumns.Count > 0 || table.UniqueColumns.Count > 0 || table.PrimaryKeyColumns.Count > 0
+            || table.CheckConstraints.Count > 0 || table.ForeignKeys.Count > 0)
+            throw UnimplementedMethod.For("legacy constraint metadata requires explicit canonical records");
         var columns = table.ResolveColumns();
         if (table.RowIdColumn is { } rowIdColumn)
         {
@@ -2340,8 +2346,6 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             columns = WithColumnMetadata(columns, table.ColumnComments, table.ColumnDefaults, table.GeneratedColumns, table.Name);
         }
 
-        var byName = ColumnIndexLookup(columns, table.Name);
-
         return new TableInfo
         {
             Comment = table.Comment,
@@ -2349,20 +2353,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Name = table.Name,
             SchemaPath = table.EffectiveSchemaPath.ToList(),
             Columns = SchemaIpc.WriteSchemaOnly(columns),
-            NotNullConstraints = table.NotNullColumns.Select(byName).ToList(),
-            UniqueConstraints = table.UniqueColumns.Select(group => group.Select(byName).ToList()).ToList(),
-            CheckConstraints = table.CheckConstraints.ToList(),
-            PrimaryKeyConstraints = table.PrimaryKeyColumns.Count == 0
-                ? []
-                : [table.PrimaryKeyColumns.Select(byName).ToList()],
-            ForeignKeyConstraints = table.ForeignKeys.Select(fk => EmbeddedIpc.Encode(new ForeignKeyInfo
-            {
-                FkColumns = fk.Columns.ToList(),
-                PkColumns = fk.ReferencedColumns.ToList(),
-                ReferencedTable = fk.ReferencedTable,
-                ReferencedSchemaPath = fk.ReferencedSchemaPath?.ToList()
-                    ?? (fk.ReferencedSchema is { } referencedSchema ? [referencedSchema] : table.EffectiveSchemaPath.ToList()),
-            })).ToList(),
+            Constraints = table.Constraints.ToList(),
+            DefinitionRevision = table.DefinitionRevision,
             WriteResultModes = SortedMap(table.WriteResultModes),
             SupportsColumnStatistics = table.Statistics.Count > 0,
             ScanFunction = table.ScanFunction is { } scan && table.InlineScanFunction

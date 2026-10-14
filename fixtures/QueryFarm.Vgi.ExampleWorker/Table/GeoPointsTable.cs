@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Catalog;
+using QueryFarm.Vgi.Protocol;
 
 namespace QueryFarm.Vgi.ExampleWorker.Table;
 
@@ -59,10 +60,10 @@ public static class GeoPointsTable
         var geomField = new Field(
             "geom",
             pointStruct,
-            nullable: false,
+            nullable: true,
             metadata: new Dictionary<string, string> { ["ARROW:extension:name"] = "geoarrow.point" });
 
-        var schema = new Schema([new Field("id", Int64Type.Default, nullable: false), geomField], metadata: null);
+        var schema = new Schema([new Field("id", Int64Type.Default, nullable: true), geomField], metadata: null);
 
         return new CatalogTable
         {
@@ -79,7 +80,12 @@ public static class GeoPointsTable
             // convention). CatalogTable.ResolveColumns() falls back to Columns when ScanFunction is
             // null, so the catalog listing/statistics paths work fine without one.
             Columns = schema,
-            NotNullColumns = ["id", "geom"],
+            Constraints =
+            [
+                FixtureConstraints.Of("geo_points", "id_nn", ConstraintKind.NotNull, "id"),
+                FixtureConstraints.Of("geo_points", "geom_nn", ConstraintKind.NotNull, "geom"),
+            ],
+            DefinitionRevision = FixtureConstraints.Revision,
             Statistics = new Dictionary<string, ColumnStatisticsInput>
             {
                 ["id"] = new() { Min = 1L, Max = 2L, HasNull = false, HasNotNull = true, DistinctCount = 2 },

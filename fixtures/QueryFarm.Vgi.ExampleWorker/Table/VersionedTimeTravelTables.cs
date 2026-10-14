@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Catalog;
+using QueryFarm.Vgi.Protocol;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -92,11 +93,11 @@ public static class VersionedTimeTravelTables
 
     private static readonly IReadOnlyList<int> DataVersions = [1, 2, 3];
 
-    private static readonly Schema V1Schema = new([new Field("id", Int64Type.Default, nullable: false)], metadata: null);
+    private static readonly Schema V1Schema = new([new Field("id", Int64Type.Default, nullable: true)], metadata: null);
 
     private static readonly Schema V2Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: false),
+            new Field("id", Int64Type.Default, nullable: true),
             new Field("name", StringType.Default, nullable: true),
             new Field("score", DoubleType.Default, nullable: true),
             new Field("active", BooleanType.Default, nullable: true),
@@ -105,7 +106,7 @@ public static class VersionedTimeTravelTables
 
     private static readonly Schema V3Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: false),
+            new Field("id", Int64Type.Default, nullable: true),
             new Field("score", DoubleType.Default, nullable: true),
         ],
         metadata: null);
@@ -119,7 +120,8 @@ public static class VersionedTimeTravelTables
             SchemaName = SchemaName,
             Comment = "Versioned data table demonstrating time travel with schema evolution",
             Columns = V3Schema,
-            NotNullColumns = ["id"],
+            Constraints = [FixtureConstraints.Of("versioned_data", "id_nn", ConstraintKind.NotNull, "id")],
+            DefinitionRevision = FixtureConstraints.Revision,
             ScanFunction = scan,
             ScanArguments = [3L],
             SupportsTimeTravel = true,
@@ -226,14 +228,14 @@ public static class VersionedTimeTravelTables
 
     private static readonly Schema C1Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: false),
+            new Field("id", Int64Type.Default, nullable: true),
             new Field("name", StringType.Default, nullable: true),
         ],
         metadata: null);
 
     private static readonly Schema C2Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: false),
+            new Field("id", Int64Type.Default, nullable: true),
             new Field("name", StringType.Default, nullable: true),
             new Field("email", StringType.Default, nullable: true),
         ],
@@ -241,7 +243,7 @@ public static class VersionedTimeTravelTables
 
     private static readonly Schema C3Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: false),
+            new Field("id", Int64Type.Default, nullable: true),
             new Field("name", StringType.Default, nullable: true),
             new Field("email", StringType.Default, nullable: true),
             new Field("department_id", Int64Type.Default, nullable: true),
@@ -265,16 +267,15 @@ public static class VersionedTimeTravelTables
             SchemaName = SchemaName,
             Comment = "Table with constraints that evolve across versions",
             Columns = C3Schema,
-            NotNullColumns = ["id", "name"],
-            PrimaryKeyColumns = ["id"],
-            UniqueColumns = [["email"]],
-            ForeignKeys = [new CatalogForeignKey
-            {
-                Columns = ["department_id"],
-                ReferencedTable = "departments",
-                ReferencedColumns = ["id"],
-                ReferencedSchema = SchemaName,
-            }],
+            Constraints =
+            [
+                FixtureConstraints.Of("versioned_constraints", "id_nn", ConstraintKind.NotNull, "id"),
+                FixtureConstraints.Of("versioned_constraints", "name_nn", ConstraintKind.NotNull, "name"),
+                FixtureConstraints.Of("versioned_constraints", "primary", ConstraintKind.PrimaryKey, "id"),
+                FixtureConstraints.Of("versioned_constraints", "email_unique", ConstraintKind.Unique, "email"),
+                FixtureConstraints.DepartmentForeignKey("versioned_constraints"),
+            ],
+            DefinitionRevision = FixtureConstraints.Revision,
             ScanFunction = scan,
             ScanArguments = [3L],
             SupportsTimeTravel = true,

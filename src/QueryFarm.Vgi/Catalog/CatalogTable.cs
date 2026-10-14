@@ -22,6 +22,9 @@ namespace QueryFarm.Vgi.Catalog;
 /// </summary>
 public sealed class CatalogTable
 {
+    /// <summary>Canonical ConstraintInfo IPC with identities supplied by the provider.</summary>
+    public IReadOnlyList<byte[]> Constraints { get; init; } = [];
+    public byte[]? DefinitionRevision { get; init; }
     public required string Name { get; init; }
 
     public string SchemaName { get; init; } = "main";
@@ -41,8 +44,7 @@ public sealed class CatalogTable
     /// pattern) — set explicitly only for a table with no backing scan function.</summary>
     public Schema? Columns { get; init; }
 
-    /// <summary>Column NAMES (resolved to <see cref="Protocol.TableInfo.NotNullConstraints"/> indices
-    /// against <see cref="Columns"/> at registration time).</summary>
+    /// <summary>Legacy declarations. Nonempty legacy constraints reject at the canonical wire boundary.</summary>
     public IReadOnlyList<string> NotNullColumns { get; init; } = [];
 
     public IReadOnlyList<IReadOnlyList<string>> UniqueColumns { get; init; } = [];

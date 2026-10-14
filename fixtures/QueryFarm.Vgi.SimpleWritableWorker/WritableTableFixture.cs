@@ -39,6 +39,11 @@ public static class WritableTableFixture
         bool supportsReturning,
         bool brokenReturning = false)
     {
+        if (notNullColumns.Count > 0)
+        {
+            throw new NotSupportedException("This writable fixture does not enforce canonical NOT NULL constraints.");
+        }
+
         var fullFields = visibleSchema.FieldsList
             .Append(new Field(RowIdColumn, BinaryType.Default, nullable: false))
             .ToList();
@@ -61,7 +66,6 @@ public static class WritableTableFixture
             Name = name,
             SchemaName = "main",
             Columns = fullSchema,
-            NotNullColumns = notNullColumns,
             RowIdColumn = RowIdColumn,
             ScanFunction = new RowStoreScanFunction(name, fullSchema, store),
             WriteResultModes = BuildModes(supportsInsert, supportsUpdate, supportsDelete, supportsReturning, brokenReturning),

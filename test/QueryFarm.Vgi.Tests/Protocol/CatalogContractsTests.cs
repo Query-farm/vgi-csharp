@@ -395,5 +395,13 @@ public class CatalogContractsTests
         var info = RoundTrip<TableInfo>("table_info");
         Assert.Equal(Fixture("state"), info.Options);
         Assert.Equal(Fixture("layout"), info.Layout);
+        Assert.Single(create.ConstraintDefinitions);
+        Assert.Empty(old.ConstraintDefinitions);
+        Assert.Equal(new byte[] {114, 101, 118, 105, 115, 105, 111, 110, 0, 255}, info.DefinitionRevision);
+        var constraint = EmbeddedIpc.Decode<ConstraintInfo>(Assert.Single(info.Constraints));
+        Assert.Equal(create.ConstraintDefinitions[0], constraint.Definition);
+        Assert.Equal("fixture-stable-key", EmbeddedIpc.Decode<CatalogObjectRef>(constraint.Ref).Name);
+        Assert.Equal(new[] {"record", "a.b"}, Assert.Single(
+            EmbeddedIpc.Decode<ConstraintDefinition>(constraint.Definition).ColumnPaths));
     }
 }

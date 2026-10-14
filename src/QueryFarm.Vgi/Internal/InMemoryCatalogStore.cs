@@ -196,6 +196,9 @@ internal sealed class InMemoryCatalogState
 
     public void CreateTable(TableCreateRequest request)
     {
+        if (request.ConstraintDefinitions.Count > 0)
+            throw UnimplementedMethod.For("catalog_table_create: canonical constraint enforcement");
+        SchemaIpc.RequireUnconstrainedColumns(request.Columns);
         if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
         {
             throw UnimplementedMethod.For("catalog_table_create metadata/options/layout");
@@ -209,18 +212,13 @@ internal sealed class InMemoryCatalogState
                 return;
             }
 
-            // Checked before the table is stored: the column schema is what every listing serves.
-            SchemaIpc.ReadSchemaOnly(request.Columns);
             schema.Tables[request.Name] = EmbeddedIpc.Encode(new TableInfo
             {
                 Name = request.Name,
                 SchemaPath = [.. schema.Path],
                 Columns = request.Columns,
-                NotNullConstraints = [.. request.NotNullConstraints],
-                UniqueConstraints = request.UniqueConstraints.Select(group => group.ToList()).ToList(),
-                CheckConstraints = [.. request.CheckConstraints],
-                PrimaryKeyConstraints = request.PrimaryKeyConstraints.Select(group => group.ToList()).ToList(),
-                ForeignKeyConstraints = [.. request.ForeignKeyConstraints],
+                Constraints = [],
+                DefinitionRevision = null,
             });
             _version++;
         }

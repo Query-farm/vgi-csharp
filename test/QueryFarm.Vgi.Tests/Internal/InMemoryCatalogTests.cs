@@ -4,6 +4,7 @@ using QueryFarm.Vgi.Catalog;
 using QueryFarm.Vgi.ExampleWorker.Scalar;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
+using QueryFarm.VgiRpc.Errors;
 using Xunit;
 
 namespace QueryFarm.Vgi.Tests.Internal;
@@ -37,7 +38,7 @@ public class InMemoryCatalogTests
         Name = name,
         Columns = TwoColumns,
         OnConflict = onConflict,
-        NotNullConstraints = [0],
+        ConstraintDefinitions = [],
     };
 
     private static async Task<List<string>> TableNames(IVgiService service, byte[] attach, List<string>? path = null) =>
@@ -88,6 +89,38 @@ public class InMemoryCatalogTests
     }
 
     [Fact]
+    public async Task UnsupportedConstraintsRejectBeforeAnyReplacement()
+    {
+        var (service, _) = Service();
+        var (attach, _) = await AttachAsync(service);
+        await service.CatalogTableCreateAsync(CreateTable(attach, "t"));
+        var before = (await service.CatalogVersionAsync(attach, null)).Version;
+        foreach (var conflict in new[] { OnConflict.Error, OnConflict.Ignore, OnConflict.Replace })
+        {
+            var request = CreateTable(attach, "t", conflict);
+            request.ConstraintDefinitions = [new byte[] { 1 }];
+            await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogTableCreateAsync(request));
+        }
+        foreach (var field in new[]
+        {
+            new Field("required", Int32Type.Default, nullable: false),
+            new Field("nested", new StructType([new Field("required", Int32Type.Default, nullable: false)]), nullable: true),
+        })
+        {
+            var request = CreateTable(attach, "t", OnConflict.Replace);
+            request.Columns = SchemaIpc.WriteSchemaOnly(new Schema([field], metadata: null));
+            await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogTableCreateAsync(request));
+        }
+        Assert.Equal(before, (await service.CatalogVersionAsync(attach, null)).Version);
+        Assert.Equal(["t"], await TableNames(service, attach));
+        var table = EmbeddedIpc.Decode<TableInfo>(Assert.Single(
+            (await service.CatalogTableGetAsync(attach, ["main"], "t", null, null, null)).Items));
+        Assert.Empty(table.Constraints);
+        Assert.Null(table.DefinitionRevision);
+        Assert.Equal(TwoColumns, table.Columns);
+    }
+
+    [Fact]
     public async Task UnsupportedViewSecurityDoesNotMutate()
     {
         var (service, _) = Service();
@@ -117,7 +150,8 @@ public class InMemoryCatalogTests
 
         var table = EmbeddedIpc.Decode<TableInfo>(Assert.Single((await service.CatalogTableGetAsync(attach, ["main"], "t1", null, null, null)).Items));
         Assert.Equal(["a", "b"], SchemaIpc.ReadSchemaOnly(table.Columns).FieldsList.Select(f => f.Name));
-        Assert.Equal([0], table.NotNullConstraints);
+        Assert.Empty(table.Constraints);
+        Assert.Null(table.DefinitionRevision);
         Assert.Equal(["main"], table.SchemaPath);
         var view = EmbeddedIpc.Decode<ViewInfo>(Assert.Single((await service.CatalogViewGetAsync(attach, ["main"], "v1", null)).Items));
         Assert.Equal("SELECT 1 AS x", view.Definition);
