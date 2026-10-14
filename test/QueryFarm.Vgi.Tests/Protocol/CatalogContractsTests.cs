@@ -5,12 +5,65 @@ using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.VgiRpc.Reflection;
 using Apache.Arrow.Ipc;
+using Apache.Arrow.Types;
 using Xunit;
 
 namespace QueryFarm.Vgi.Tests.Protocol;
 
 public class CatalogContractsTests
 {
+    [Theory]
+    [InlineData("query_parameters", "named")]
+    [InlineData("query_empty_parameters", "positional")]
+    public void QueryParameterBatchesPreserveMappingMetadataAndEmptyRows(string name, string mode)
+    {
+        using var input = new MemoryStream(Fixture(name));
+        using var reader = new ArrowStreamReader(input);
+        using var original = reader.ReadNextRecordBatch();
+        Assert.NotNull(original);
+        using var encoded = new MemoryStream();
+        using (var writer = new ArrowStreamWriter(encoded, original.Schema, leaveOpen: true))
+        {
+            writer.WriteRecordBatch(original);
+            writer.WriteEnd();
+        }
+        encoded.Position = 0;
+        using var restoredReader = new ArrowStreamReader(encoded);
+        using var restored = restoredReader.ReadNextRecordBatch();
+        Assert.NotNull(restored);
+        Assert.Equal(1, restored.Length);
+        Assert.Equal(mode, restored.Schema.Metadata["vgi.query.parameters.v1"]);
+        if (name == "query_empty_parameters") Assert.Empty(restored.Schema.FieldsList);
+        else
+        {
+            Assert.True(restored.Column(0).IsNull(0));
+            Assert.IsType<Int32Type>(restored.Schema.GetFieldByIndex(0).DataType);
+            Assert.Equal("example.optional", restored.Schema.GetFieldByIndex(0).Metadata["logical"]);
+            var type = Assert.IsType<StructType>(restored.Schema.GetFieldByIndex(1).DataType);
+            Assert.Equal("retained", type.Fields[0].Metadata["nested"]);
+            Assert.False(type.Fields[0].IsNullable);
+        }
+        Assert.Null(reader.ReadNextRecordBatch());
+        Assert.Null(restoredReader.ReadNextRecordBatch());
+    }
+
+    [Fact]
+    public void QueryRecordsPreserveNestedContracts()
+    {
+        RoundTrip<ClientQueryCapabilities>("query_offer");
+        RoundTrip<QueryCapabilities>("query_capabilities");
+        RoundTrip<QueryEvaluationContext>("query_context");
+        RoundTrip<QueryObjectReference>("query_object_reference");
+        RoundTrip<CatalogQueryPrepareRequest>("query_prepare");
+        RoundTrip<CatalogQueryPrepareResult>("query_accepted");
+        RoundTrip<CatalogQueryPrepareResult>("query_declined");
+        var request = RoundTrip<CatalogQueryPrepareRequest>("query_prepare");
+        Assert.Equal("UTC", request.EvaluationContext.Timezone);
+        Assert.Equal(["one.two", "nested"], request.ReferencedObjects[0].Object.SchemaPath);
+        Assert.Equal(0L, request.CatalogVersion);
+        Assert.Null(RoundTrip<CatalogQueryPrepareResult>("query_declined").PreparedQueryToken);
+    }
+
     [Fact]
     public void DependenciesPreserveRawIdentitiesAndNestedPayloads()
     {
