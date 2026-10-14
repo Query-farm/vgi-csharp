@@ -12,6 +12,27 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 public class CatalogContractsTests
 {
     [Fact]
+    public void MetadataPatchesPreserveCommentPresenceAndLiteralTags()
+    {
+        var patch = RoundTrip<CatalogMetadataChanges>("metadata_patch");
+        Assert.True(patch.SetComment);
+        Assert.Equal("", patch.Comment);
+        Assert.Equal("", patch.SetTags["a.b"]);
+        Assert.Equal("literal", patch.SetTags["__proto__"]);
+        Assert.Equal("empty-key", patch.SetTags[""]);
+        Assert.Equal(["old", "OLD"], patch.RemoveTags);
+        var clear = RoundTrip<CatalogMetadataChanges>("metadata_clear_comment");
+        Assert.True(clear.SetComment);
+        Assert.Null(clear.Comment);
+        Assert.Empty(clear.SetTags);
+        var noop = RoundTrip<CatalogMetadataChanges>("metadata_noop");
+        Assert.False(noop.SetComment);
+        Assert.Null(noop.Comment);
+        Assert.Empty(noop.SetTags);
+        Assert.Empty(noop.RemoveTags);
+    }
+
+    [Fact]
     public void ViewSecuritySurvivesCodecRoundTrip()
     {
         Assert.Equal("regular", RoundTrip<ViewInfo>("view_info").Security);
