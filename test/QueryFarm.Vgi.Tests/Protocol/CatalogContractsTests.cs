@@ -14,6 +14,68 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 public class CatalogContractsTests
 {
     [Fact]
+    public void ColumnExpressionMetadataRetainsExactIpcBytes()
+    {
+        using var reader = new ArrowStreamReader(new MemoryStream(Fixture("column_expression_metadata")));
+        using var source = reader.ReadNextRecordBatch();
+        Assert.NotNull(source);
+        using var encoded = new MemoryStream();
+        using (var writer = new ArrowStreamWriter(encoded, source.Schema, leaveOpen: true))
+        {
+            writer.WriteRecordBatch(source);
+            writer.WriteEnd();
+        }
+        encoded.Position = 0;
+        using var restoredReader = new ArrowStreamReader(encoded);
+        using var restored = restoredReader.ReadNextRecordBatch();
+        Assert.NotNull(restored);
+        Assert.Equal(Fixture("column_default_expression"), Convert.FromBase64String(restored.Schema.GetFieldByIndex(0).Metadata["vgi.column.default.v1"]));
+        Assert.Equal(Fixture("column_generated_expression"), Convert.FromBase64String(restored.Schema.GetFieldByIndex(1).Metadata["vgi.column.generated.v1"]));
+        Assert.Equal("virtual", restored.Schema.GetFieldByIndex(1).Metadata["vgi.column.generation.v1"]);
+    }
+
+    [Fact]
+    public void CanonicalConstraintRecordsPreserveNestedPayloadsAndRevisions()
+    {
+        RoundTrip<SqlStatement>("sql_statement");
+        RoundTrip<CatalogObjectRef>("constraint_ref");
+        RoundTrip<ForeignKeyDefinition>("foreign_key_definition");
+        RoundTrip<ConstraintDefinition>("constraint_definition_not_null");
+        RoundTrip<ConstraintDefinition>("constraint_definition_unique");
+        RoundTrip<ConstraintDefinition>("constraint_definition_primary");
+        RoundTrip<ConstraintDefinition>("constraint_definition_check");
+        RoundTrip<ConstraintDefinition>("constraint_definition_foreign");
+        RoundTrip<ConstraintInfo>("constraint_info");
+        RoundTrip<ConstraintInfo>("constraint_info_untrusted");
+        RoundTrip<ConstraintChange>("constraint_change_add");
+        RoundTrip<ConstraintChange>("constraint_change_drop");
+        RoundTrip<ConstraintChange>("constraint_change_rename");
+        RoundTrip<ConstraintChange>("constraint_change_unname");
+        RoundTrip<ConstraintChange>("constraint_change_replace");
+        RoundTrip<ConstraintSnapshot>("constraint_snapshot");
+        RoundTrip<ConstraintSnapshot>("constraint_snapshot_empty");
+        RoundTrip<ConstraintsApplyRequest>("constraints_apply");
+        RoundTrip<ConstraintsApplyRequest>("constraints_apply_autocommit");
+        var statement = RoundTrip<SqlStatement>("sql_statement");
+        Assert.Equal("desc", statement.EvaluationContext.DefaultOrder);
+        Assert.Equal("nulls_first", statement.EvaluationContext.DefaultNullOrder);
+        Assert.False(statement.EvaluationContext.PreserveInsertionOrder);
+        var snapshot = RoundTrip<ConstraintSnapshot>("constraint_snapshot");
+        Assert.Equal(new byte[] { 0, 114, 101, 118, 105, 115, 105, 111, 110, 255, 128 }, snapshot.DefinitionRevision);
+        Assert.Single(snapshot.Constraints);
+        Assert.Equal(Fixture("constraint_info"), snapshot.Constraints[0]);
+        var info = RoundTrip<ConstraintInfo>("constraint_info");
+        Assert.Equal(Fixture("constraint_ref"), info.Ref);
+        Assert.Equal(Fixture("constraint_definition_foreign"), info.Definition);
+        var request = RoundTrip<ConstraintsApplyRequest>("constraints_apply");
+        Assert.Equal(snapshot.DefinitionRevision, request.ExpectedRevision);
+        Assert.Equal(Fixture("constraint_change_add"), request.Changes[0]);
+        Assert.Equal(Fixture("constraint_change_rename"), request.Changes[1]);
+        Assert.Null(RoundTrip<ConstraintsApplyRequest>("constraints_apply_autocommit").TransactionOpaqueData);
+        Assert.Null(RoundTrip<ConstraintChange>("constraint_change_unname").DeclaredName);
+    }
+
+    [Fact]
     public void MacroFamiliesPreserveDeclarationsDefaultsAndLegacyAbsence()
     {
         var source = EmbeddedIpc.Decode<MacroParameter>(Fixture("macro_parameter"));
