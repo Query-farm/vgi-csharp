@@ -50,10 +50,10 @@ public class CatalogContractsTests
     [Theory]
     [InlineData("logical_tuple", "tuple")]
     [InlineData("logical_struct", null)]
-    [InlineData("logical_variant_sql_null", "variant")]
-    [InlineData("logical_variant_null", "variant")]
-    [InlineData("logical_variant_absent", "variant")]
-    [InlineData("logical_variant_null_member", "variant")]
+    [InlineData("logical_variant_sql_null", "arrow.parquet.variant")]
+    [InlineData("logical_variant_null", "arrow.parquet.variant")]
+    [InlineData("logical_variant_absent", "arrow.parquet.variant")]
+    [InlineData("logical_variant_null_member", "arrow.parquet.variant")]
     public void LogicalCarriersPreserveRawTypeMetadataAndDynamicPayloadBytes(string name, string? marker)
     {
         using var reader = new ArrowStreamReader(new MemoryStream(Fixture(name)));
@@ -71,13 +71,27 @@ public class CatalogContractsTests
         Assert.NotNull(restored);
         Assert.Equal(1, restored.Length);
         var field = restored.Schema.GetFieldByIndex(0);
-        if (marker is null) Assert.False(field.Metadata?.ContainsKey("vgi.logical_type.v1") ?? false);
-        else Assert.Equal(marker, field.Metadata["vgi.logical_type.v1"]);
+        if (marker == "tuple") Assert.Equal(marker, field.Metadata["vgi.logical_type.v1"]);
+        else Assert.False(field.Metadata?.ContainsKey("vgi.logical_type.v1") ?? false);
         Assert.Equal(name == "logical_variant_sql_null", restored.Column(0).IsNull(0));
-        if (original.Column(0) is BinaryArray binary)
+        if (name.StartsWith("logical_variant_", StringComparison.Ordinal))
         {
-            if (!binary.IsNull(0))
-                Assert.Equal(binary.GetBytes(0).ToArray(), Assert.IsType<BinaryArray>(restored.Column(0)).GetBytes(0).ToArray());
+            Assert.Equal(marker, field.Metadata["ARROW:extension:name"]);
+            Assert.Equal("", field.Metadata["ARROW:extension:metadata"]);
+            var storage = Assert.IsType<StructType>(field.DataType);
+            Assert.Equal(["metadata", "value"], storage.Fields.Select(f => f.Name));
+            Assert.False(storage.Fields[0].IsNullable);
+            Assert.True(storage.Fields[1].IsNullable);
+            if (name != "logical_variant_sql_null")
+            {
+                var variant = Assert.IsType<StructArray>(restored.Column(0));
+                byte[] metadata = name == "logical_variant_null_member"
+                    ? [1, 1, 0, 7, 112, 114, 101, 115, 101, 110, 116] : [1, 0, 0];
+                byte[] payload = name == "logical_variant_null" ? [0]
+                    : name == "logical_variant_absent" ? [2, 0, 0] : [2, 1, 0, 0, 1, 0];
+                Assert.Equal(metadata, Assert.IsType<BinaryArray>(variant.Fields[0]).GetBytes(0).ToArray());
+                Assert.Equal(payload, Assert.IsType<BinaryArray>(variant.Fields[1]).GetBytes(0).ToArray());
+            }
         }
         else
         {
