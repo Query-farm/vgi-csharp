@@ -12,6 +12,25 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 public class CatalogContractsTests
 {
     [Fact]
+    public void DependenciesPreserveRawIdentitiesAndNestedPayloads()
+    {
+        var table = RoundTrip<CatalogObjectRef>("object_ref");
+        Assert.Equal(["one.two", "nested"], table.SchemaPath);
+        Assert.Null(table.OwnerTable);
+        var trigger = RoundTrip<CatalogObjectRef>("trigger_ref");
+        Assert.Equal(table.Name, trigger.OwnerTable);
+        var edge = RoundTrip<ObjectDependency>("object_dependency");
+        Assert.Equal("owned", edge.Kind);
+        var graph = RoundTrip<DependencySnapshot>("dependency_snapshot");
+        Assert.Equal(42L, graph.CatalogVersion);
+        Assert.Equal(4, graph.Objects.Count);
+        Assert.Equal(3, graph.Dependencies.Count);
+        var empty = RoundTrip<DependencySnapshot>("empty_dependency_snapshot");
+        Assert.Empty(empty.Objects);
+        Assert.Empty(empty.Dependencies);
+    }
+
+    [Fact]
     public void MetadataPatchesPreserveCommentPresenceAndLiteralTags()
     {
         var patch = RoundTrip<CatalogMetadataChanges>("metadata_patch");
