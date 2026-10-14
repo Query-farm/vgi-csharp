@@ -4,6 +4,7 @@ using System.Text.Json;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
 using QueryFarm.VgiRpc.Reflection;
+using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Xunit;
@@ -12,6 +13,83 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 
 public class CatalogContractsTests
 {
+    [Fact]
+    public void MacroFamiliesPreserveDeclarationsDefaultsAndLegacyAbsence()
+    {
+        var source = EmbeddedIpc.Decode<MacroParameter>(Fixture("macro_parameter"));
+        var parameter = RoundTrip<MacroParameter>("macro_parameter");
+        Assert.Equal("fallback", parameter.Name);
+        Assert.Equal(source.DeclaredType, parameter.DeclaredType);
+        Assert.Equal(source.DefaultValue, parameter.DefaultValue);
+        Assert.Null(parameter.DefaultExpression);
+        Assert.Equal("A typed NULL default", parameter.Documentation);
+        var expression = RoundTrip<MacroParameter>("macro_parameter_expression");
+        Assert.Null(expression.DefaultValue);
+        Assert.Equal("2 + 3", EmbeddedIpc.Decode<SqlExpression>(expression.DefaultExpression!).Sql);
+        var untyped = RoundTrip<MacroParameter>("macro_parameter_untyped");
+        Assert.Null(untyped.DeclaredType);
+        Assert.Null(untyped.DefaultValue);
+        var overload = RoundTrip<MacroOverload>("macro_overload");
+        Assert.Equal(["one.two", "nested"], overload.SchemaPath);
+        Assert.Equal(["x", "fallback", "scale"], overload.Parameters.Select(p => p.Name));
+        var create = RoundTrip<MacroCreateRequest>("macro_create");
+        Assert.Equal(2, create.Overloads!.Count);
+        Assert.Equal("upper(x)", create.Overloads[1].Definition);
+        Assert.Empty(create.Parameters);
+        Assert.Equal("", create.Definition);
+        Assert.Null(RoundTrip<MacroCreateRequest>("macro_create_legacy").Overloads);
+        Assert.Equal(2, RoundTrip<MacroInfo>("macro_info").Overloads!.Count);
+        Assert.Null(RoundTrip<MacroInfo>("macro_info_legacy").Overloads);
+        using var reader = new ArrowStreamReader(new MemoryStream(parameter.DefaultValue!));
+        using var value = reader.ReadNextRecordBatch();
+        Assert.NotNull(value);
+        Assert.True(value.Column(0).IsNull(0));
+        Assert.Equal("retained", value.Schema.GetFieldByIndex(0).Metadata["domain"]);
+    }
+
+    [Theory]
+    [InlineData("logical_tuple", "tuple")]
+    [InlineData("logical_struct", null)]
+    [InlineData("logical_variant_sql_null", "variant")]
+    [InlineData("logical_variant_null", "variant")]
+    [InlineData("logical_variant_absent", "variant")]
+    [InlineData("logical_variant_null_member", "variant")]
+    public void LogicalCarriersPreserveRawTypeMetadataAndDynamicPayloadBytes(string name, string? marker)
+    {
+        using var reader = new ArrowStreamReader(new MemoryStream(Fixture(name)));
+        using var original = reader.ReadNextRecordBatch();
+        Assert.NotNull(original);
+        using var encoded = new MemoryStream();
+        using (var writer = new ArrowStreamWriter(encoded, original.Schema, leaveOpen: true))
+        {
+            writer.WriteRecordBatch(original);
+            writer.WriteEnd();
+        }
+        encoded.Position = 0;
+        using var restoredReader = new ArrowStreamReader(encoded);
+        using var restored = restoredReader.ReadNextRecordBatch();
+        Assert.NotNull(restored);
+        Assert.Equal(1, restored.Length);
+        var field = restored.Schema.GetFieldByIndex(0);
+        if (marker is null) Assert.False(field.Metadata?.ContainsKey("vgi.logical_type.v1") ?? false);
+        else Assert.Equal(marker, field.Metadata["vgi.logical_type.v1"]);
+        Assert.Equal(name == "logical_variant_sql_null", restored.Column(0).IsNull(0));
+        if (original.Column(0) is BinaryArray binary)
+        {
+            if (!binary.IsNull(0))
+                Assert.Equal(binary.GetBytes(0).ToArray(), Assert.IsType<BinaryArray>(restored.Column(0)).GetBytes(0).ToArray());
+        }
+        else
+        {
+            var tuple = Assert.IsType<StructArray>(restored.Column(0));
+            Assert.Equal(ulong.MaxValue, Assert.IsType<UInt64Array>(tuple.Fields[0]).GetValue(0));
+            Assert.True(tuple.Fields[1].IsNull(0));
+            Assert.Equal(["element1", "element2"], Assert.IsType<StructType>(field.DataType).Fields.Select(f => f.Name));
+        }
+        Assert.Null(reader.ReadNextRecordBatch());
+        Assert.Null(restoredReader.ReadNextRecordBatch());
+    }
+
     [Theory]
     [InlineData("query_parameters", "named")]
     [InlineData("query_empty_parameters", "positional")]
