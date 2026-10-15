@@ -89,6 +89,32 @@ public class InMemoryCatalogTests
     }
 
     [Fact]
+    public async Task UnsupportedTypedIndexesPreserveHostedCatalog()
+    {
+        var (service, _) = Service();
+        var (attach, _) = await AttachAsync(service);
+        await service.CatalogTableCreateAsync(CreateTable(attach, "t"));
+        var before = (await service.CatalogVersionAsync(attach, null)).Version;
+        var definition = QueryFarm.Vgi.Tests.Protocol.CatalogContractsTests.Fixture("index_definition");
+        foreach (var conflict in new[] { OnConflict.Error, OnConflict.Ignore, OnConflict.Replace })
+        {
+            var request = new IndexCreateRequest {
+                AttachOpaqueData = attach, SchemaPath = ["main"], Name = "t", Definition = definition,
+                OnConflict = conflict,
+            };
+            await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogIndexCreateAsync(request));
+        }
+        await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogIndexDropAsync(attach, ["main"], "t", true, true, null));
+        await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogIndexOptionDefinitionsAsync(
+            attach, QueryFarm.Vgi.Tests.Protocol.CatalogContractsTests.Fixture("object_ref"), "ART", null));
+        Assert.Equal(before, (await service.CatalogVersionAsync(attach, null)).Version);
+        Assert.Equal(["t"], await TableNames(service, attach));
+        var table = EmbeddedIpc.Decode<TableInfo>(Assert.Single(
+            (await service.CatalogTableGetAsync(attach, ["main"], "t", null, null, null)).Items));
+        Assert.Equal(TwoColumns, table.Columns);
+    }
+
+    [Fact]
     public async Task UnsupportedConstraintsRejectBeforeAnyReplacement()
     {
         var (service, _) = Service();

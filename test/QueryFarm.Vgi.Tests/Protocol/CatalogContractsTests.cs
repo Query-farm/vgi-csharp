@@ -14,6 +14,26 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 public class CatalogContractsTests
 {
     [Fact]
+    public void TypedIndexesPreserveRawPathsContextAndOptions()
+    {
+        Assert.Equal(["a.b"], RoundTrip<IndexKey>("index_key_column").ColumnPath);
+        Assert.Equal(["record", "a.b"], RoundTrip<IndexKey>("index_key_nested").ColumnPath);
+        Assert.NotNull(RoundTrip<IndexKey>("index_key_expression").Expression);
+        var definition = RoundTrip<IndexDefinition>("index_definition");
+        RoundTrip<IndexDefinition>("index_definition_primary");
+        Assert.Equal(Fixture("index_key_column"), definition.Keys[0]);
+        Assert.Equal(Fixture("index_key_expression"), definition.Keys[1]);
+        Assert.Equal(Fixture("values"), definition.Options);
+        var info = RoundTrip<IndexInfo>("index_info");
+        Assert.Equal(Fixture("index_definition"), info.Definition);
+        Assert.Equal(Fixture("state"), info.Options);
+        var create = RoundTrip<IndexCreateRequest>("index_create");
+        Assert.Equal(info.Definition, create.Definition);
+        Assert.Equal(new byte[] {116, 120, 110, 0, 255}, create.TransactionOpaqueData);
+        Assert.Equal(["indexes"], RoundTrip<IndexCreateRequest>("index_create_cross_schema").SchemaPath);
+    }
+
+    [Fact]
     public void ColumnExpressionMetadataRetainsExactIpcBytes()
     {
         using var reader = new ArrowStreamReader(new MemoryStream(Fixture("column_expression_metadata")));
@@ -299,7 +319,7 @@ public class CatalogContractsTests
         }
     }
 
-    private static byte[] Fixture(string name)
+    internal static byte[] Fixture(string name)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)

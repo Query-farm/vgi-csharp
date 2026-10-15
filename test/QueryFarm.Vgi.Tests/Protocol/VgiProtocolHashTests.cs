@@ -20,7 +20,7 @@ public sealed class VgiProtocolHashTests
     /// (2.1.0) does — a new value here means the protocol changed, so take it from the reference,
     /// never from this port's own output.
     /// </remarks>
-    public const string ReferenceVgiV2Hash = "a81e4c5fb450665c3e4991333ba8a404b6482a345269bc3df5b1c02680d71bea";
+    public const string ReferenceVgiV2Hash = "8003abf6447266f5bc59cca76bef09df661f35fbbf0b360f400d92fdd4b12aee";
 
     [Fact]
     public void HostsTheReferenceVgiV2Surface()
@@ -38,6 +38,8 @@ public sealed class VgiProtocolHashTests
         { "catalog_drop", s => s.CatalogDropAsync("x") },
         { "catalog_table_scan_function_get", s => s.CatalogTableScanFunctionGetAsync([], ["main"], "t", null, null, null) },
         { "catalog_index_create", s => s.CatalogIndexCreateAsync(new IndexCreateRequest()) },
+        { "catalog_index_drop", s => s.CatalogIndexDropAsync([], ["main"], "i", false, false, null) },
+        { "catalog_index_option_definitions", s => s.CatalogIndexOptionDefinitionsAsync([], [], "ART", null) },
         { "catalog_schema_contents_indexes", s => s.CatalogSchemaContentsIndexesAsync([], ["main"], null) },
     };
 
