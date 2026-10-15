@@ -36,6 +36,7 @@ public sealed class VgiProtocolHashTests
         { "aggregate_window", s => s.AggregateWindowAsync(new AggregateWindowRequest()) },
         { "catalog_create", s => s.CatalogCreateAsync(new CatalogCreateRequest()) },
         { "catalog_drop", s => s.CatalogDropAsync("x") },
+        { "catalog_dependencies", s => s.CatalogDependenciesAsync([], null) },
         { "catalog_table_scan_function_get", s => s.CatalogTableScanFunctionGetAsync([], ["main"], "t", null, null, null) },
         { "catalog_index_create", s => s.CatalogIndexCreateAsync(new IndexCreateRequest()) },
         { "catalog_index_drop", s => s.CatalogIndexDropAsync([], ["main"], "i", false, false, null) },
