@@ -759,7 +759,7 @@ worker.HttpAuthenticate(TestBearers.Create(TestBearers.GrantsConfigured(args)));
 // vgi.v2,conformance.Secondary.v1`) runs against this worker. Additive: vgi.v2 is unchanged.
 worker.HostedProtocols(() => [new HostedProtocol(typeof(ISecondary), new SecondaryImpl())]);
 
-// --identity (HTTP only): vgi_rpc.Identity.v1 with the IDENTITY_CONFORMANCE_FIXTURE.md policy and
+// --identity (HTTP only): vgi_rpc.Identity.v2 with the IDENTITY_CONFORMANCE_FIXTURE.md policy and
 // its spoofable header authentication -- `vgi-rpc-test-hosted --url ... --identity`.
 if (IdentityFixture.Requested(args))
 {

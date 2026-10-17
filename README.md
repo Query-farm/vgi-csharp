@@ -237,9 +237,9 @@ upstream, HTTP), and listed by `vgi_rpc.Reflection.v1` after `vgi.v2`. They cann
 dispatches exactly as before. Each interface needs its own `[ProtocolName]` (not `vgi.v2`, not
 under the reserved `vgi_rpc.` prefix); a bad entry fails startup with an error naming the hook.
 
-### Token introspection (`vgi_rpc.Identity.v1`)
+### Token introspection (`vgi_rpc.Identity.v2`)
 
-A worker may opt into hosting `vgi_rpc.Identity.v1` over HTTP, for a reverse proxy that must
+A worker may opt into hosting `vgi_rpc.Identity.v2` over HTTP, for a reverse proxy that must
 resolve an opaque bearer credential to a principal:
 
 ```csharp
@@ -277,7 +277,7 @@ worker.SealedGrants(GrantKeys.Parse([Environment.GetEnvironmentVariable("MY_GRAN
 
 With grant keys configured (`SealedGrants(...)`, `--grant-key`, or `VGI_RPC_GRANT_KEYS` with the
 optional `VGI_RPC_GRANT_AUDIENCE` / `VGI_RPC_GRANT_MAX_TTL_SECONDS`, default 7 days), the HTTP
-worker hosts `vgi_rpc.Identity.v1` even without hooks, mints sealed `vgig1.` grants through
+worker hosts `vgi_rpc.Identity.v2` even without hooks, mints sealed `vgig1.` grants through
 `issue_grant` (unless `Identity(mintGrant: ...)` supplies a minter), and accepts them as
 `Authorization: Bearer` credentials on every call, as the grant's owner. Keys are standard base64
 of exactly 32 bytes; a malformed one stops the worker at startup. No keys, no change. A caller
@@ -320,7 +320,9 @@ The protocol is hosted on HTTP only, and only when the signing key is configured
 (`SigningKey(...)` or a non-empty `VGI_SIGNING_KEY`) **and** the worker can issue grants (grant
 keys, or `Identity(mintGrant: ...)`). Otherwise it is absent, so a client learns from reflection
 that it is unavailable. Tickets expire at the worker's grant maximum (`ttl_seconds = 0` asks for
-the maximum); with no maximum they don't expire. Rotating the signing key invalidates every
+the maximum); with no maximum they don't expire. `seal_attach` returns an `AttachTicket` whose
+`ExpiresAt` is a `DateTimeOffset?` (`timestamp[us, tz="UTC"]` on the wire, protocol version
+`2.0.0`), `null` when the ticket never expires. Rotating the signing key invalidates every
 ticket. `vgi_attach_ticket` is a reserved attach-option name, so declaring it in any letter case
 fails at definition or at `RegisterCatalog`. Neither the ticket nor a restored option is ever
 logged. Spec: vgi-python `docs/protocol/vgi-attach-tickets.md`. The format lives in

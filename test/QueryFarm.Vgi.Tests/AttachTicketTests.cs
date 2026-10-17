@@ -218,7 +218,7 @@ public sealed class AttachTicketTests
             Assert.False(HostsTickets(ProbeWorker().SigningKey(s_signingKey)));
             // A worker's own minter is a way to issue grants.
             Assert.True(HostsTickets(ProbeWorker().SigningKey(s_signingKey)
-                .Identity(mintGrant: (_, _, _, _) => new IssuedGrant("g", 1.0))));
+                .Identity(mintGrant: (_, _, _, _) => new IssuedGrant("g", DateTimeOffset.UnixEpoch.AddSeconds(1)))));
         });
     }
 
@@ -304,7 +304,33 @@ public sealed class AttachTicketTests
         var claims = AttachTickets.Open(s_signingKey, sealedTicket.Ticket, "alice");
         Assert.Equal(expected, claims.ExpiresAt - claims.IssuedAt);
         Assert.InRange(claims.IssuedAt, before, before + 5);
-        Assert.Equal(claims.ExpiresAt, sealedTicket.ExpiresAt);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(claims.ExpiresAt), sealedTicket.ExpiresAt);
+    }
+
+    /// <summary>Protocol 2.0.0: <c>expires_at</c> is <c>timestamp[us, tz="UTC"]</c>, nullable,
+    /// null meaning no expiry (1.0.0 carried float64 unix seconds with <c>+inf</c>).</summary>
+    [Fact]
+    public void AttachTicket_WireShapeIsANullableUtcTimestamp()
+    {
+        Assert.Equal("2.0.0", AttachTickets.ProtocolVersion);
+        var schema = QueryFarm.VgiRpc.Reflection.SchemaDerivation.InnerSchemaFor(typeof(AttachTicket));
+        Assert.Equal(["ticket", "expires_at"], schema.FieldsList.Select(f => f.Name));
+        Assert.IsType<StringType>(schema.GetFieldByName("ticket").DataType);
+        Assert.False(schema.GetFieldByName("ticket").IsNullable);
+        var expiresAt = schema.GetFieldByName("expires_at");
+        var timestamp = Assert.IsType<TimestampType>(expiresAt.DataType);
+        Assert.Equal(TimeUnit.Microsecond, timestamp.Unit);
+        Assert.Equal("UTC", timestamp.Timezone);
+        Assert.True(expiresAt.IsNullable);
+
+        foreach (DateTimeOffset? value in new DateTimeOffset?[] { null, DateTimeOffset.FromUnixTimeSeconds(1893456000) })
+        {
+            using var batch = QueryFarm.VgiRpc.Reflection.ValueCodec.BuildRow(
+                new Schema([new Field("result", BinaryType.Default, false)], null),
+                [new AttachTicket { Ticket = "vgia1.x", ExpiresAt = value }]);
+            var back = (AttachTicket)QueryFarm.VgiRpc.Reflection.ValueCodec.ExtractRow(batch, [typeof(AttachTicket)])[0]!;
+            Assert.Equal(value, back.ExpiresAt);
+        }
     }
 
     [Fact]
@@ -313,7 +339,7 @@ public sealed class AttachTicketTests
         var sealedTicket = await Service(maxTtlSeconds: null).SealAttachAsync(
             new SealAttachRequest { CatalogName = TicketProbeSetup.CatalogName, Options = OptionsIpc([("api_key", "k")]) },
             new Ctx(s_alice));
-        Assert.Equal(double.PositiveInfinity, sealedTicket.ExpiresAt);
+        Assert.Null(sealedTicket.ExpiresAt);
         Assert.Equal(0, AttachTickets.Open(s_signingKey, sealedTicket.Ticket, "alice").ExpiresAt);
 
         // The ceiling: grant keys' maximum, else the environment, else none.

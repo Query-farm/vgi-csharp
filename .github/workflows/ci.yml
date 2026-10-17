@@ -54,7 +54,7 @@ jobs:
       - run: dotnet format vgi-csharp.slnx --verify-no-changes
 
   # vgi-rpc's shared hosted-protocols group against the fixture worker on stdio, unix and HTTP
-  # (+ vgi_rpc.Identity.v1): conformance.Secondary.v1 hosted through Worker.HostedProtocols, the
+  # (+ vgi_rpc.Identity.v2): conformance.Secondary.v1 hosted through Worker.HostedProtocols, the
   # error model through this SDK's server, and the Identity opt-in. The reference is installed from
   # a checkout of vgi-rpc-python (unpinned main, by design), as vgi-rpc-csharp's conformance job does.
   hosted-protocols:

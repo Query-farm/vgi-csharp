@@ -14,7 +14,7 @@ using Xunit;
 namespace QueryFarm.Vgi.Tests;
 
 /// <summary>Sealed grants and <c>resolve_token</c> bearers through the worker
-/// (IDENTITY_V1_SPEC.md §9): opt-in, HTTP-only, and accepted back on vgi.v2 calls.</summary>
+/// (IDENTITY_V2_SPEC.md §9): opt-in, HTTP-only, and accepted back on vgi.v2 calls.</summary>
 [Collection("environment")]
 public sealed class WorkerSealedGrantsTests
 {
@@ -24,7 +24,7 @@ public sealed class WorkerSealedGrantsTests
 
     private static Worker NewWorker() => new Worker().CatalogName("test_catalog").DefaultSchema("main");
 
-    /// <summary>Keys alone host vgi_rpc.Identity.v1 with issue_grant -- on HTTP only.</summary>
+    /// <summary>Keys alone host vgi_rpc.Identity.v2 with issue_grant -- on HTTP only.</summary>
     [Fact]
     public void KeysHostIssueGrantOnHttpOnly()
     {
@@ -69,7 +69,7 @@ public sealed class WorkerSealedGrantsTests
     [Fact]
     public void HooksAndAllowlistRulesStillHold()
     {
-        static IssuedGrant Mint(string principal, string purpose, List<string> scopes, long ttl) => new("custom", 1.0);
+        static IssuedGrant Mint(string principal, string purpose, List<string> scopes, long ttl) => new("custom", DateTimeOffset.UnixEpoch.AddSeconds(1));
         var worker = NewWorker().SealedGrants(s_keys).Identity(mintGrant: Mint);
         var identity = worker.NewRpcServer(Worker.ServerTransport.Http).HostedIdentity!;
         var fresh = new AuthContext("t", true, "alice",

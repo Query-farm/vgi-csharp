@@ -105,8 +105,11 @@ public sealed class AttachTicket
     /// <summary>The <c>vgia1.</c> text. Not a credential, but never logged.</summary>
     public string Ticket { get; set; } = "";
 
-    /// <summary>Unix seconds after which the worker refuses it; <c>+inf</c> when it has no expiry.</summary>
-    public double ExpiresAt { get; set; }
+    /// <summary>The UTC instant after which the worker refuses it, carried as
+    /// <c>timestamp[us, tz="UTC"]</c>; <see langword="null"/> (null on the wire) when the worker sets
+    /// no maximum lifetime. Protocol <c>1.0.0</c> carried a float64 of unix seconds with <c>+inf</c>
+    /// for "no expiry".</summary>
+    public DateTimeOffset? ExpiresAt { get; set; }
 }
 
 /// <summary><c>vgi.attach_tickets.v1</c>: sealing a user's ATTACH so a runner holding their grant
@@ -151,7 +154,7 @@ public static partial class AttachTickets
     public const string ProtocolName = "vgi.attach_tickets.v1";
 
     /// <summary>The protocol's declared version.</summary>
-    public const string ProtocolVersion = "1.0.0";
+    public const string ProtocolVersion = "2.0.0";
 
     /// <summary>The envelope's version byte, fixed by this format.</summary>
     public const byte EnvelopeVersion = 0x01;
@@ -671,7 +674,7 @@ internal sealed class AttachTicketsService(CatalogRegistry catalog, byte[] signi
         return Task.FromResult(new AttachTicket
         {
             Ticket = token,
-            ExpiresAt = expiresAt == 0 ? double.PositiveInfinity : expiresAt,
+            ExpiresAt = expiresAt == 0 ? null : DateTimeOffset.FromUnixTimeSeconds(expiresAt),
         });
     }
 }
