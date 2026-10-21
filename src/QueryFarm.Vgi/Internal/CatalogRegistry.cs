@@ -48,6 +48,7 @@ namespace QueryFarm.Vgi.Internal;
 /// </summary>
 public sealed class CatalogRegistry
 {
+    public Catalog.Snapshots.CatalogSnapshotPolicy? SnapshotPolicy { get; set; }
     /// <summary>The identity bucket ordinary (non-multi-catalog-identity) registrations live
     /// under, and the fallback every attach name resolves to when it has no dedicated bucket.</summary>
     public const string DefaultIdentity = "";

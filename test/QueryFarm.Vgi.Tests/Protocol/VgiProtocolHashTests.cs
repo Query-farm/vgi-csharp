@@ -17,7 +17,7 @@ public sealed class VgiProtocolHashTests
     /// </summary>
     /// <remarks>
     /// The one place this value is written down. It changes only when vgi.v2's protocol version
-    /// (2.1.0) does — a new value here means the protocol changed, so take it from the reference,
+    /// (2.2.0) does — a new value here means the protocol changed, so take it from the reference,
     /// never from this port's own output.
     /// </remarks>
     public const string ReferenceVgiV2Hash = "774cb80090d71ea76d09aa311b9cda4ca4c33c3bf72c43242eb6dc87b6f79ce5";

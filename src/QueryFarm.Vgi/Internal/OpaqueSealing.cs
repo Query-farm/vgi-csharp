@@ -178,8 +178,10 @@ public class OpaqueSealingProxy : DispatchProxy
         }
 
         object? result;
+        var previousScope = Catalog.Snapshots.CatalogSnapshotScope.Current.Value;
         try
         {
+            if (sealedAttach is not null) Catalog.Snapshots.CatalogSnapshotScope.Current.Value = Catalog.Snapshots.CatalogSnapshotManager.Hash(sealedAttach);
             result = targetMethod.Invoke(_inner, args);
         }
         catch (TargetInvocationException exc) when (exc.InnerException is { } inner)
@@ -187,6 +189,7 @@ public class OpaqueSealingProxy : DispatchProxy
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(inner).Throw();
             throw;
         }
+        finally { Catalog.Snapshots.CatalogSnapshotScope.Current.Value = previousScope; }
 
         return result switch
         {

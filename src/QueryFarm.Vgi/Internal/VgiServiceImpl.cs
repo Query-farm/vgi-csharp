@@ -1399,11 +1399,28 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ? CatalogContentsSnapshotAsync(identity, attachOpaqueData, ctx)
             : CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
         var handler = catalog.CatalogContentsHandlerFor(identity);
-        var result = handler is null
-            ? await Build().ConfigureAwait(false)
-            : await handler(new CatalogContentsRequest(identity, attachOpaqueData, ifNoneMatch, version, Build)).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"catalog_contents handler for '{identity}' returned null");
-        return CatalogContentsResponder.Respond(version, result, ifNoneMatch, catalog.CatalogContentsEtagFor(identity));
+        async Task<CatalogContentsResponse> Ordinary(string? condition)
+        {
+            var result = handler is null
+                ? await Build().ConfigureAwait(false)
+                : await handler(new CatalogContentsRequest(identity, attachOpaqueData, condition, version, Build)).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException($"catalog_contents handler for '{identity}' returned null");
+            return CatalogContentsResponder.Respond(version, result, condition, catalog.CatalogContentsEtagFor(identity));
+        }
+        if (catalog.SnapshotPolicy is { } policy)
+        {
+            var scope = Catalog.Snapshots.CatalogSnapshotScope.Current.Value ?? Catalog.Snapshots.CatalogSnapshotManager.Hash(attachOpaqueData);
+            var request = new Catalog.Snapshots.SnapshotRequest(attachOpaqueData, scope, version, ctx);
+            var delivery = await policy.Manager.ServeAsync(policy, request, ifNoneMatch, () => Ordinary(null)).ConfigureAwait(false);
+            if (delivery.Reference is { } reference)
+            {
+                if (ctx is null) throw new InvalidOperationException("Published catalog delivery requires an RPC call context; use Manager.WarmAsync for startup publication.");
+                ctx.RespondWithExternalRef(reference);
+                return null!;
+            }
+            return delivery.Response!;
+        }
+        return await Ordinary(ifNoneMatch).ConfigureAwait(false);
     }
 
     /// <summary>The default <c>catalog_contents</c> snapshot for <paramref name="identity"/>, from
@@ -2221,7 +2238,6 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         {
             Comment = comment,
             Tags = SortedMap(tags),
-            AttachOpaqueData = [],
             Path = path.ToList(),
             EstimatedObjectCount = SortedMap(new Dictionary<string, long>
             {
@@ -2246,7 +2262,6 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     {
         Comment = schema.Comment,
         Tags = SortedMap(schema.Tags),
-        AttachOpaqueData = [],
         Path = schema.Path,
         EstimatedObjectCount = SortedMap(new Dictionary<string, long>
         {

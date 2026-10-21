@@ -55,9 +55,10 @@ public sealed class Worker
     /// the <c>catalog_contents</c> RPC and the <c>supports_catalog_contents</c> column on the
     /// <c>catalog_attach</c> result (see <see cref="CatalogContents"/>).</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "2.1.0";
+    public const string DefaultProtocolVersion = "2.2.0";
 
     private readonly CatalogRegistry _catalog = new();
+    public Worker CatalogSnapshot(Catalog.Snapshots.CatalogSnapshotPolicy policy) { _catalog.SnapshotPolicy = policy; return this; }
     private string _protocolVersion = DefaultProtocolVersion;
     private Func<IEnumerable<HostedProtocol>>? _hostedProtocols;
     private IdentityImpl.TokenResolver? _resolveToken;
