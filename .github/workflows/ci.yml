@@ -5,8 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# Build the source revision for 0.18.1 while its NuGet release is pending.
-# Published SDK packages require those packages in Directory.Packages.props.
+# Resolve the same NuGet RPC dependencies as published SDK consumers.
 permissions:
   contents: read
   actions: read
@@ -14,8 +13,6 @@ permissions:
 env:
   # The suite and linked native runner must come from this same revision.
   VGI_REF: 3a2249f815ff6e2a8b5289a3e6284326084e3630
-  VGI_RPC_CSHARP_REF: 3717e1e8da99f8479aaf3aff081e065bcad888d9
-  VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
 
 jobs:
   build-test:
@@ -26,12 +23,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout required RPC source
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -54,12 +45,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout required RPC source
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -70,7 +55,6 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props', 'global.json') }}
           restore-keys: nuget-${{ runner.os }}-
       - run: dotnet restore
-      # Restrict formatting to this SDK; the RPC checkout includes vendored Arrow.
       - run: make format_check
 
   # vgi-rpc's shared hosted-protocols group against the fixture worker on stdio, unix and HTTP
@@ -82,12 +66,6 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout required RPC source
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/checkout@v4
         with:
           repository: Query-farm/vgi-rpc-python
@@ -114,12 +92,6 @@ jobs:
         transport: [launch, http]
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout required RPC source
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json

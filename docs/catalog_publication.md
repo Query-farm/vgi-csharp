@@ -19,4 +19,4 @@ C#: call `Worker.CatalogSnapshot(policy)`. Use `policy.Manager.WarmAsync`, `Impo
 
 This implementation requires QueryFarm.VgiRpc 0.18.1 for binary dictionary schema derivation and value encoding/decoding.
 
-CI pins the matching RPC source commit while the separate 0.18.1 NuGet releases are pending. Publish the four RPC packages before publishing this SDK.
+Version 0.20.0 requires native clients and workers on wire 2.2.x; wire 2.1 is incompatible. The protocol route remains `vgi.v2`. CI and release builds resolve RPC 0.18.1 from NuGet.

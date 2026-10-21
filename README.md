@@ -25,6 +25,8 @@ It is wire-compatible with the canonical [Python](https://github.com/Query-farm/
 the Go/Rust/Java/TypeScript ports, so a C# worker drops in behind the same `ATTACH ... (TYPE vgi)`.
 Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targets **.NET 10**.
 
+Version 0.20.0 uses VGI wire 2.2.0 under `vgi.v2` and requires a native VGI client speaking wire 2.2.x. Upgrade clients and workers together; wire 2.1 clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+
 > **Status: full parity.** All 356 sqllogictests in the canonical
 > `~/Development/vgi/test/sql/integration/**` suite pass — the same unmodified suite the
 > Python/Go/Rust/Java ports are graded against. See [`docs/roadmap.md`](docs/roadmap.md) for the
