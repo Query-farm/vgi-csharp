@@ -7,7 +7,13 @@ on:
 
 # Build the source revision for 0.18.1 while its NuGet release is pending.
 # Published SDK packages require those packages in Directory.Packages.props.
+permissions:
+  contents: read
+  actions: read
+
 env:
+  # The suite and linked native runner must come from this same revision.
+  VGI_REF: 3a2249f815ff6e2a8b5289a3e6284326084e3630
   VGI_RPC_CSHARP_REF: 3717e1e8da99f8479aaf3aff081e065bcad888d9
   VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
 
@@ -96,8 +102,7 @@ jobs:
       - run: dotnet build -c Release
       - run: ci/run-hosted-protocols.sh
 
-  # See ci/README.md: runs the canonical suite against a prebuilt haybarn-unittest + the signed
-  # community vgi extension, no C++ build from source. BOTH transports, because they are two
+  # Run the canonical suite with a matching VGI-linked native runner. BOTH transports, because they are two
   # separate dispatch implementations that have diverged in production: a launcher-only lane
   # reported 333/334 green while 81 files were red over HTTP.
   integration:
@@ -130,28 +135,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Query-farm/vgi
-          ref: main
+          ref: ${{ env.VGI_REF }}
           path: vgi-upstream
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve latest haybarn release
-        run: |
-          REL=$(gh release view --repo Query-farm-haybarn/haybarn --json tagName --jq .tagName)
-          echo "HAYBARN_RELEASE=$REL" >> "$GITHUB_ENV"
+      - name: Fetch matching native integration runner
+        run: >-
+          python3 "$VGI_SRC/scripts/ci_fetch_native_runner.py"
+          --source "$VGI_SRC" --output "$RUNNER_TEMP/vgi-native"
         env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Download haybarn-unittest
-        run: |
-          gh release download "$HAYBARN_RELEASE" \
-            --repo Query-farm-haybarn/haybarn \
-            --pattern 'haybarn_unittest-linux-amd64.zip' \
-            --output /tmp/haybarn-unittest.zip --clobber
-          unzip -o -q /tmp/haybarn-unittest.zip -d /tmp/haybarn-unittest
-          UNITTEST=$(find /tmp/haybarn-unittest -name 'haybarn-unittest' -type f | head -1)
-          chmod +x "$UNITTEST"
-          echo "HAYBARN_UNITTEST=$UNITTEST" >> "$GITHUB_ENV"
-        env:
+          VGI_SRC: ${{ github.workspace }}/vgi-upstream
           GH_TOKEN: ${{ github.token }}
 
       - name: Run integration suite (${{ matrix.transport }})

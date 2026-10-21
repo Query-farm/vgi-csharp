@@ -26,6 +26,8 @@ REPO="$(cd "$HERE/.." && pwd)"
 STAGE="${STAGE:-$(mktemp -d)}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 TRANSPORT="${TRANSPORT:-launch}"
+# A matching native runner already links vgi/httpfs/json/parquet.
+RUNNER_LINKS_EXTENSIONS="${RUNNER_LINKS_EXTENSIONS:-0}"
 case "$TRANSPORT" in
   launch|http) ;;
   *) echo "::error::TRANSPORT must be 'launch' or 'http', got '$TRANSPORT'"; exit 1 ;;
@@ -99,7 +101,11 @@ mkdir -p "$STAGE/test/sql/integration"
        -not -path './macro/macros.test' \
        | while read -r f; do
     mkdir -p "$STAGE/test/sql/integration/$(dirname "$f")"
-    awk -v http="$AWK_HTTP" -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/integration/$f"
+    if [ "$RUNNER_LINKS_EXTENSIONS" = "1" ]; then
+      cp "$f" "$STAGE/test/sql/integration/$f"
+    else
+      awk -v http="$AWK_HTTP" -f "$HERE/preprocess-require.awk" "$f" > "$STAGE/test/sql/integration/$f"
+    fi
   done )
 
 # The database-worker tests package this executable through a path relative to
@@ -163,6 +169,7 @@ export VGI_BAD_PROTOCOL_WORKER="$BAD_PROTOCOL"
 
 cd "$STAGE"
 
+if [ "$RUNNER_LINKS_EXTENSIONS" != "1" ]; then
 echo "Warming the extension cache (vgi from community, deps from core) ..."
 mkdir -p "$STAGE/test"
 cat > "$STAGE/test/_warm.test" <<'EOF'
@@ -180,13 +187,14 @@ INSTALL json FROM core;
 statement ok
 INSTALL parquet FROM core;
 EOF
-"$HAYBARN_UNITTEST" "test/_warm.test" >/dev/null 2>&1 || echo "::warning::extension warm step did not fully succeed"
+"$HAYBARN_UNITTEST" --test-dir "$STAGE" "test/_warm.test" >/dev/null 2>&1 || echo "::warning::extension warm step did not fully succeed"
 rm -f "$STAGE/test/_warm.test"
+fi
 
 echo "Running suite (test/sql/integration/*) ..."
 log="$(mktemp)"
 rc=0
-"$HAYBARN_UNITTEST" --test-config "$TEST_CONFIG" "test/sql/integration/*" 2>&1 | tee "$log" && rc=0 || rc="${PIPESTATUS[0]}"
+"$HAYBARN_UNITTEST" --test-dir "$STAGE" --test-config "$TEST_CONFIG" "test/sql/integration/*" 2>&1 | tee "$log" && rc=0 || rc="${PIPESTATUS[0]}"
 
 if grep -q 'No test cases matched\|No tests ran' "$log"; then
   echo "::error::the runner matched no test cases — the glob or the staging is wrong (an empty stage still exits 0)."

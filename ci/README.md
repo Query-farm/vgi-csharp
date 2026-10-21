@@ -1,5 +1,7 @@
 # CI: the vgi integration suite
 
+CI uses the VGI source revision pinned by `VGI_REF` for both the test suite and a native runner linked with that VGI extension. `scripts/ci_fetch_native_runner.py` verifies the runner provenance and sets `RUNNER_LINKS_EXTENSIONS=1`; this lets wire-contract changes run before a separate public extension release. The local driver still defaults to the signed community extension when that flag is omitted. Existing test exclusions and coverage floors apply in both modes.
+
 The `integration` job in [`ci.yml`](../.github/workflows/ci.yml) runs the canonical
 [Query-farm/vgi](https://github.com/Query-farm/vgi) integration sqllogictest suite against this
 repo's C# example worker on every push/PR, once per transport. The same `.test` files run against
@@ -9,25 +11,19 @@ the Python, Go, Rust, and Java ports, so a green run here is real wire-compatibi
 
 ## How it works (no C++ build)
 
-Rather than building the vgi DuckDB extension from source, CI drives a **prebuilt** standalone
-`haybarn-unittest` (the DuckDB/Haybarn sqllogictest runner, published in Haybarn's releases) and
-installs the **signed** vgi extension from the Haybarn community channel — the same approach
-`vgi-go`'s CI uses (see its `ci/README.md` for the fuller, multi-lane version this was ported
-from):
+CI downloads the native integration artifact built by the pinned VGI revision.
+The SDK repository builds only the C# workers:
 
-1. **Build the workers** — `dotnet build -c Release` produces `vgi-example-worker`,
-   `vgi-simple-writable-worker`, and `vgi-bad-protocol-worker`.
-2. **Checkout the test suite** — `Query-farm/vgi` at a pinned commit; its
-   `test/sql/integration/*.test` files are the suite.
-3. **Download the runner** — `haybarn_unittest-linux-amd64.zip` from the latest Haybarn release.
-4. **Preprocess** — the standalone runner links none of the extensions the tests gate on, so
-   [`preprocess-require.awk`](preprocess-require.awk) rewrites each `require <ext>` into an
-   explicit signed `INSTALL <ext> FROM {community,core}; LOAD <ext>;`. `require-env` and
-   everything else pass through.
-5. **Run** — [`run-integration.sh`](run-integration.sh) stages the preprocessed tree and runs the
-   suite in a single `haybarn-unittest` invocation, after `FORCE INSTALL`ing the vgi extension (so
-   the run uses what users can install today). The small stateful and incompatible-protocol
-   fixture workers remain isolated subprocesses on both lanes.
+1. **Build the workers** — `dotnet build -c Release` produces the example,
+   simple-writable and bad-protocol workers.
+2. **Checkout the test suite** — `Query-farm/vgi` at `VGI_REF` supplies the
+   canonical test files and artifact-fetch helper.
+3. **Download and verify the runner** — the helper selects that exact commit's
+   artifact and validates its manifest, provenance and checksums.
+4. **Stage and run** — `RUNNER_LINKS_EXTENSIONS=1` preserves extension gates and
+   runs the staged suite against the linked native build. Local runs with an
+   independent standalone runner still preprocess signed community installs.
+   Coverage floors and error-skip guards apply to both paths.
 
 ## Two transport lanes
 
@@ -97,29 +93,11 @@ suite was re-run once with `set ignore_error_messages Unable to connect` injecte
 staged file, turning each swallowed skip into a visible failure. With the worker fixed, nothing in
 the suite legitimately errors with an HTTP-containing message on this lane.
 
-**This lane has real value beyond the local suite**: this environment doesn't have the DuckDB
-`spatial` extension built, so `require spatial`-gated files (e.g. `table/expression_filter.test`)
-have zero local coverage — they always skip. The haybarn runner *does* have `spatial` built, and
-running for real here caught a genuine crash the local suite structurally could not: the initial
-`spatial_filter_example` fixture used a native GeoArrow `geoarrow.point` struct encoding that
-crashed DuckDB itself (`INTERNAL Error: dereference unique_ptr that is NULL`) on the simplest
-possible query — a real worker bug, fixed by switching to the `geoarrow.wkb` binary encoding
-`~/Development/vgi-python`'s reference fixture already uses successfully (see the fixture's own
-doc comment and the fixing commit for the full story). It also stayed this lane's only real
-coverage for genuine expression-filter (function-call/spatial) pushdown until that was implemented
-(see `Internal/ExpressionFilterEvaluator.cs`'s doc comment) — `table/expression_filter.test` now
-passes 32/32 assertions here, verified against a real `haybarn-unittest` + `spatial` extension
-before removing its exclusion from `run-integration.sh`. Two known gaps remain, documented in
-`run-integration.sh`'s exclusion comments and re-run there to confirm before excluding:
-`duckdb_logs()`/RPC-count assertions (`cache/secret_ineligible.test`, `macro/macros.test`) that
-read as community-extension-build-vs-`main`-branch-test-file skew — both pass 333/333 against a
-locally-built unittest, so they're not worker bugs.
-
-The local, fully-verified conformance gate remains `scripts/run_tests.sh` against a
-locally-built vgi checkout (`VGI_DIR`, default `../vgi`) — see the root `README.md` and `docs/roadmap.md`. This
-CI job is a lighter-weight, no-C++-build check for every push/PR, and it now genuinely passes; it
-supplements (catches spatial-path gaps the local suite structurally can't) rather than replaces
-that local verification when actually changing worker behavior.
+The matching native artifact does not link `spatial`, so that optional path is
+skipped in this mode. Independent standalone-runner checks with `spatial`
+installed remain useful for spatial expression coverage. Existing exclusions
+in `run-integration.sh` remain unchanged; this runner switch does not waive
+worker failures or lower assertion floors.
 
 ## Run it locally
 
