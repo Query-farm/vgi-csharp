@@ -8,7 +8,7 @@ on:
 # Build the source revision for 0.18.1 while its NuGet release is pending.
 # Published SDK packages require those packages in Directory.Packages.props.
 env:
-  VGI_RPC_CSHARP_REF: d7698e4c97391959dd22f9c08ea70b375d0b7632
+  VGI_RPC_CSHARP_REF: 3717e1e8da99f8479aaf3aff081e065bcad888d9
   VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
 
 jobs:
