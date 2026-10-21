@@ -73,7 +73,7 @@ public class WireValueConformanceTests
         var attach = (await service.CatalogAttachAsync(new CatalogAttachRequest { Name = "example" })).AttachOpaqueData;
         var contents = await service.CatalogContentsAsync(attach);
         var items = new List<(string, byte[])>();
-        foreach (var entry in contents.Schemas)
+        foreach (var entry in MetadataCollections.DecodeCatalog(contents))
         {
             items.Add(("schema", entry.Schema));
             items.AddRange(entry.Tables.Select(i => ("table", i)));

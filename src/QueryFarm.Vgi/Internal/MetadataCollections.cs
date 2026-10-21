@@ -56,24 +56,24 @@ public static class MetadataCollections
         RecordBatch? batch;
         try
         {
-        while ((batch = reader.ReadNextRecordBatch()) is not null)
-        {
+            while ((batch = reader.ReadNextRecordBatch()) is not null)
             {
-                batches.Add(batch);
-                if (reader.LastBatchCustomMetadata?.Keys.Any(key => key.StartsWith("vgi_rpc.location", StringComparison.Ordinal) || key.StartsWith("vgi_rpc.log_", StringComparison.Ordinal) || key.StartsWith("vgi_rpc.error_", StringComparison.Ordinal)) == true) throw new InvalidOperationException("Nested metadata cannot contain external pointers.");
-                for (var column = 0; column < expected.FieldsList.Count; column++)
-                    for (var row = 0; row < batch.Length; row++) ValidateValue(batch.Column(column), expected.FieldsList[column], row);
-                for (var row = 0; row < batch.Length; row++)
                 {
-                    var slice = new RecordBatch(batch.Schema, batch.Arrays.Select(a => ArrowArrayFactory.BuildArray(a.Data.Slice(row, 1))).ToArray(), 1);
-                    slices.Add(slice);
-                    var fields = ValueCodec.ExtractRow(slice, types);
-                    var value = new T();
-                    for (var i = 0; i < fields.Length; i++) properties[i].SetValue(value, fields[i]);
-                    values.Add(value);
+                    batches.Add(batch);
+                    if (reader.LastBatchCustomMetadata?.Keys.Any(key => key.StartsWith("vgi_rpc.location", StringComparison.Ordinal) || key.StartsWith("vgi_rpc.log_", StringComparison.Ordinal) || key.StartsWith("vgi_rpc.error_", StringComparison.Ordinal)) == true) throw new InvalidOperationException("Nested metadata cannot contain external pointers.");
+                    for (var column = 0; column < expected.FieldsList.Count; column++)
+                        for (var row = 0; row < batch.Length; row++) ValidateValue(batch.Column(column), expected.FieldsList[column], row);
+                    for (var row = 0; row < batch.Length; row++)
+                    {
+                        var slice = new RecordBatch(batch.Schema, batch.Arrays.Select(a => ArrowArrayFactory.BuildArray(a.Data.Slice(row, 1))).ToArray(), 1);
+                        slices.Add(slice);
+                        var fields = ValueCodec.ExtractRow(slice, types);
+                        var value = new T();
+                        for (var i = 0; i < fields.Length; i++) properties[i].SetValue(value, fields[i]);
+                        values.Add(value);
+                    }
                 }
             }
-        }
         }
         finally
         {
@@ -117,7 +117,8 @@ public static class MetadataCollections
         foreach (var row in Decode<FunctionInfo>(response.Functions))
         {
             var schema = Owner(row.SchemaPath);
-            var items = row.FunctionType switch {
+            var items = row.FunctionType switch
+            {
                 FunctionType.Scalar => schema.ScalarFunctions,
                 FunctionType.Aggregate => schema.AggregateFunctions,
                 FunctionType.Table or FunctionType.TableBuffering => schema.TableFunctions,
@@ -128,7 +129,8 @@ public static class MetadataCollections
         foreach (var row in Decode<MacroInfo>(response.Macros))
         {
             var schema = Owner(row.SchemaPath);
-            var items = row.MacroType switch {
+            var items = row.MacroType switch
+            {
                 MacroType.Scalar => schema.ScalarMacros,
                 MacroType.Table => schema.TableMacros,
                 _ => throw new InvalidOperationException("Unknown catalog macro type."),

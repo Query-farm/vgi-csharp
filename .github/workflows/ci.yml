@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Build the source revision for 0.18.1 while its NuGet release is pending.
+# Published SDK packages require those packages in Directory.Packages.props.
+env:
+  VGI_RPC_CSHARP_REF: d7698e4c97391959dd22f9c08ea70b375d0b7632
+  VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
+
 jobs:
   build-test:
     strategy:
@@ -14,6 +20,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout required RPC source
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-csharp
+          ref: ${{ env.VGI_RPC_CSHARP_REF }}
+          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -36,6 +48,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout required RPC source
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-csharp
+          ref: ${{ env.VGI_RPC_CSHARP_REF }}
+          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -46,12 +64,8 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props', 'global.json') }}
           restore-keys: nuget-${{ runner.os }}-
       - run: dotnet restore
-      # Local dev's `make format_check` scopes to OWN_PROJECTS (the Makefile's own list) to
-      # skip vgi-rpc-csharp's vendored third_party/ when the sibling checkout is present as a
-      # ProjectReference. CI never has that checkout (QueryFarm.Vgi falls back to the published
-      # QueryFarm.VgiRpc package here), so vgi-csharp.slnx only ever contains this repo's own
-      # projects and needs no such exclusion.
-      - run: dotnet format vgi-csharp.slnx --verify-no-changes
+      # Restrict formatting to this SDK; the RPC checkout includes vendored Arrow.
+      - run: make format_check
 
   # vgi-rpc's shared hosted-protocols group against the fixture worker on stdio, unix and HTTP
   # (+ vgi_rpc.Identity.v2): conformance.Secondary.v1 hosted through Worker.HostedProtocols, the
@@ -62,6 +76,12 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout required RPC source
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-csharp
+          ref: ${{ env.VGI_RPC_CSHARP_REF }}
+          path: _deps/vgi-rpc-csharp
       - uses: actions/checkout@v4
         with:
           repository: Query-farm/vgi-rpc-python
@@ -89,6 +109,12 @@ jobs:
         transport: [launch, http]
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout required RPC source
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-csharp
+          ref: ${{ env.VGI_RPC_CSHARP_REF }}
+          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json

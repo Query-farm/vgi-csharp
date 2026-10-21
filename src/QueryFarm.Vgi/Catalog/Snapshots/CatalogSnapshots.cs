@@ -288,7 +288,8 @@ public sealed class CatalogSnapshotManager
             if (contentEncoding is not null)
             {
                 using var input = new MemoryStream(data);
-                using Stream decoded = contentEncoding switch {
+                using Stream decoded = contentEncoding switch
+                {
                     "zstd" => new ZstdSharp.DecompressionStream(input),
                     "gzip" => new System.IO.Compression.GZipStream(input, System.IO.Compression.CompressionMode.Decompress),
                     _ => throw new InvalidOperationException("Unsupported catalog publication encoding."),

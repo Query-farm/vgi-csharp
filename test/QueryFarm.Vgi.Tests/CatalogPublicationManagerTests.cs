@@ -66,7 +66,7 @@ public sealed class CatalogPublicationManagerTests
         {
             var key = new Uri(url).AbsolutePath.TrimStart('/');
             var old = _objects[key];
-            _objects[key] = ([..old.Bytes, ..extra], old.Encoding);
+            _objects[key] = ([.. old.Bytes, .. extra], old.Encoding);
         }
         public byte[] Bytes(string url) => _objects[new Uri(url).AbsolutePath.TrimStart('/')].Bytes;
         public void Replace(string url, byte[] bytes) => _objects[new Uri(url).AbsolutePath.TrimStart('/')] = (bytes, null);
@@ -97,7 +97,8 @@ public sealed class CatalogPublicationManagerTests
     private static SnapshotRequest Request(string scope = "attachment-a") => new([], scope, 7, null);
     private static CatalogContentsResponse Contents() => new()
     {
-        CatalogVersion = 7, Etag = "",
+        CatalogVersion = 7,
+        Etag = "",
         Schemas = MetadataCollections.Encode<SchemaInfo>([new() { Path = ["main"] }, new() { Path = ["extra"] }], batchSize: 1),
         Functions = MetadataCollections.Encode(MetadataCollectionTests.BinaryFunctions(), 3),
     };
@@ -118,7 +119,8 @@ public sealed class CatalogPublicationManagerTests
         {
             Interlocked.Increment(ref identityCalls);
             return new("http-worker", "revision-1", r.CatalogVersion);
-        }) { External = new() { UrlValidator = null }, Compression = new("gzip") };
+        })
+        { External = new() { UrlValidator = null }, Compression = new("gzip") };
         var worker = new Worker().CatalogName("example").DefaultSchema("main").RegisterSchema("main").CatalogContents(true).CatalogSnapshot(policy);
         var builder = WebApplication.CreateSlimBuilder(Worker.WorkerHostOptions());
         builder.Logging.ClearProviders();
@@ -129,7 +131,8 @@ public sealed class CatalogPublicationManagerTests
         var address = new Uri(app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single());
         await using var client = new HttpRpcClient(address, new HttpRpcClientOptions
         {
-            Protocol = "vgi.v2", ProtocolVersion = Worker.DefaultProtocolVersion,
+            Protocol = "vgi.v2",
+            ProtocolVersion = Worker.DefaultProtocolVersion,
             ExternalLocation = new() { UrlValidator = null },
         });
         var rpc = client.CreateProxy<ICatalogClient>();
@@ -218,8 +221,10 @@ public sealed class CatalogPublicationManagerTests
         {
             var bounded = new CatalogSnapshotPolicy(repository, r => new("test", "revision-1", r.CatalogVersion))
             {
-                External = new() { UrlValidator = null }, Compression = new("gzip"),
-                MaxRawBytes = rawLimit ? 1 : 1_000_000, MaxStoredBytes = rawLimit ? 1_000_000 : 1,
+                External = new() { UrlValidator = null },
+                Compression = new("gzip"),
+                MaxRawBytes = rawLimit ? 1 : 1_000_000,
+                MaxStoredBytes = rawLimit ? 1_000_000 : 1,
             };
             await Assert.ThrowsAsync<InvalidOperationException>(() => bounded.Manager.WarmAsync(bounded, Request(), () => Task.FromResult(Contents())));
         }
@@ -237,7 +242,8 @@ public sealed class CatalogPublicationManagerTests
         Assert.Empty(repository.Committed);
         var fallback = new CatalogSnapshotPolicy(repository, r => new("test", "revision-1", r.CatalogVersion))
         {
-            External = new() { UrlValidator = null }, OrdinaryOnFailure = true,
+            External = new() { UrlValidator = null },
+            OrdinaryOnFailure = true,
         };
         var reply = await fallback.Manager.WarmAsync(fallback, Request(), () => Task.FromResult(Contents()));
         Assert.Null(reply.Reference);

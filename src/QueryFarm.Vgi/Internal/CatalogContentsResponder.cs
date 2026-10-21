@@ -52,8 +52,10 @@ public static class CatalogContentsResponder
             return new CatalogContentsResponse { CatalogVersion = catalogVersion, Etag = etag, NotModified = true };
         }
 
-        var response = new CatalogContentsResponse {
-            CatalogVersion = catalogVersion, Etag = etag,
+        var response = new CatalogContentsResponse
+        {
+            CatalogVersion = catalogVersion,
+            Etag = etag,
             Schemas = MetadataCollections.Merge<SchemaInfo>(schemas.Select(s => s.Schema)),
             Tables = MetadataCollections.Merge<TableInfo>(schemas.SelectMany(s => s.Tables)),
             Views = MetadataCollections.Merge<ViewInfo>(schemas.SelectMany(s => s.Views)),

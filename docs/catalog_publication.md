@@ -18,3 +18,5 @@ The manager exposes startup warming, trusted manifest import, and conditional in
 C#: call `Worker.CatalogSnapshot(policy)`. Use `policy.Manager.WarmAsync`, `ImportAsync`, and `InvalidateAsync`. The S3 adapter accepts an `ICatalogS3Client` implemented by the application’s chosen S3-compatible SDK.
 
 This implementation requires QueryFarm.VgiRpc 0.18.1 for binary dictionary schema derivation and value encoding/decoding.
+
+CI pins the matching RPC source commit while the separate 0.18.1 NuGet releases are pending. Publish the four RPC packages before publishing this SDK.

@@ -8,11 +8,16 @@ using QueryFarm.VgiRpc.Reflection;
 using Xunit;
 
 namespace QueryFarm.Vgi.Tests;
+
 public sealed class MetadataCollectionTests
 {
-    public static List<FunctionInfo> BinaryFunctions() => Enumerable.Range(0, 7).Select(i => new FunctionInfo {
-        Name = $"f{i}", SchemaPath = [i % 2 == 0 ? "main" : "extra"], FunctionType = FunctionType.Scalar,
-        Arguments = [0xff, 0, (byte)(i < 3 ? 0x80 : 0x81)], OutputSchema = [],
+    public static List<FunctionInfo> BinaryFunctions() => Enumerable.Range(0, 7).Select(i => new FunctionInfo
+    {
+        Name = $"f{i}",
+        SchemaPath = [i % 2 == 0 ? "main" : "extra"],
+        FunctionType = FunctionType.Scalar,
+        Arguments = [0xff, 0, (byte)(i < 3 ? 0x80 : 0x81)],
+        OutputSchema = [],
         ParameterDefaultValues = (i % 3) switch { 0 => null, 1 => [], _ => [0xff, 0] },
     }).ToList();
 
@@ -80,7 +85,7 @@ public sealed class MetadataCollectionTests
         var expected = SchemaDerivation.InnerSchemaFor(typeof(SchemaInfo));
         var fields = expected.FieldsList.Select(f => f.Name == "path" ? new Field(f.Name, f.DataType, true) : f).ToArray();
         var nullable = new Schema(fields, null);
-        using var row = ValueCodec.BuildRow(nullable, [null, new Dictionary<string,string>(), null, null]);
+        using var row = ValueCodec.BuildRow(nullable, [null, new Dictionary<string, string>(), null, null]);
         using var output = new MemoryStream();
         using (var writer = new ArrowStreamWriter(output, nullable, leaveOpen: true)) { writer.WriteStart(); writer.WriteRecordBatch(row); writer.WriteEnd(); }
         Assert.Throws<InvalidOperationException>(() => MetadataCollections.Decode<SchemaInfo>(output.ToArray()));
