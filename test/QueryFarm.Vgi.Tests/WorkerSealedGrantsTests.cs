@@ -114,13 +114,13 @@ public sealed class WorkerSealedGrantsTests
         var builder = WebApplication.CreateSlimBuilder(Worker.WorkerHostOptions());
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         await using var app = builder.Build();
-        AuthContext? vgiCaller = null;
+        var callerCaptured = new TaskCompletionSource<AuthContext?>(TaskCreationOptions.RunContinuationsAsynchronously);
         app.Use(async (HttpContext context, Func<Task> next) =>
         {
             await next();
             if (context.Request.Path.Value?.Contains("/vgi.v2/", StringComparison.Ordinal) == true)
             {
-                vgiCaller = PeerIdentityAuthentication.GetAuth(context);
+                callerCaptured.TrySetResult(PeerIdentityAuthentication.GetAuth(context));
             }
         });
         worker.MapHttp(app);
@@ -143,6 +143,8 @@ public sealed class WorkerSealedGrantsTests
         });
         await automation.CreateProxy<IVgiClient>().CatalogCatalogsAsync();
 
+        // The response can reach the client before the outer middleware resumes.
+        var vgiCaller = await callerCaptured.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         Assert.NotNull(vgiCaller);
         Assert.Equal(("grant", true, "owner@example.com"), (vgiCaller!.Domain, vgiCaller.Authenticated, vgiCaller.Principal));
         Assert.Equal(grant.GrantId, vgiCaller.Claims["grant_id"]);
