@@ -2465,5 +2465,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     };
 
     private IReadOnlyList<string> EffectiveSchemaPath(IReadOnlyList<string>? path) =>
-        path is { Count: > 0 } ? path : catalog.DefaultSchemaPath;
+        path is { Count: > 0 } ? path
+        : catalog.DefaultSchemaPath.Count > 0 ? catalog.DefaultSchemaPath
+        : throw new InvalidOperationException("This catalog has no default schema; specify an explicit schema path.");
 }

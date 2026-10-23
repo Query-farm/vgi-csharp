@@ -14,6 +14,22 @@ namespace QueryFarm.Vgi.Tests.Internal;
 /// comment), now extended to <see cref="CatalogTable"/>/<see cref="CatalogView"/>/schema metadata.</summary>
 public class CatalogRegistryTests
 {
+    [Fact]
+    public void DefaultSchema_IsNullableAndExactlyOneRawRootIdentifier()
+    {
+        var registry = new CatalogRegistry { DefaultSchema = null };
+        Assert.Empty(registry.SchemaPathsFor(""));
+        registry.DefaultSchema = "sales.archive";
+        Assert.Equal(["sales.archive"], registry.DefaultSchemaPath);
+        registry.DefaultSchemaPath = [];
+        Assert.Null(registry.DefaultSchema);
+        Assert.Throws<ArgumentException>(() => registry.DefaultSchema = "");
+        Assert.Throws<ArgumentException>(() => registry.DefaultSchema = "bad\0name");
+        Assert.Throws<ArgumentException>(() => registry.DefaultSchemaPath = ["sales", "archive"]);
+        registry.RegisterSchema(["sales", "archive"]);
+        Assert.Equal(["sales", "archive"], Assert.Single(registry.SchemaPathsFor("")));
+    }
+
     private static readonly Schema EmptySchema = new([], metadata: null);
 
     private sealed class StubTableFunction(string name, string schemaName) : ITableFunction

@@ -63,7 +63,8 @@ internal sealed class InMemoryCatalogState
     public InMemoryCatalogState(InMemoryCatalogOptions options, IReadOnlyList<string> defaultSchemaPath)
     {
         _options = options;
-        _schemas.Add(new SchemaState([.. defaultSchemaPath], null, []));
+        if (defaultSchemaPath.Count > 0)
+            _schemas.Add(new SchemaState([.. defaultSchemaPath], null, []));
     }
 
     /// <summary>The generation counter: 1 at attach, moved by every successful DDL.</summary>

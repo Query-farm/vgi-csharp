@@ -70,6 +70,22 @@ public class InMemoryCatalogTests
         Assert.Empty((await service.CatalogSchemaContentsFunctionsAsync(attach, ["main"], SchemaObjectType.ScalarFunction, null)).Items);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("main")]
+    [InlineData("sales.archive")]
+    public async Task NullableDefaultSchema_DoesNotCreateAnImplicitSchema(string? defaultSchema)
+    {
+        var (service, registry) = Service();
+        registry.DefaultSchema = defaultSchema;
+        var (attach, result) = await AttachAsync(service);
+        Assert.Equal(defaultSchema, EmbeddedIpc.Decode<CatalogAttachResult>(EmbeddedIpc.Encode(result)).DefaultSchema);
+        var schemas = (await service.CatalogSchemasAsync(attach, null)).Items
+            .Select(item => EmbeddedIpc.Decode<SchemaInfo>(item).Path).ToList();
+        if (defaultSchema is null) Assert.Empty(schemas);
+        else Assert.Equal([defaultSchema], Assert.Single(schemas));
+    }
+
     [Fact]
     public async Task EveryAttach_IsPrivate_AndDetachDropsIt()
     {

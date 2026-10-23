@@ -56,20 +56,28 @@ public sealed class CatalogRegistry
 
     private IReadOnlyList<string> _defaultSchemaPath = ["main"];
 
-    public string DefaultSchema
+    public string? DefaultSchema
     {
-        get => _defaultSchemaPath[^1];
-        set => _defaultSchemaPath = [value];
+        get => _defaultSchemaPath.Count == 0 ? null : _defaultSchemaPath[0];
+        set
+        {
+            if (value is not null && (value.Length == 0 || value.Contains('\0')))
+                throw new ArgumentException("A default schema must be a non-empty raw root identifier without NUL, or null.", nameof(value));
+            _defaultSchemaPath = value is null ? [] : [value];
+        }
     }
 
-    /// <summary>The default schema as raw identifier components. The attach result still carries
-    /// DuckDB's single default-schema name, while all schema-scoped VGI 2.0 calls use this path.</summary>
+    /// <summary>The default root schema as one raw identifier component. An empty list means
+    /// no implicit default. Ordinary schema-scoped calls may still use nested paths.</summary>
     public IReadOnlyList<string> DefaultSchemaPath
     {
         get => _defaultSchemaPath;
-        set => _defaultSchemaPath = value.Count > 0
-            ? value.ToList()
-            : throw new ArgumentException("A default schema path must contain at least one component.", nameof(value));
+        set
+        {
+            if (value.Count > 1)
+                throw new ArgumentException("The default schema must be a single root identifier.", nameof(value));
+            DefaultSchema = value.Count == 0 ? null : value[0];
+        }
     }
 
     /// <summary>Database-level comment/tags surfaced via <c>duckdb_databases()</c> — set through
@@ -555,7 +563,7 @@ public sealed class CatalogRegistry
             }
         }
 
-        if (paths.Count == 0)
+        if (paths.Count == 0 && DefaultSchemaPath.Count > 0)
         {
             AddPath(DefaultSchemaPath);
         }

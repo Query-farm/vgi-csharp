@@ -341,19 +341,17 @@ public sealed class Worker
         return this;
     }
 
-    public Worker DefaultSchema(string name)
+    /// <summary>Selects one raw root schema identifier, or null for no implicit default.</summary>
+    public Worker DefaultSchema(string? name)
     {
         _catalog.DefaultSchema = name;
-        _catalog.DefaultSchemaPath = [name];
         return this;
     }
 
-    /// <summary>Sets the default schema path used when a bind request omits one. DuckDB 1.x only
-    /// consumes the final component in its attach result, while VGI 2.0 dispatch retains all
-    /// components.</summary>
+    /// <summary>Selects one raw root schema identifier. An empty list means no implicit default;
+    /// nested default paths are not representable by the attach contract.</summary>
     public Worker DefaultSchema(IReadOnlyList<string> path)
     {
-        ArgumentException.ThrowIfNullOrEmpty(path.LastOrDefault());
         _catalog.DefaultSchemaPath = path.ToList();
         return this;
     }

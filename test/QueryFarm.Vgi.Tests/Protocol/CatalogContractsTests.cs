@@ -13,6 +13,15 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 
 public class CatalogContractsTests
 {
+    [Theory]
+    [InlineData("none", null)]
+    [InlineData("main", "main")]
+    [InlineData("dotted", "sales.archive")]
+    public void AttachDefaultSchemaPreservesNullAndRawNames(string suffix, string? expected)
+    {
+        Assert.Equal(expected, RoundTrip<CatalogAttachResult>("attach_default_schema_" + suffix).DefaultSchema);
+    }
+
     [Fact]
     public void TypedIndexesPreserveRawPathsContextAndOptions()
     {
