@@ -1021,7 +1021,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         _tableInOutProcessors[substreamKey] = inputProcessor;
 
         var header = new GlobalInitResponse { ExecutionId = executionId, OpaqueData = null, MaxWorkers = function.MaxWorkers ?? 1 };
-        var state = new TableInOutExchangeStreamState(inputProcessor);
+        var state = new TableInOutExchangeStreamState(function, inputProcessor);
         return new RpcStream<StreamState>(projectedSchema, state, InputSchema: inputSchema, Header: header);
     }
 
@@ -2038,6 +2038,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         MaxWorkers = function.MaxWorkers,
         HasFinalize = function.HasFinalize,
         InputFromArgs = function.InputFromArgs,
+        InputRowsPerCall = function.InputRowsPerCall,
         RequiredSettings = function.RequiredSettings.ToList(),
         RequiredSecrets = function.RequiredSecrets.ToList(),
     };

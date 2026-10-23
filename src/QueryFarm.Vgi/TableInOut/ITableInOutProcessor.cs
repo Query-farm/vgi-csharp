@@ -20,6 +20,20 @@ public interface ITableInOutProcessor
     /// its input stream, not when this returns.</summary>
     void Process(RecordBatch input, OutputCollector output);
 
+    /// <summary>Emits the next reply for the last input batch — continued output (see
+    /// <see cref="ContinuedOutput"/>). When <see cref="Process"/> (or the previous
+    /// <see cref="Resume"/>) emitted with <c>more: true</c>, the client sends a continuation tick and
+    /// the framework calls this instead of <see cref="Process"/>. Like <see cref="Process"/>, emit
+    /// exactly one batch — <c>output.Emit(batch, metadata, more: ...)</c>, with <c>more: true</c>
+    /// unless it is the last — whose <c>vgi_rpc.parent_row#b64</c> indexes the input batch
+    /// <see cref="Process"/> received. No cache control: only an input's first reply may carry it.
+    /// The resume position lives on this processor, which every transport keeps for the stream's
+    /// whole life (HTTP included — vgi-rpc-csharp holds the live stream server-side). Only called on
+    /// a function that declares <see cref="ITableInOutFunction.ContinuesOutput"/>; the default
+    /// refuses.</summary>
+    void Resume(OutputCollector output) =>
+        throw new InvalidOperationException($"{GetType().Name} emitted more output but does not implement Resume");
+
     /// <summary>Produces this FINALIZE tick's contribution — same contract as
     /// <see cref="Table.ITableFunctionProducer.Produce"/>: call <paramref name="output"/>.Emit(...)
     /// at most once and/or <paramref name="output"/>.Finish() once there is nothing left. Only

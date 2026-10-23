@@ -66,10 +66,12 @@ public sealed class CacheBenchFunction : ITableFunction
 /// a shared cross-process work queue (same pattern as
 /// <see cref="ExampleWorker.Table.PartitionedSequenceFunction"/>), so capture genuinely spans
 /// <c>num_substreams &gt; 1</c> (<c>parallel_capture.test</c>) while the union stays exactly correct
-/// regardless of how many readers DuckDB actually opens (<c>spill*.test</c>, <c>cap_matrix.test</c>).</summary>
+/// regardless of how many readers DuckDB actually opens (<c>spill*.test</c>, <c>cap_matrix.test</c>).
+/// <c>batch_size := N</c> (default 25000) sets the rows per chunk, so per output batch
+/// (<c>parallel_spill_stream.test_slow</c> streams 640 MB in 100k-row batches).</summary>
 public sealed class CacheParallelFunction : ITableFunction
 {
-    private const long ChunkSize = 25_000;
+    private const long DefaultBatchSize = 25_000;
 
     public string Name => "cache_parallel";
 
@@ -77,24 +79,27 @@ public sealed class CacheParallelFunction : ITableFunction
 
     public int? MaxWorkers => 8;
 
-    public Schema ArgumentsSchema { get; } = new([TableArgFields.Positional("count", Int64Type.Default)], metadata: null);
+    public Schema ArgumentsSchema { get; } = new(
+        [TableArgFields.Positional("count", Int64Type.Default), TableArgFields.Named("batch_size", Int64Type.Default)],
+        metadata: null);
 
     public Schema OutputSchema { get; } = new([new Field("v", Int64Type.Default, nullable: false)], metadata: null);
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
+        var batchSize = Math.Max(1, initParams.Arguments.Int64Named("batch_size", DefaultBatchSize));
         var key = Convert.ToHexString(initParams.ExecutionId ?? []);
-        return new Producer(key, count, initParams.OutputSchema);
+        return new Producer(key, count, batchSize, initParams.OutputSchema);
     }
 
-    private sealed class Producer(string key, long count, Schema outputSchema) : ITableFunctionProducer
+    private sealed class Producer(string key, long count, long batchSize, Schema outputSchema) : ITableFunctionProducer
     {
         private bool _first = true;
 
         public void Produce(OutputCollector output)
         {
-            var rows = CrossProcessWorkQueue.ClaimChunk(key, ChunkSize, count, out var start);
+            var rows = CrossProcessWorkQueue.ClaimChunk(key, batchSize, count, out var start);
             if (rows == 0)
             {
                 output.Finish();

@@ -138,6 +138,13 @@ expression/spatial-predicate pushdown, evaluated via an embedded DuckDB engine â
 cross-process state storage are all handled by the framework, not something each function
 reimplements.
 
+A table-in-out function can answer one input batch with several replies (one upstream API page
+each, say): declare `ContinuesOutput`, emit every reply but the last with
+`output.Emit(batch, metadata, more: true)`, and implement `ITableInOutProcessor.Resume` to emit the
+next one, keeping the position on the processor. A blended (`InputFromArgs`) function may also
+declare `InputRowsPerCall` to cap the input rows one call receives. See `ContinuedOutput` and
+`fixtures/QueryFarm.Vgi.ExampleWorker/TableInOut/PagedFunctions.cs`.
+
 Filter-capable table functions advertise `FilterSemanticProfiles` (the default is
 `vgi.duckdb.standard.v1` when `FilterPushdown` is true), plus optional versioned extension-function,
 runtime-filter, and evaluation-context capabilities. Protocol 2.0 filter payloads use only the

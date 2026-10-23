@@ -88,6 +88,22 @@ public interface ITableInOutFunction
     /// finalize-capable function).</summary>
     bool InputFromArgs => false;
 
+    /// <summary>Whether this function's processor may answer one input batch with several replies
+    /// (<see cref="ContinuedOutput"/>): it emits with <c>more: true</c> and implements
+    /// <see cref="ITableInOutProcessor.Resume"/>. A reply saying more from a function that leaves
+    /// this <see langword="false"/> is refused. Registration refuses it together with
+    /// <see cref="MaxWorkers"/> = 1: the client then runs every pipeline's input through one shared
+    /// connection, which cannot leave output pending.</summary>
+    bool ContinuesOutput => false;
+
+    /// <summary>For a blended (<see cref="InputFromArgs"/>) function: the most input rows one worker
+    /// call receives (<see cref="Protocol.FunctionInfo.InputRowsPerCall"/>). The client's
+    /// batched-LATERAL operator splits each input chunk, after dedup, into calls of at most this
+    /// many rows (<c>1</c> = a row per call). <see langword="null"/> (the default) sends a whole
+    /// chunk per call. Registration refuses a value below 1, or one on a non-blended function.
+    /// Mirrors vgi-python's <c>Meta.input_rows_per_call</c>.</summary>
+    long? InputRowsPerCall => null;
+
     /// <summary>Called once per bound call (mirrors the <c>bind</c> RPC) — a no-op by default;
     /// override to validate arguments or compute a dynamic output type. Exceptions propagate as a
     /// bind failure back to the client.</summary>

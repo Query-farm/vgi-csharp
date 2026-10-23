@@ -99,7 +99,7 @@ public class EmbeddedIpcTests
         Assert.Equal("duckdb-1.5", Assert.Single(decoded.FilterEvaluationContexts).ProviderFingerprint);
 
         var schema = SchemaDerivation.InnerSchemaFor(typeof(FunctionInfo));
-        Assert.Equal(41, schema.FieldsList.Count);
+        Assert.Equal(42, schema.FieldsList.Count);
         Assert.Equal("argument_monotonicity", schema.GetFieldByIndex(10).Name);
         Assert.Equal([
             "filter_semantic_profiles", "additional_filter_functions", "runtime_filter_algorithms", "filter_evaluation_contexts",

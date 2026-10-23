@@ -254,6 +254,11 @@ var worker = new Worker()
     .RegisterTableInOut(new BlendedExplodeFunction())
     .RegisterTableInOut(new ProjectableBlendedFunction())
     .RegisterTableInOut(new HostileProvenanceFunction())
+    // Continued output (several replies per input) and input_rows_per_call —
+    // lateral_continuation/input_rows_per_call/continuation_*.test.
+    .RegisterTableInOut(new BlendedPagedFunction())
+    .RegisterTableInOut(new BlendedSlicedFunction())
+    .RegisterTableInOut(new PagedExplodeFunction())
     // ANY-typed blended input columns — blended_any.test.
     .RegisterTableInOut(new BlendedAnyFunction())
     .RegisterTableInOut(new BlendedAnyVarargsFunction())
