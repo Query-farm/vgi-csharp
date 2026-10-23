@@ -19,7 +19,11 @@ public sealed class CatalogMacro
     /// <summary>The macro body: a scalar expression for <see cref="Protocol.MacroType.Scalar"/>,
     /// or a <c>SELECT</c> query for <see cref="Protocol.MacroType.Table"/> — references
     /// <see cref="Parameters"/> by name.</summary>
-    public required string Definition { get; init; }
+    public string Definition { get; init; } = "";
+
+    /// <summary>Complete canonical overload family. When supplied, the simple-definition
+    /// parameters, defaults, docs and body must be empty.</summary>
+    public List<Protocol.MacroOverload>? Overloads { get; init; }
 
     /// <summary>Every parameter's name, in positional-binding order.</summary>
     public List<string> Parameters { get; init; } = [];
@@ -31,7 +35,7 @@ public sealed class CatalogMacro
 
     /// <summary>Per-parameter descriptions, keyed by parameter NAME (a subset of
     /// <see cref="Parameters"/>) — surfaced via <c>vgi_function_arguments()</c>'s <c>arg_description</c>
-    /// column (<c>vgi_doc</c> field metadata on <see cref="Protocol.MacroInfo.ArgumentsSchema"/>).
+    /// column (the canonical macro parameter's documentation field).
     /// Empty (the default) means no parameter is documented.</summary>
     public IReadOnlyDictionary<string, string> ParameterDocs { get; init; } = new Dictionary<string, string>();
 

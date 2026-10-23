@@ -2293,30 +2293,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Name = macro.Name,
         SchemaPath = macro.EffectiveSchemaPath.ToList(),
         MacroType = macro.MacroType,
-        Parameters = macro.Parameters.ToList(),
-        ParameterDefaultValues = macro.ParameterDefaults is { } defaults ? RecordBatchIpc.Write(defaults) : null,
-        Definition = macro.Definition,
-        ArgumentsSchema = macro.Parameters.Count == 0 ? null : BuildMacroArgumentsSchema(macro),
+        Overloads = MacroFamilies.FromDescriptor(macro),
     };
-
-    /// <summary>One ANY-typed field per macro parameter (macros have no static parameter TYPE in
-    /// DuckDB), carrying <c>vgi_doc</c> metadata for whichever ones <see cref="Catalog.CatalogMacro.ParameterDocs"/>
-    /// documents — read by <c>vgi_function_arguments()</c> (<c>arg_description</c>).</summary>
-    private static byte[] BuildMacroArgumentsSchema(Catalog.CatalogMacro macro)
-    {
-        var fields = macro.Parameters.Select(name =>
-        {
-            var metadata = new Dictionary<string, string> { [VgiWireMetadata.TypeKey] = VgiWireMetadata.TypeAnyValue };
-            if (macro.ParameterDocs.TryGetValue(name, out var doc))
-            {
-                metadata[VgiWireMetadata.DocKey] = doc;
-            }
-
-            return new Field(name, Apache.Arrow.Types.NullType.Default, nullable: true, metadata);
-        });
-
-        return SchemaIpc.WriteSchemaOnly(new Schema(fields, metadata: null));
-    }
 
     private static ViewInfo BuildViewInfo(CatalogView view) => new()
     {

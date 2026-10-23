@@ -126,11 +126,9 @@ public class CatalogContractsTests
         var create = RoundTrip<MacroCreateRequest>("macro_create");
         Assert.Equal(2, create.Overloads!.Count);
         Assert.Equal("upper(x)", create.Overloads[1].Definition);
-        Assert.Empty(create.Parameters);
-        Assert.Equal("", create.Definition);
-        Assert.Null(RoundTrip<MacroCreateRequest>("macro_create_legacy").Overloads);
+        Assert.Single(RoundTrip<MacroCreateRequest>("macro_create_single").Overloads);
         Assert.Equal(2, RoundTrip<MacroInfo>("macro_info").Overloads!.Count);
-        Assert.Null(RoundTrip<MacroInfo>("macro_info_legacy").Overloads);
+        Assert.Single(RoundTrip<MacroInfo>("macro_info_single").Overloads);
         using var reader = new ArrowStreamReader(new MemoryStream(parameter.DefaultValue!));
         using var value = reader.ReadNextRecordBatch();
         Assert.NotNull(value);
