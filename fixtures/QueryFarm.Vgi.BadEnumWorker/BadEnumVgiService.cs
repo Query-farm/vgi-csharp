@@ -205,7 +205,7 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
         real.CatalogTableColumnCommentSetAsync(attachOpaqueData, schemaPath, name, columnPath, comment, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnDefaultSetAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, string expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, byte[] expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         real.CatalogTableColumnDefaultSetAsync(attachOpaqueData, schemaPath, name, columnPath, expression, ignoreNotFound, transactionOpaqueData, ctx);
 
@@ -215,7 +215,7 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
         real.CatalogTableColumnDefaultDropAsync(attachOpaqueData, schemaPath, name, columnPath, ignoreNotFound, transactionOpaqueData, ctx);
 
     public Task CatalogTableColumnTypeChangeAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, byte[] columnDefinition, string? expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, byte[] columnDefinition, byte[]? expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         real.CatalogTableColumnTypeChangeAsync(attachOpaqueData, schemaPath, name, columnPath, columnDefinition, expression, ignoreNotFound, transactionOpaqueData, ctx);
 

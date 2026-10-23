@@ -341,6 +341,24 @@ public class CatalogContractsTests
                 var pathIndex = method.ParamsSchema.FieldsList.ToList().FindIndex(field => field.Name == "column_path");
                 Assert.Equal(variant == "literal" ? ["a.b"] : new[] { "a", "b.\"quoted" },
                     Assert.IsType<List<string>>(args[pathIndex]));
+                if (operation is "ColumnDefaultSet" or "ColumnTypeChange")
+                {
+                    var expressionIndex = method.ParamsSchema.FieldsList.ToList().FindIndex(field => field.Name == "expression");
+                    if (operation == "ColumnTypeChange" && variant == "literal")
+                    {
+                        Assert.Null(args[expressionIndex]);
+                    }
+                    else
+                    {
+                        var payload = Assert.IsType<byte[]>(args[expressionIndex]);
+                        Assert.Equal(payload, Assert.IsType<byte[]>(restored[expressionIndex]));
+                        var expression = EmbeddedIpc.Decode<SqlExpression>(payload);
+                        var schemaIndex = method.ParamsSchema.FieldsList.ToList().FindIndex(field => field.Name == "schema_path");
+                        Assert.Equal(Assert.IsType<List<string>>(args[schemaIndex]), expression.SchemaPath);
+                        Assert.NotEmpty(expression.Profile);
+                        Assert.NotNull(expression.EvaluationContext);
+                    }
+                }
                 Assert.Null(reader.ReadNextRecordBatch());
             }
         }

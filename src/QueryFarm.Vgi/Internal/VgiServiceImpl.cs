@@ -1329,7 +1329,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         throw new CatalogReadOnlyException("catalog_table_column_comment_set");
 
     public Task CatalogTableColumnDefaultSetAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, string expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, byte[] expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_default_set");
 
@@ -1339,7 +1339,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         throw new CatalogReadOnlyException("catalog_table_column_default_drop");
 
     public Task CatalogTableColumnTypeChangeAsync(
-        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, byte[] columnDefinition, string? expression,
+        byte[] attachOpaqueData, List<string> schemaPath, string name, List<string> columnPath, byte[] columnDefinition, byte[]? expression,
         bool ignoreNotFound, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
         throw new CatalogReadOnlyException("catalog_table_column_type_change");
 

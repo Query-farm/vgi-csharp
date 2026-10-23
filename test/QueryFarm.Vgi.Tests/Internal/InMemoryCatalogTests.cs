@@ -260,6 +260,13 @@ public class InMemoryCatalogTests
             service.CatalogViewCreateAsync(attach, ["main"], "v", "SELECT 1", OnConflict.Error, null));
         await Assert.ThrowsAsync<CatalogReadOnlyException>(() =>
             service.CatalogSchemaCreateAsync(attach, ["s"], OnConflict.Error, null, null, null));
+        var expression = QueryFarm.Vgi.Tests.Protocol.CatalogContractsTests.Fixture("column_default_expression");
+        await Assert.ThrowsAsync<CatalogReadOnlyException>(() =>
+            service.CatalogTableColumnDefaultSetAsync(attach, ["main"], "t", ["a"], expression, false, null));
+        await Assert.ThrowsAsync<CatalogReadOnlyException>(() =>
+            service.CatalogTableColumnTypeChangeAsync(attach, ["main"], "t", ["a"], TwoColumns, expression, false, null));
+        await Assert.ThrowsAsync<CatalogReadOnlyException>(() =>
+            service.CatalogTableColumnTypeChangeAsync(attach, ["main"], "t", ["a"], TwoColumns, null, false, null));
     }
 
     /// <summary>The snapshot is composed per call, so it always reflects the attach's DDL (a cached
