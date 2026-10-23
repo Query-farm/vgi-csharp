@@ -88,7 +88,13 @@ public sealed class CacheParallelFunction : ITableFunction
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
     {
         var count = initParams.Arguments.Int64(0);
-        var batchSize = Math.Max(1, initParams.Arguments.Int64Named("batch_size", DefaultBatchSize));
+        // A chunk is one output batch, whose row count is an int.
+        var batchSize = initParams.Arguments.Int64Named("batch_size", DefaultBatchSize);
+        if (batchSize < 1 || batchSize > int.MaxValue)
+        {
+            throw new ArgumentException($"batch_size must be between 1 and {int.MaxValue}, got {batchSize}");
+        }
+
         var key = Convert.ToHexString(initParams.ExecutionId ?? []);
         return new Producer(key, count, batchSize, initParams.OutputSchema);
     }
@@ -114,7 +120,7 @@ public sealed class CacheParallelFunction : ITableFunction
 
             var metadata = _first ? CacheMetadata.Ttl(300) : null;
             _first = false;
-            output.Emit(new RecordBatch(outputSchema, [builder.Build()], (int)rows), metadata);
+            output.Emit(new RecordBatch(outputSchema, [builder.Build()], checked((int)rows)), metadata);
         }
     }
 }

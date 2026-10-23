@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using QueryFarm.Vgi.Internal;
+using QueryFarm.Vgi.Protocol;
 using QueryFarm.Vgi.Table;
 using QueryFarm.Vgi.TableInOut;
 using QueryFarm.VgiRpc.Streaming;
@@ -27,6 +28,12 @@ public class ContinuedOutputTests
     {
         public Dictionary<string, string>? ResumeMetadata { get; set; }
 
+        /// <summary>Process returns without emitting.</summary>
+        public bool SilentProcess { get; init; }
+
+        /// <summary>Resume returns without emitting.</summary>
+        public bool SilentResume { get; init; }
+
         public string Name => "pager";
 
         public bool InputFromArgs => inputFromArgs;
@@ -52,10 +59,19 @@ public class ContinuedOutputTests
             {
                 _total = ((Int64Array)input.Column(0)).GetValue(0) ?? 0;
                 _next = 0;
-                EmitPage(output, new Dictionary<string, string> { ["vgi.cache.ttl"] = "5" });
+                if (!function.SilentProcess)
+                {
+                    EmitPage(output, new Dictionary<string, string> { ["vgi.cache.ttl"] = "5" });
+                }
             }
 
-            public void Resume(OutputCollector output) => EmitPage(output, function.ResumeMetadata);
+            public void Resume(OutputCollector output)
+            {
+                if (!function.SilentResume)
+                {
+                    EmitPage(output, function.ResumeMetadata);
+                }
+            }
 
             private void EmitPage(OutputCollector output, Dictionary<string, string>? metadata)
             {
@@ -208,5 +224,115 @@ public class ContinuedOutputTests
             CatalogRegistry.CheckTableInOutContract(new Pager(inputFromArgs: false, rowsPerCall: 3)));
         Assert.Contains("applies only to a blended", error.Message);
         CatalogRegistry.CheckTableInOutContract(new Pager(rowsPerCall: 3));
+    }
+
+    [Fact]
+    public void AResumeThatEmitsNothingOnATickIsRefused()
+    {
+        var state = Open(new Pager { SilentResume = true });
+        Turn(state, Input(5));
+        var error = Assert.Throws<InvalidOperationException>(() => Turn(state, Tick()));
+        Assert.Contains("Resume emitted no reply to a continuation tick", error.Message);
+    }
+
+    /// <summary>A real input answered with nothing writes no reply on a pipe transport, so the
+    /// client would wait forever; the exchange refuses it instead.</summary>
+    [Fact]
+    public void AProcessThatEmitsNothingOnRealInputIsRefused()
+    {
+        var state = Open(new Pager { SilentProcess = true });
+        var error = Assert.Throws<InvalidOperationException>(() => Turn(state, Input(5)));
+        Assert.Contains("Process emitted no reply to an input batch", error.Message);
+        Assert.Contains("No data batch was emitted", error.Message);
+    }
+
+    [Fact]
+    public void AnEmptyReplyIsStillAReply()
+    {
+        var state = Open(new Pager());
+        var reply = Turn(state, Input(0));
+        Assert.Empty(reply.Values);
+        Assert.False(SaysMore(reply.Metadata));
+    }
+
+    /// <summary>A producer that writes <c>vgi.status: HAVE_MORE_OUTPUT</c> into its emit metadata
+    /// directly (bypassing <c>Emit(more: true)</c>, which already refuses there).</summary>
+    private sealed class MoreSpellingProducer : ITableFunctionProducer
+    {
+        public void Produce(OutputCollector output) => output.Emit(
+            new RecordBatch(s_output, [new Int64Array.Builder().Append(1).Build()], 1),
+            new Dictionary<string, string> { [ContinuedOutput.StatusKey] = ContinuedOutput.HaveMoreOutput });
+    }
+
+    [Fact]
+    public void ATableFunctionProducerSayingMoreInItsMetadataIsRefused()
+    {
+        var state = new TableProducerStreamState(new MoreSpellingProducer());
+        using var output = new OutputCollector(s_output);
+        var tick = new AnnotatedBatch(new RecordBatch(new Schema([], null), [], 0), null);
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            state.ProcessAsync(tick, output, null, CancellationToken.None).GetAwaiter().GetResult());
+        Assert.Contains("only valid on a table-in-out exchange's reply", error.Message);
+        Assert.Contains(nameof(MoreSpellingProducer), error.Message);
+    }
+
+    private sealed class MoreSpellingFinalizer : ITableInOutProcessor
+    {
+        public void Process(RecordBatch input, OutputCollector output) => output.Emit(input);
+
+        public void Finalize(OutputCollector output) => output.Emit(
+            new RecordBatch(s_output, [new Int64Array.Builder().Build()], 0),
+            new Dictionary<string, string> { [ContinuedOutput.StatusKey] = ContinuedOutput.HaveMoreOutput });
+    }
+
+    [Fact]
+    public void ATableInOutFinalizeSayingMoreIsRefused()
+    {
+        var state = new TableInOutFinalizeStreamState(new MoreSpellingFinalizer());
+        using var output = new OutputCollector(s_output);
+        var tick = new AnnotatedBatch(new RecordBatch(new Schema([], null), [], 0), null);
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            state.ProcessAsync(tick, output, null, CancellationToken.None).GetAwaiter().GetResult());
+        Assert.Contains("only valid on a table-in-out exchange's reply", error.Message);
+    }
+
+    [Fact]
+    public void MoreSpelledInTheMetadataInsideAnExchangeIsMoreToo()
+    {
+        // The exchange reads "more" off the reply's metadata, so spelling it directly is held to
+        // the same ContinuesOutput rule as Emit(more: true).
+        using var output = new OutputCollector(s_output);
+        var input = new AnnotatedBatch(
+            new RecordBatch(s_input, [new Int64Array.Builder().Append(1).Build()], 1), null);
+        var spelled = new TableInOutExchangeStreamState(new Pager(continues: false), new SpelledMoreProcessor());
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            spelled.ExchangeAsync(input, output, null, CancellationToken.None).GetAwaiter().GetResult());
+        Assert.Contains("does not declare ContinuesOutput", error.Message);
+    }
+
+    private sealed class SpelledMoreProcessor : ITableInOutProcessor
+    {
+        public void Process(RecordBatch input, OutputCollector output) => output.Emit(
+            new RecordBatch(s_output, [new Int64Array.Builder().Build()], 0),
+            new Dictionary<string, string> { [ContinuedOutput.StatusKey] = ContinuedOutput.HaveMoreOutput });
+    }
+
+    [Fact]
+    public async Task InputRowsPerCallReachesTheCatalogWire()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterTableInOut(new Pager(rowsPerCall: 7));
+        var service = new VgiServiceImpl(registry);
+
+        // Encoded and decoded exactly as catalog_schema_contents_functions ships it.
+        var response = await service.CatalogSchemaContentsFunctionsAsync([], ["main"], SchemaObjectType.TableFunction, null);
+        var function = Assert.Single(response.Items.Select(EmbeddedIpc.Decode<FunctionInfo>), f => f.Name == "pager");
+        Assert.Equal(7L, function.InputRowsPerCall);
+        Assert.True(function.InputFromArgs);
+
+        var unset = new CatalogRegistry();
+        unset.RegisterTableInOut(new Pager());
+        var plain = await new VgiServiceImpl(unset).CatalogSchemaContentsFunctionsAsync([], ["main"], SchemaObjectType.TableFunction, null);
+        Assert.Null(Assert.Single(plain.Items.Select(EmbeddedIpc.Decode<FunctionInfo>), f => f.Name == "pager").InputRowsPerCall);
     }
 }

@@ -175,3 +175,35 @@ public class PartitionedFixtureReaderTests
         Assert.Equal(readers, Assert.IsType<GlobalInitResponse>(stream.Header).MaxWorkers);
     }
 }
+
+/// <summary><c>cache_parallel</c>'s <c>batch_size</c> is one output batch's row count, an int: a
+/// value outside <c>1..int.MaxValue</c> is refused at init rather than overflowing the cast.</summary>
+public class CacheParallelFixtureTests
+{
+    private static void Create(long batchSize)
+    {
+        var function = new QueryFarm.Vgi.ExampleWorker.Cache.CacheParallelFunction();
+        function.CreateProducer(new TableInitParams
+        {
+            FunctionName = function.Name,
+            Arguments = new TableArguments(
+                [new Int64Array.Builder().Append(10).Build()],
+                new Dictionary<string, IArrowArray> { ["batch_size"] = new Int64Array.Builder().Append(batchSize).Build() }),
+            OutputSchema = function.OutputSchema,
+            ExecutionId = Guid.NewGuid().ToByteArray(),
+        });
+    }
+
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(-5L)]
+    [InlineData((long)int.MaxValue + 1)]
+    public void ABatchSizeOutsideAnIntsRangeIsRefused(long batchSize)
+    {
+        var error = Assert.Throws<ArgumentException>(() => Create(batchSize));
+        Assert.Contains("batch_size must be between 1 and", error.Message);
+    }
+
+    [Fact]
+    public void ABatchSizeOfIntMaxValueIsAccepted() => Create(int.MaxValue);
+}

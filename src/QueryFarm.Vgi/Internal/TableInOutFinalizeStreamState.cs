@@ -16,6 +16,7 @@ public sealed class TableInOutFinalizeStreamState(ITableInOutProcessor processor
     public override Task ProduceAsync(OutputCollector output, ICallContext? ctx, CancellationToken cancellationToken)
     {
         processor.Finalize(output);
+        ContinuedOutput.RefuseOutsideExchange(processor.GetType().Name + ".Finalize", output.EmittedMetadata);
         return Task.CompletedTask;
     }
 }

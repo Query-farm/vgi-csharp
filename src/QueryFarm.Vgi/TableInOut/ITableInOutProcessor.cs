@@ -13,9 +13,10 @@ namespace QueryFarm.Vgi.TableInOut;
 /// </summary>
 public interface ITableInOutProcessor
 {
-    /// <summary>Processes one input batch, emitting zero or one output batch via
+    /// <summary>Processes one input batch, emitting exactly one output batch via
     /// <paramref name="output"/>.Emit(...) (an EMPTY batch — 0 rows — is a legal "consumed but
-    /// nothing to emit yet" turn, not end-of-stream; the client keeps sending more input). Never
+    /// nothing to emit yet" turn, not end-of-stream; the client keeps sending more input). A turn
+    /// that emits nothing is refused: the client waits for a reply to every input batch. Never
     /// call <paramref name="output"/>.Finish() here — the INPUT phase ends when the client closes
     /// its input stream, not when this returns.</summary>
     void Process(RecordBatch input, OutputCollector output);

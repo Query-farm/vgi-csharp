@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using QueryFarm.Vgi.Scalar;
+using QueryFarm.Vgi.TableInOut;
 using QueryFarm.VgiRpc.Server;
 using QueryFarm.VgiRpc.Streaming;
 using QueryFarm.VgiRpc.Wire;
@@ -38,6 +39,7 @@ public sealed class ScalarStreamState(
             Settings = settings,
             Secrets = secrets,
         });
+        ContinuedOutput.RefuseOutsideExchange(function.Name, function.CacheControlMetadata);
         output.Emit(result, function.CacheControlMetadata);
         return Task.CompletedTask;
     }

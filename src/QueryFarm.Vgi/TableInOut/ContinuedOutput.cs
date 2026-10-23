@@ -19,8 +19,9 @@ namespace QueryFarm.Vgi.TableInOut;
 ///
 /// <para>The protocol is strict, with no capability negotiation: while output is pending a tick is
 /// the only valid input, and a tick is valid only then; cache control (<c>vgi.cache.*</c>) may ride
-/// an input's first reply only; and <c>more: true</c> is refused outside a table-in-out exchange
-/// turn. When the client closes its input with output still pending (a LIMIT stopped asking), the
+/// an input's first reply only; every turn emits exactly one reply; and "more" — whether from
+/// <c>more: true</c> or spelled directly as <c>vgi.status: HAVE_MORE_OUTPUT</c> in the emit
+/// metadata — is refused outside a table-in-out exchange turn. When the client closes its input with output still pending (a LIMIT stopped asking), the
 /// pending output is simply dropped.</para>
 /// </summary>
 public static class ContinuedOutput
@@ -69,6 +70,21 @@ public static class ContinuedOutput
     /// <summary>Whether <paramref name="metadata"/> (a reply's) says more output follows.</summary>
     internal static bool SaysMore(IReadOnlyDictionary<string, string>? metadata) =>
         metadata is not null && metadata.TryGetValue(StatusKey, out var status) && status == HaveMoreOutput;
+
+    /// <summary>Refuses a reply outside a table-in-out exchange (a table function's producer, a
+    /// table-in-out FINALIZE, a scalar) that says more output follows, however it was spelled —
+    /// <c>Emit(more: true)</c> already refuses there, so this catches <c>vgi.status:
+    /// HAVE_MORE_OUTPUT</c> put in the emit metadata directly. No client sends a continuation tick
+    /// on such a stream, so it would wait for output that never comes.</summary>
+    internal static void RefuseOutsideExchange(string emitter, IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (SaysMore(metadata))
+        {
+            throw new InvalidOperationException(
+                $"{emitter}: emitted {StatusKey}: {HaveMoreOutput}, which is only valid on a table-in-out " +
+                "exchange's reply (Process or Resume)");
+        }
+    }
 
     /// <summary>Whether <paramref name="metadata"/> (an exchange input batch's) marks a continuation
     /// tick rather than real input.</summary>

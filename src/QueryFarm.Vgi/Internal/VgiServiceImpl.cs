@@ -30,7 +30,10 @@ namespace QueryFarm.Vgi.Internal;
 /// Table-in-out FINALIZE correlation: a table-in-out function's FINALIZE phase
 /// (<see cref="VgiInitPhase.Finalize"/>) runs on the SAME connection as its INPUT phase, right after
 /// the INPUT phase's EOS — so the <see cref="ITableInOutProcessor"/> created at INPUT-phase init is
-/// cached here (keyed by substream id) and handed straight back rather than re-created. This is
+/// cached here (keyed by substream id) and handed straight back rather than re-created. Only a
+/// function that declares <see cref="ITableInOutFunction.HasFinalize"/> is cached (no FINALIZE ever
+/// comes for one that doesn't), and its entry is dropped when the FINALIZE init takes it or when
+/// the INPUT stream fails or is cancelled (no FINALIZE follows either). This is
 /// per-CONNECTION (one <see cref="VgiServiceImpl"/> instance per <c>Worker.RunStdioAsync</c> call),
 /// which is exactly the scope a substream's INPUT→FINALIZE pair needs.
 /// </summary>
@@ -43,6 +46,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     // callers; under real concurrency this intermittently threw (or silently corrupted internal
     // state), a real bug found via the flaky cache/per_value_concurrent.test failure.
     private readonly ConcurrentDictionary<string, ITableInOutProcessor> _tableInOutProcessors = new(StringComparer.Ordinal);
+
+    /// <summary>INPUT-phase processors held for a FINALIZE init (tests check nothing leaks).</summary>
+    internal int PendingFinalizeProcessorCount => _tableInOutProcessors.Count;
 
     /// <summary>The catalog counter this worker reports, and the consistency anchor every split
     /// token is stamped with AND checked against — read from ONE place by both
@@ -992,6 +998,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         if (request.Phase == VgiInitPhase.Finalize)
         {
+            if (!function.HasFinalize)
+            {
+                throw new InvalidOperationException(
+                    $"table-in-out FINALIZE init for '{function.Name}', which declares no finalize phase (HasFinalize is false).");
+            }
+
             if (!_tableInOutProcessors.TryRemove(substreamKey, out var processor))
             {
                 throw new InvalidOperationException(
@@ -1018,10 +1030,19 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             AttachOpaqueData = bindRequest.AttachOpaqueData ?? [],
         };
         var inputProcessor = function.CreateProcessor(initParams);
-        _tableInOutProcessors[substreamKey] = inputProcessor;
+
+        // Keep the processor for the FINALIZE init only when one will come: a function without a
+        // finalize phase (every blended/LATERAL one) would otherwise leave an entry per query.
+        // A failed or cancelled INPUT stream gets no FINALIZE either, so it releases its entry.
+        Action? onAbandoned = null;
+        if (function.HasFinalize)
+        {
+            _tableInOutProcessors[substreamKey] = inputProcessor;
+            onAbandoned = () => _tableInOutProcessors.TryRemove(new KeyValuePair<string, ITableInOutProcessor>(substreamKey, inputProcessor));
+        }
 
         var header = new GlobalInitResponse { ExecutionId = executionId, OpaqueData = null, MaxWorkers = function.MaxWorkers ?? 1 };
-        var state = new TableInOutExchangeStreamState(function, inputProcessor);
+        var state = new TableInOutExchangeStreamState(function, inputProcessor, onAbandoned);
         return new RpcStream<StreamState>(projectedSchema, state, InputSchema: inputSchema, Header: header);
     }
 
