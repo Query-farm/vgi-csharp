@@ -380,6 +380,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var columns = table.ResolveColumns();
+        ColumnMetadata.Validate(columns);
         var rows = new List<(string, Catalog.ColumnStatisticsInput)>();
         foreach (var field in columns.FieldsList)
         {
@@ -1259,6 +1260,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     {
         if (request.ConstraintDefinitions.Count > 0)
             throw UnimplementedMethod.For("catalog_table_create: canonical constraint enforcement");
+        ColumnMetadata.ValidateIpc(request.Columns);
         SchemaIpc.RequireUnconstrainedColumns(request.Columns);
         if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
             throw UnimplementedMethod.For("catalog_table_create");
@@ -2308,12 +2310,19 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         ColumnComments = SortedMap(view.ColumnComments),
     };
 
+    private static byte[] ValidatedColumnSchema(Schema columns)
+    {
+        ColumnMetadata.Validate(columns);
+        return SchemaIpc.WriteSchemaOnly(columns);
+    }
+
     private static TableInfo BuildTableInfo(CatalogTable table)
     {
         if (table.NotNullColumns.Count > 0 || table.UniqueColumns.Count > 0 || table.PrimaryKeyColumns.Count > 0
             || table.CheckConstraints.Count > 0 || table.ForeignKeys.Count > 0)
             throw UnimplementedMethod.For("legacy constraint metadata requires explicit canonical records");
         var columns = table.ResolveColumns();
+        ColumnMetadata.Validate(columns);
         if (table.RowIdColumn is { } rowIdColumn)
         {
             columns = WithRowIdMetadata(columns, rowIdColumn);
@@ -2330,7 +2339,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Tags = SortedMap(table.Tags),
             Name = table.Name,
             SchemaPath = table.EffectiveSchemaPath.ToList(),
-            Columns = SchemaIpc.WriteSchemaOnly(columns),
+            Columns = ValidatedColumnSchema(columns),
             Constraints = table.Constraints.ToList(),
             DefinitionRevision = table.DefinitionRevision,
             WriteResultModes = SortedMap(table.WriteResultModes),
