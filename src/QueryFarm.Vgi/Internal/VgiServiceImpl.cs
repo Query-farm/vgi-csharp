@@ -1261,6 +1261,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         if (request.ConstraintDefinitions.Count > 0)
             throw UnimplementedMethod.For("catalog_table_create: canonical constraint enforcement");
         ColumnMetadata.ValidateIpc(request.Columns);
+        ColumnExpressions.ValidateIpc(request.Columns, request.SchemaPath, false);
         SchemaIpc.RequireUnconstrainedColumns(request.Columns);
         if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
             throw UnimplementedMethod.For("catalog_table_create");
@@ -2330,9 +2331,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         if (table.ColumnComments.Count > 0 || table.ColumnDefaults.Count > 0 || table.GeneratedColumns.Count > 0)
         {
-            columns = WithColumnMetadata(columns, table.ColumnComments, table.ColumnDefaults, table.GeneratedColumns, table.Name);
+            columns = WithColumnMetadata(columns, table.ColumnComments, table.ColumnDefaults, table.GeneratedColumns, table.Name, table.EffectiveSchemaPath);
         }
 
+        ColumnExpressions.Validate(columns, table.EffectiveSchemaPath);
         return new TableInfo
         {
             Comment = table.Comment,
@@ -2409,7 +2411,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// <see cref="Catalog.CatalogTable.ColumnComments"/>'s doc comment).</summary>
     private static Schema WithColumnMetadata(
         Schema schema, IReadOnlyDictionary<string, string> comments, IReadOnlyDictionary<string, string> defaults,
-        IReadOnlyDictionary<string, string> generatedColumns, string tableName)
+        IReadOnlyDictionary<string, string> generatedColumns, string tableName, IReadOnlyList<string> owner)
     {
         var fields = schema.FieldsList.ToList();
         foreach (var name in comments.Keys.Concat(defaults.Keys).Concat(generatedColumns.Keys).Distinct(StringComparer.Ordinal))
@@ -2434,7 +2436,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
             if (generatedColumns.TryGetValue(name, out var generatedExpr))
             {
-                metadata[VgiWireMetadata.GeneratedExpressionKey] = generatedExpr;
+                if (metadata.ContainsKey(ColumnExpressions.GeneratedKey) || metadata.ContainsKey("generated_expression")) throw new ArgumentException("Generated convenience conflicts with existing expression metadata.");
+                metadata[ColumnExpressions.GeneratedKey] = ColumnExpressions.GeneratedMetadata(generatedExpr, owner);
+                metadata[ColumnExpressions.GenerationKey] = "virtual";
             }
 
             fields[index] = new Field(target.Name, target.DataType, target.IsNullable, metadata);

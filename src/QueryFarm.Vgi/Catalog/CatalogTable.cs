@@ -102,7 +102,7 @@ public sealed class CatalogTable
     public IReadOnlyDictionary<string, string> ColumnDefaults { get; init; } = new Dictionary<string, string>();
 
     /// <summary>Per-column GENERATED ALWAYS AS expressions (raw SQL, e.g. <c>"n * 2"</c>), keyed by
-    /// column NAME — applied as <c>"generated_expression"</c> Arrow field metadata
+    /// column NAME — applied as canonical <c>SqlExpression</c> Arrow field metadata with explicit owner/context
     /// (<c>VGI_GENERATED_EXPRESSION_METADATA_KEY</c>), surfaced via <c>duckdb_columns().column_default</c>
     /// as DuckDB's own <c>CAST((&lt;expr&gt;) AS &lt;column_type&gt;)</c> rendering. Mutually exclusive
     /// per-column with <see cref="ColumnDefaults"/> (a column is either stored-with-a-default or

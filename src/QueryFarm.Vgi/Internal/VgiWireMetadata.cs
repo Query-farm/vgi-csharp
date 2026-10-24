@@ -37,9 +37,10 @@ public static class VgiWireMetadata
     public const string PartitionColumnTrueValue = "true";
 
     /// <summary>Marks a <see cref="Catalog.CatalogTable.Columns"/> field as a GENERATED ALWAYS AS
-    /// column — the value is the raw SQL expression DuckDB evaluates on read (e.g. <c>"n * 2"</c>).
+    /// column — the value is canonical base64 SqlExpression IPC.
     /// <c>VGI_GENERATED_EXPRESSION_METADATA_KEY</c> in <c>vgi_protocol_constants.hpp</c>.</summary>
-    public const string GeneratedExpressionKey = "generated_expression";
+    public const string GeneratedExpressionKey = ColumnExpressions.GeneratedKey;
+    public const string GenerationKey = ColumnExpressions.GenerationKey;
 
     /// <summary>Per-argument constraint metadata (agent discovery), surfaced through
     /// <c>vgi_function_arguments()</c> — all presence-only and value-encoded as UTF-8. Kept

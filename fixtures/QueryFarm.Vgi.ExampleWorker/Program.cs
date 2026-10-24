@@ -391,8 +391,6 @@ var worker = new Worker()
 //       final assertion and, as an unexpected bonus, table/inlined_cardinality.test's final
 //       assertion (both previously-confirmed C++-side gaps that turned out to be sensitive to
 //       which ScanFunction *instance* answers a table's scan).
-//       generated_sequence was NOT converted this way despite vgi-python doing so — tried and
-//       reverted; see GeneratedSequenceScanFunction's doc comment for the confirmed regression.
 //   (d) FIXED (partially — only the 3 instances actually needed): cacheable_numbers,
 //       cache_revalidatable, and cache_filtered each now share ONE instance between their
 //       `main`-schema callable registration and their `data`-schema bare-table registration
@@ -487,12 +485,7 @@ worker.RegisterCatalogTable(new CatalogTable
     ScanArguments = [100L],
 });
 
-// table/generated_columns.test — GENERATED ALWAYS AS columns on a VGI-backed table. Only `n` is
-// physical; `doubled`/`label` are computed entirely server-side from the declared expressions.
-// NOT reusable as the shared sequenceFunction — see GeneratedSequenceScanFunction's doc comment
-// for the confirmed regression this caused when tried (DuckDB genuinely fetches by index into the
-// FULL 3-column declared width even over the legacy table_scan_function_get path, unlike what
-// vgi-python's fixture implies).
+// Canonical VIRTUAL columns: the scan emits n only and DuckDB evaluates doubled/label.
 worker.RegisterCatalogTable(new CatalogTable
 {
     Name = "generated_sequence",
