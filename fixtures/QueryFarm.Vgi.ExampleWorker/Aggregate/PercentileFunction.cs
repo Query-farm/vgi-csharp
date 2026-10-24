@@ -100,18 +100,18 @@ public sealed class PercentileFunction : IAggregateFunction
         var value = arguments.Positional(0);
         if (value is null)
         {
-            throw new InvalidOperationException("vgi_percentile: percentile must not be NULL");
+            throw new VgiInvalidArgumentException("vgi_percentile: percentile must not be NULL");
         }
 
         var p = Convert.ToDouble(value);
         if (double.IsNaN(p) || double.IsInfinity(p))
         {
-            throw new InvalidOperationException("vgi_percentile: percentile must be a finite number");
+            throw new VgiInvalidArgumentException("vgi_percentile: percentile must be a finite number");
         }
 
         if (p is < 0.0 or > 1.0)
         {
-            throw new InvalidOperationException("vgi_percentile: percentile must be in [0, 1]");
+            throw new VgiInvalidArgumentException("vgi_percentile: percentile must be in [0, 1]");
         }
     }
 

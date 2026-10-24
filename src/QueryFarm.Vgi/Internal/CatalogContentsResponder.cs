@@ -46,13 +46,29 @@ public static class CatalogContentsResponder
         }
 
         var schemas = Validate(result.Schemas);
-        var etag = result.Etag ?? (etagMode == CatalogContentsEtagMode.ContentHash ? schemas.Digest : null);
+        var etag = result.Etag;
         if (etag is not null && ifNoneMatch is not null && etag == ifNoneMatch)
         {
             return new CatalogContentsResponse { CatalogVersion = catalogVersion, Etag = etag, NotModified = true };
         }
 
-        return new CatalogContentsResponse { CatalogVersion = catalogVersion, Etag = etag, Schemas = [.. schemas] };
+        var response = new CatalogContentsResponse
+        {
+            CatalogVersion = catalogVersion,
+            Etag = etag,
+            Schemas = MetadataCollections.Merge<SchemaInfo>(schemas.Select(s => s.Schema)),
+            Tables = MetadataCollections.Merge<TableInfo>(schemas.SelectMany(s => s.Tables)),
+            Views = MetadataCollections.Merge<ViewInfo>(schemas.SelectMany(s => s.Views)),
+            Functions = MetadataCollections.Merge<FunctionInfo>(schemas.SelectMany(s => s.ScalarFunctions.Concat(s.AggregateFunctions).Concat(s.TableFunctions))),
+            Macros = MetadataCollections.Merge<MacroInfo>(schemas.SelectMany(s => s.ScalarMacros.Concat(s.TableMacros))),
+            Indexes = MetadataCollections.Merge<IndexInfo>(schemas.SelectMany(s => s.Indexes)),
+        };
+        if (response.Etag is null && etagMode == CatalogContentsEtagMode.ContentHash)
+            response.Etag = QueryFarm.Vgi.Catalog.Snapshots.CatalogSnapshotManager.Digest(response);
+        if (response.Etag is not null && response.Etag == ifNoneMatch)
+            return new CatalogContentsResponse { CatalogVersion = catalogVersion, Etag = response.Etag, NotModified = true };
+        return response;
+
     }
 
     /// <summary>Checks the snapshot's paths and returns it parents first. A list that is already a

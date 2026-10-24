@@ -30,7 +30,10 @@ namespace QueryFarm.Vgi.Internal;
 /// Table-in-out FINALIZE correlation: a table-in-out function's FINALIZE phase
 /// (<see cref="VgiInitPhase.Finalize"/>) runs on the SAME connection as its INPUT phase, right after
 /// the INPUT phase's EOS — so the <see cref="ITableInOutProcessor"/> created at INPUT-phase init is
-/// cached here (keyed by substream id) and handed straight back rather than re-created. This is
+/// cached here (keyed by substream id) and handed straight back rather than re-created. Only a
+/// function that declares <see cref="ITableInOutFunction.HasFinalize"/> is cached (no FINALIZE ever
+/// comes for one that doesn't), and its entry is dropped when the FINALIZE init takes it or when
+/// the INPUT stream fails or is cancelled (no FINALIZE follows either). This is
 /// per-CONNECTION (one <see cref="VgiServiceImpl"/> instance per <c>Worker.RunStdioAsync</c> call),
 /// which is exactly the scope a substream's INPUT→FINALIZE pair needs.
 /// </summary>
@@ -43,6 +46,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     // callers; under real concurrency this intermittently threw (or silently corrupted internal
     // state), a real bug found via the flaky cache/per_value_concurrent.test failure.
     private readonly ConcurrentDictionary<string, ITableInOutProcessor> _tableInOutProcessors = new(StringComparer.Ordinal);
+
+    /// <summary>INPUT-phase processors held for a FINALIZE init (tests check nothing leaks).</summary>
+    internal int PendingFinalizeProcessorCount => _tableInOutProcessors.Count;
 
     /// <summary>The catalog counter this worker reports, and the consistency anchor every split
     /// token is stamped with AND checked against — read from ONE place by both
@@ -129,7 +135,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return Task.FromResult(InitTableBuffering(buffering, bindRequest, request));
         }
 
-        throw new InvalidOperationException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        throw new VgiNotFoundException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
     }
 
     /// <summary>Validate a pure optional proposal before publishing replacement bind state.</summary>
@@ -720,7 +726,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return buffering.ResolveOutputSchema(bindParams);
         }
 
-        throw new InvalidOperationException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        throw new VgiNotFoundException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
     }
 
     private static Apache.Arrow.Schema BindTable(ITableFunction function, BindRequest request,
@@ -1022,6 +1028,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         if (request.Phase == VgiInitPhase.Finalize)
         {
+            if (!function.HasFinalize)
+            {
+                throw new InvalidOperationException(
+                    $"table-in-out FINALIZE init for '{function.Name}', which declares no finalize phase (HasFinalize is false).");
+            }
+
             if (!_tableInOutProcessors.TryRemove(substreamKey, out var processor))
             {
                 throw new InvalidOperationException(
@@ -1048,10 +1060,19 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             AttachOpaqueData = bindRequest.AttachOpaqueData ?? [],
         };
         var inputProcessor = function.CreateProcessor(initParams);
-        _tableInOutProcessors[substreamKey] = inputProcessor;
+
+        // Keep the processor for the FINALIZE init only when one will come: a function without a
+        // finalize phase (every blended/LATERAL one) would otherwise leave an entry per query.
+        // A failed or cancelled INPUT stream gets no FINALIZE either, so it releases its entry.
+        Action? onAbandoned = null;
+        if (function.HasFinalize)
+        {
+            _tableInOutProcessors[substreamKey] = inputProcessor;
+            onAbandoned = () => _tableInOutProcessors.TryRemove(new KeyValuePair<string, ITableInOutProcessor>(substreamKey, inputProcessor));
+        }
 
         var header = new GlobalInitResponse { ExecutionId = executionId, OpaqueData = null, MaxWorkers = function.MaxWorkers ?? 1 };
-        var state = new TableInOutExchangeStreamState(inputProcessor);
+        var state = new TableInOutExchangeStreamState(function, inputProcessor, onAbandoned);
         return new RpcStream<StreamState>(projectedSchema, state, InputSchema: inputSchema, Header: header);
     }
 
@@ -1454,11 +1475,28 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ? CatalogContentsSnapshotAsync(identity, attachOpaqueData, ctx)
             : CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
         var handler = catalog.CatalogContentsHandlerFor(identity);
-        var result = handler is null
-            ? await Build().ConfigureAwait(false)
-            : await handler(new CatalogContentsRequest(identity, attachOpaqueData, ifNoneMatch, version, Build)).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"catalog_contents handler for '{identity}' returned null");
-        return CatalogContentsResponder.Respond(version, result, ifNoneMatch, catalog.CatalogContentsEtagFor(identity));
+        async Task<CatalogContentsResponse> Ordinary(string? condition)
+        {
+            var result = handler is null
+                ? await Build().ConfigureAwait(false)
+                : await handler(new CatalogContentsRequest(identity, attachOpaqueData, condition, version, Build)).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException($"catalog_contents handler for '{identity}' returned null");
+            return CatalogContentsResponder.Respond(version, result, condition, catalog.CatalogContentsEtagFor(identity));
+        }
+        if (catalog.SnapshotPolicy is { } policy)
+        {
+            var scope = Catalog.Snapshots.CatalogSnapshotScope.Current.Value ?? Catalog.Snapshots.CatalogSnapshotManager.Hash(attachOpaqueData);
+            var request = new Catalog.Snapshots.SnapshotRequest(attachOpaqueData, scope, version, ctx);
+            var delivery = await policy.Manager.ServeAsync(policy, request, ifNoneMatch, () => Ordinary(null)).ConfigureAwait(false);
+            if (delivery.Reference is { } reference)
+            {
+                if (ctx is null) throw new InvalidOperationException("Published catalog delivery requires an RPC call context; use Manager.WarmAsync for startup publication.");
+                ctx.RespondWithExternalRef(reference);
+                return null!;
+            }
+            return delivery.Response!;
+        }
+        return await Ordinary(ifNoneMatch).ConfigureAwait(false);
     }
 
     /// <summary>The default <c>catalog_contents</c> snapshot for <paramref name="identity"/>, from
@@ -1586,7 +1624,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         var identity = DecodeIdentity(attachOpaqueData);
         var table = catalog.FindCatalogTable(identity, schemaPath, name)
-            ?? throw new InvalidOperationException($"Unknown table: '{string.Join('.', schemaPath)}.{name}'.");
+            ?? throw new VgiNotFoundException($"Unknown table: '{string.Join('.', schemaPath)}.{name}'.");
 
         List<ScanBranch> branches;
         List<string> requiredExtensions;
@@ -1863,15 +1901,15 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     private IScalarFunction ResolveScalar(string identity, IReadOnlyList<string> schemaPath, string name, byte[] constArguments, Apache.Arrow.Schema? paramSchema) =>
         catalog.FindScalar(identity, schemaPath, name, constArguments, paramSchema)
-        ?? throw new InvalidOperationException($"Unknown scalar function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        ?? throw new VgiNotFoundException($"Unknown scalar function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
     private ITableBufferingFunction ResolveTableBuffering(string identity, IReadOnlyList<string> schemaPath, string name) =>
         catalog.FindTableBuffering(identity, schemaPath, name)
-        ?? throw new InvalidOperationException($"Unknown table-buffering function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        ?? throw new VgiNotFoundException($"Unknown table-buffering function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
     private IAggregateFunction ResolveAggregate(string identity, IReadOnlyList<string> schemaPath, string name) =>
         catalog.FindAggregate(identity, schemaPath, name)
-        ?? throw new InvalidOperationException($"Unknown aggregate function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+        ?? throw new VgiNotFoundException($"Unknown aggregate function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
 
     /// <summary>Synthetic column the C++ side prepends to every <c>aggregate_update</c>
     /// <c>input_batch</c> — see <c>VgiAggregateUpdate</c>'s <c>__vgi_group_id</c> field.</summary>
@@ -2076,6 +2114,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         MaxWorkers = function.MaxWorkers,
         HasFinalize = function.HasFinalize,
         InputFromArgs = function.InputFromArgs,
+        InputRowsPerCall = function.InputRowsPerCall,
         RequiredSettings = function.RequiredSettings.ToList(),
         RequiredSecrets = function.RequiredSecrets.ToList(),
     };
@@ -2276,7 +2315,6 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         {
             Comment = comment,
             Tags = SortedMap(tags),
-            AttachOpaqueData = [],
             Path = path.ToList(),
             EstimatedObjectCount = SortedMap(new Dictionary<string, long>
             {
@@ -2301,7 +2339,6 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     {
         Comment = schema.Comment,
         Tags = SortedMap(schema.Tags),
-        AttachOpaqueData = [],
         Path = schema.Path,
         EstimatedObjectCount = SortedMap(new Dictionary<string, long>
         {

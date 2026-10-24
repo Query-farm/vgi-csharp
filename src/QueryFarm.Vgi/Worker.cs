@@ -55,9 +55,10 @@ public sealed class Worker
     /// the <c>catalog_contents</c> RPC and the <c>supports_catalog_contents</c> column on the
     /// <c>catalog_attach</c> result (see <see cref="CatalogContents"/>).</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "2.1.0";
+    public const string DefaultProtocolVersion = "2.2.0";
 
     private readonly CatalogRegistry _catalog = new();
+    public Worker CatalogSnapshot(Catalog.Snapshots.CatalogSnapshotPolicy policy) { _catalog.SnapshotPolicy = policy; return this; }
     private string _protocolVersion = DefaultProtocolVersion;
     private Func<IEnumerable<HostedProtocol>>? _hostedProtocols;
     private IdentityImpl.TokenResolver? _resolveToken;
@@ -98,7 +99,7 @@ public sealed class Worker
     /// <para>Each protocol needs a distinct wire name (<c>[ProtocolName]</c> on its interface,
     /// conventionally dot-qualified with a major version), not <c>vgi.v2</c>, and not under the
     /// reserved <c>vgi_rpc.</c> prefix: framework protocols are not supplied here. Reflection is
-    /// hosted automatically, and <c>vgi_rpc.Identity.v1</c> is enabled with
+    /// hosted automatically, and <c>vgi_rpc.Identity.v2</c> is enabled with
     /// <see cref="Identity"/>. The protocol is the unit of optionality -- there is no way to host
     /// a subset of a protocol's methods, so a capability that may be absent is its own protocol.</para>
     /// </remarks>
@@ -117,7 +118,7 @@ public sealed class Worker
         return this;
     }
 
-    /// <summary>Opts this worker into hosting <c>vgi_rpc.Identity.v1</c> over HTTP.</summary>
+    /// <summary>Opts this worker into hosting <c>vgi_rpc.Identity.v2</c> over HTTP.</summary>
     /// <param name="resolveToken">Resolves an opaque bearer credential to a principal; supplying it
     /// hosts <c>introspect_token</c>. Return <see langword="null"/> for "the store answered and
     /// the credential is unknown". For "the answer is not knowable" -- a store or sidecar is down,
@@ -158,7 +159,7 @@ public sealed class Worker
         return this;
     }
 
-    /// <summary>Sealed-grant keys for <c>vgi_rpc.Identity.v1</c> (IDENTITY_V1_SPEC.md §9), overriding
+    /// <summary>Sealed-grant keys for <c>vgi_rpc.Identity.v2</c> (IDENTITY_V2_SPEC.md §9), overriding
     /// <c>VGI_RPC_GRANT_KEYS</c> and <c>--grant-key</c>.</summary>
     /// <param name="keys">The configuration; the first key mints and every key verifies.</param>
     /// <returns>This builder.</returns>
@@ -168,7 +169,7 @@ public sealed class Worker
     /// base64 of exactly 32 bytes each), plus <c>VGI_RPC_GRANT_AUDIENCE</c> and
     /// <c>VGI_RPC_GRANT_MAX_TTL_SECONDS</c> (default 7 days); with none of them nothing changes. A
     /// malformed key stops the worker at startup.</para>
-    /// <para>With keys, the HTTP worker hosts <c>vgi_rpc.Identity.v1</c> even without hooks: it
+    /// <para>With keys, the HTTP worker hosts <c>vgi_rpc.Identity.v2</c> even without hooks: it
     /// mints sealed <c>vgig1.</c> grants through <c>issue_grant</c> (unless
     /// <see cref="Identity"/> supplies a minter) and accepts them back as bearer credentials on every
     /// call, after <see cref="HttpAuthenticate"/>'s own authenticator. A grant authenticates as its
@@ -716,7 +717,7 @@ public sealed class Worker
     /// </remarks>
     /// <para>What it hosts, in reflection order: <c>vgi.v2</c>; the protocols the
     /// <see cref="HostedProtocols"/> hook returns, on every transport; <c>vgi_rpc.Reflection.v1</c>,
-    /// on every transport; and <c>vgi_rpc.Identity.v1</c> on HTTP when <see cref="Identity"/> was
+    /// on every transport; and <c>vgi_rpc.Identity.v2</c> on HTTP when <see cref="Identity"/> was
     /// called.</para>
     internal RpcServer NewRpcServer(ServerTransport transport, string? serverId = null)
     {
@@ -811,7 +812,7 @@ public sealed class Worker
                 throw new ArgumentException(
                     $"{HookName} entry {index} ({entry.ServiceInterface.Name}) is named '{name}', which claims the "
                     + "reserved 'vgi_rpc.' prefix. Framework protocols are not supplied through this hook: reflection "
-                    + "is hosted automatically, and vgi_rpc.Identity.v1 is enabled with Worker.Identity(...).");
+                    + "is hosted automatically, and vgi_rpc.Identity.v2 is enabled with Worker.Identity(...).");
             }
 
             if (name == primary)
@@ -836,7 +837,7 @@ public sealed class Worker
         return pairs;
     }
 
-    /// <summary>The <c>vgi_rpc.Identity.v1</c> implementation, or <see langword="null"/> when the
+    /// <summary>The <c>vgi_rpc.Identity.v2</c> implementation, or <see langword="null"/> when the
     /// worker did not opt in -- absent beats routed-and-refusing.</summary>
     /// <exception cref="InvalidOperationException">A resolver was supplied without an introspector
     /// allowlist -- the worker refuses to start.</exception>
@@ -860,7 +861,7 @@ public sealed class Worker
             if (principals.Count == 0)
             {
                 throw new InvalidOperationException(
-                    "This worker supplies a resolveToken hook, which hosts the vgi_rpc.Identity.v1 protocol, but no "
+                    "This worker supplies a resolveToken hook, which hosts the vgi_rpc.Identity.v2 protocol, but no "
                     + "introspector allowlist was configured. Pass introspectPrincipals to Worker.Identity(...) or set "
                     + "VGI_INTROSPECT_PRINCIPALS (comma-separated). There is no permissive default on purpose: "
                     + "introspection is a separate capability from authentication, and allowing every authenticated "

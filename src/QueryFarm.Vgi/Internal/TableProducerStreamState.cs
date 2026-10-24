@@ -1,4 +1,5 @@
 using QueryFarm.Vgi.Table;
+using QueryFarm.Vgi.TableInOut;
 using QueryFarm.VgiRpc.Server;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -15,6 +16,7 @@ public sealed class TableProducerStreamState(ITableFunctionProducer producer) : 
     public override Task ProduceAsync(OutputCollector output, ICallContext? ctx, CancellationToken cancellationToken)
     {
         producer.Produce(output);
+        ContinuedOutput.RefuseOutsideExchange(producer.GetType().Name, output.EmittedMetadata);
         return Task.CompletedTask;
     }
 }

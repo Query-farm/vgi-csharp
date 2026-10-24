@@ -48,6 +48,7 @@ namespace QueryFarm.Vgi.Internal;
 /// </summary>
 public sealed class CatalogRegistry
 {
+    public Catalog.Snapshots.CatalogSnapshotPolicy? SnapshotPolicy { get; set; }
     /// <summary>The identity bucket ordinary (non-multi-catalog-identity) registrations live
     /// under, and the fallback every attach name resolves to when it has no dedicated bucket.</summary>
     public const string DefaultIdentity = "";
@@ -275,8 +276,42 @@ public sealed class CatalogRegistry
     public void RegisterTable(ITableFunction function, string identity = DefaultIdentity) =>
         Add(_tableFunctions, identity, function.SchemaPath, function.Name, function);
 
-    public void RegisterTableInOut(ITableInOutFunction function, string identity = DefaultIdentity) =>
+    public void RegisterTableInOut(ITableInOutFunction function, string identity = DefaultIdentity)
+    {
+        CheckTableInOutContract(function);
         Add(_tableInOutFunctions, identity, function.SchemaPath, function.Name, function);
+    }
+
+    /// <summary>Refuses, at registration, a table-in-out function the client cannot drive, rather
+    /// than failing the first query that calls it: continued output on the one connection a
+    /// <c>max_workers = 1</c> function shares across pipelines, and an
+    /// <see cref="ITableInOutFunction.InputRowsPerCall"/> that is not positive or not on a blended
+    /// function. (vgi-python also refuses a <c>resume()</c> without serializable state; a C#
+    /// processor is its own state, kept live for the stream on every transport.)</summary>
+    internal static void CheckTableInOutContract(ITableInOutFunction function)
+    {
+        if (function.ContinuesOutput && function.MaxWorkers == 1)
+        {
+            throw new ArgumentException(
+                $"{function.Name}: continued output (ContinuesOutput) is not supported with MaxWorkers = 1; " +
+                "the client runs such a function on one shared connection.");
+        }
+
+        if (function.InputRowsPerCall is { } rowsPerCall)
+        {
+            if (!function.InputFromArgs)
+            {
+                throw new ArgumentException(
+                    $"{function.Name}: InputRowsPerCall applies only to a blended (InputFromArgs) function, " +
+                    "whose per-row input the client can split into calls.");
+            }
+
+            if (rowsPerCall < 1)
+            {
+                throw new ArgumentException($"{function.Name}: InputRowsPerCall must be a positive row count, got {rowsPerCall}.");
+            }
+        }
+    }
 
     public void RegisterTableBuffering(ITableBufferingFunction function, string identity = DefaultIdentity) =>
         Add(_tableBufferingFunctions, identity, function.SchemaPath, function.Name, function);
@@ -463,7 +498,7 @@ public sealed class CatalogRegistry
     {
         1 => candidates[0],
         0 => throw new InvalidOperationException($"'{name}': no candidates registered (unreachable — caller already checked null)."),
-        _ => throw new NotSupportedException($"'{name}' has {candidates.Count} overloads, but this function kind's registry lookup doesn't support disambiguating them yet."),
+        _ => throw new VgiUnimplementedException($"'{name}' has {candidates.Count} overloads, but this function kind's registry lookup doesn't support disambiguating them yet."),
     };
 
     /// <summary>Every aggregate function (every overload) visible under the given attach identity —

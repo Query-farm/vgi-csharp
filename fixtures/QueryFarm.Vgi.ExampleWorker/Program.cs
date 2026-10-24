@@ -254,6 +254,11 @@ var worker = new Worker()
     .RegisterTableInOut(new BlendedExplodeFunction())
     .RegisterTableInOut(new ProjectableBlendedFunction())
     .RegisterTableInOut(new HostileProvenanceFunction())
+    // Continued output (several replies per input) and input_rows_per_call —
+    // lateral_continuation/input_rows_per_call/continuation_*.test.
+    .RegisterTableInOut(new BlendedPagedFunction())
+    .RegisterTableInOut(new BlendedSlicedFunction())
+    .RegisterTableInOut(new PagedExplodeFunction())
     // ANY-typed blended input columns — blended_any.test.
     .RegisterTableInOut(new BlendedAnyFunction())
     .RegisterTableInOut(new BlendedAnyVarargsFunction())
@@ -753,7 +758,7 @@ worker.HttpAuthenticate(TestBearers.Create(TestBearers.GrantsConfigured(args)));
 // vgi.v2,conformance.Secondary.v1`) runs against this worker. Additive: vgi.v2 is unchanged.
 worker.HostedProtocols(() => [new HostedProtocol(typeof(ISecondary), new SecondaryImpl())]);
 
-// --identity (HTTP only): vgi_rpc.Identity.v1 with the IDENTITY_CONFORMANCE_FIXTURE.md policy and
+// --identity (HTTP only): vgi_rpc.Identity.v2 with the IDENTITY_CONFORMANCE_FIXTURE.md policy and
 // its spoofable header authentication -- `vgi-rpc-test-hosted --url ... --identity`.
 if (IdentityFixture.Requested(args))
 {

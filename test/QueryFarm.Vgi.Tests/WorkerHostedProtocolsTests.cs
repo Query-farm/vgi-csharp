@@ -112,7 +112,7 @@ public sealed class WorkerHostedProtocolsTests
 
     private static TokenIdentity? Resolve(string token) => new("someone");
 
-    private static IssuedGrant Mint(string principal, string purpose, List<string> scopes, long ttl) => new("t", 1.0);
+    private static IssuedGrant Mint(string principal, string purpose, List<string> scopes, long ttl) => new("t", DateTimeOffset.UnixEpoch.AddSeconds(1));
 
     /// <summary>Identity is hosted on HTTP only, and only the methods whose hooks exist.</summary>
     [Fact]
@@ -122,7 +122,7 @@ public sealed class WorkerHostedProtocolsTests
         Assert.DoesNotContain(IdentityProtocol.ProtocolName, worker.NewRpcServer(Worker.ServerTransport.Stdio).HostedProtocols);
         Assert.DoesNotContain(IdentityProtocol.ProtocolName, worker.NewRpcServer(Worker.ServerTransport.Unix).HostedProtocols);
         var http = worker.NewRpcServer(Worker.ServerTransport.Http);
-        Assert.Equal("vgi_rpc.Identity.v1", http.HostedProtocols[^1]);
+        Assert.Equal("vgi_rpc.Identity.v2", http.HostedProtocols[^1]);
         Assert.Equal(["introspect_token"], http.MethodsForProtocol(IdentityProtocol.ProtocolName)!.Keys);
     }
 

@@ -138,7 +138,7 @@ internal sealed class InMemoryCatalogState
     {
         if (path.Count == 0)
         {
-            throw new ArgumentException("CREATE SCHEMA needs a non-empty schema path.");
+            throw new VgiInvalidArgumentException("CREATE SCHEMA needs a non-empty schema path.");
         }
 
         lock (_lock)
@@ -151,7 +151,7 @@ internal sealed class InMemoryCatalogState
 
             if (path.Count > 1 && FindSchema(path.Take(path.Count - 1).ToList()) is null)
             {
-                throw new InvalidOperationException($"Schema with name {Dotted(path.Take(path.Count - 1).ToList())} does not exist!");
+                throw new VgiNotFoundException($"Schema with name {Dotted(path.Take(path.Count - 1).ToList())} does not exist!");
             }
 
             if (existing is not null)
@@ -176,7 +176,7 @@ internal sealed class InMemoryCatalogState
                     return;
                 }
 
-                throw new InvalidOperationException($"Schema with name {Dotted(path)} does not exist!");
+                throw new VgiNotFoundException($"Schema with name {Dotted(path)} does not exist!");
             }
 
             var children = _schemas.Where(s => s.Path.Count > path.Count && CatalogRegistry.PathsEqual(s.Path.Take(path.Count).ToList(), path)).ToList();
@@ -235,7 +235,7 @@ internal sealed class InMemoryCatalogState
             }
             else if (!ignoreNotFound)
             {
-                throw new InvalidOperationException($"Table with name {name} does not exist!");
+                throw new VgiNotFoundException($"Table with name {name} does not exist!");
             }
         }
     }
@@ -295,7 +295,7 @@ internal sealed class InMemoryCatalogState
             }
             else if (!ignoreNotFound)
             {
-                throw new InvalidOperationException($"View with name {name} does not exist!");
+                throw new VgiNotFoundException($"View with name {name} does not exist!");
             }
         }
     }
@@ -313,7 +313,7 @@ internal sealed class InMemoryCatalogState
         _schemas.FirstOrDefault(s => CatalogRegistry.PathsEqual(s.Path, path));
 
     private SchemaState RequireSchema(IReadOnlyList<string> path) =>
-        FindSchema(path) ?? throw new InvalidOperationException($"Schema with name {Dotted(path)} does not exist!");
+        FindSchema(path) ?? throw new VgiNotFoundException($"Schema with name {Dotted(path)} does not exist!");
 
     private static string Dotted(IReadOnlyList<string> path) => string.Join('.', path);
 

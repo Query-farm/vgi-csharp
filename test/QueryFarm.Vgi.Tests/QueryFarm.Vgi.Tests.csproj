@@ -34,6 +34,7 @@
        cross-SDK attach-ticket vectors); refresh it when the reference changes. -->
   <ItemGroup>
     <None Include="Vectors/attach_ticket_vectors.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Vectors/function_binary_dictionary_replacement.arrow" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

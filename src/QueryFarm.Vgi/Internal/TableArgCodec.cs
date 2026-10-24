@@ -128,7 +128,7 @@ public sealed class TableArguments(
     public object? Named(string name) => ScalarArgCodec.ReadScalar(NamedArray(name));
 
     public long Int64(int index) =>
-        Convert.ToInt64(Positional(index) ?? throw new InvalidOperationException($"Missing required positional argument {index}."));
+        Convert.ToInt64(Positional(index) ?? throw new VgiInvalidArgumentException($"Missing required positional argument {index}."));
 
     public long? Int64OrNull(int index) => Positional(index) is { } v ? Convert.ToInt64(v) : null;
 
@@ -139,7 +139,7 @@ public sealed class TableArguments(
         Named(name) is { } v ? Convert.ToDouble(v) : defaultValue;
 
     public string StringPositional(int index) =>
-        (string?)Positional(index) ?? throw new InvalidOperationException($"Missing required positional argument {index}.");
+        (string?)Positional(index) ?? throw new VgiInvalidArgumentException($"Missing required positional argument {index}.");
 
     public string StringNamed(string name, string defaultValue) =>
         Named(name) is string s ? s : defaultValue;

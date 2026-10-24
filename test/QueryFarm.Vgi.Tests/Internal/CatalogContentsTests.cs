@@ -65,17 +65,17 @@ public class CatalogContentsTests
     private static List<SchemaContents> Decode(CatalogContentsResponse response)
     {
         Assert.False(response.NotModified);
-        foreach (var entry in response.Schemas)
+        foreach (var entry in MetadataCollections.DecodeCatalog(response))
         {
             Assert.Equal(EmbeddedIpc.Decode<SchemaInfo>(entry.Schema).Path, entry.Path);
         }
 
-        return response.Schemas;
+        return MetadataCollections.DecodeCatalog(response);
     }
 
     /// <summary>A snapshot's identity for comparisons: the content-hash digest covers every path and
     /// item byte.</summary>
-    private static string Fingerprint(CatalogContentsResponse response) => CatalogContentsDigest.Compute(response.Schemas);
+    private static string Fingerprint(CatalogContentsResponse response) => CatalogContentsDigest.Compute(MetadataCollections.DecodeCatalog(response));
 
     [Fact]
     public async Task OneEntryPerSchema_ParentsBeforeChildren()
@@ -332,10 +332,10 @@ public class CatalogContentsTests
 
             // Revalidation over the wire: if_none_match travels as a nullable utf8 column, and
             // etag / not_modified / an empty schemas list come back.
-            Assert.Equal(CatalogContentsDigest.Compute(response.Schemas), response.Etag);
+            Assert.Equal(QueryFarm.Vgi.Catalog.Snapshots.CatalogSnapshotManager.Digest(response), response.Etag);
             var unchanged = await client.CatalogContentsAsync(attached.AttachOpaqueData, response.Etag);
             Assert.True(unchanged.NotModified);
-            Assert.Empty(unchanged.Schemas);
+            Assert.Empty(MetadataCollections.DecodeCatalog(unchanged));
             Assert.Equal(response.Etag, unchanged.Etag);
             Assert.Equal(response.CatalogVersion, unchanged.CatalogVersion);
             var stale = await client.CatalogContentsAsync(attached.AttachOpaqueData, "stale");
@@ -394,12 +394,12 @@ public class CatalogContentsTests
 
         var full = await service.CatalogContentsAsync(attach);
         Assert.False(full.NotModified);
-        Assert.NotEmpty(full.Schemas);
-        Assert.Equal(CatalogContentsDigest.Compute(full.Schemas), full.Etag);
+        Assert.NotEmpty(MetadataCollections.DecodeCatalog(full));
+        Assert.Equal(QueryFarm.Vgi.Catalog.Snapshots.CatalogSnapshotManager.Digest(full), full.Etag);
 
         var unchanged = await service.CatalogContentsAsync(attach, ifNoneMatch: full.Etag);
         Assert.True(unchanged.NotModified);
-        Assert.Empty(unchanged.Schemas);
+        Assert.Empty(MetadataCollections.DecodeCatalog(unchanged));
         Assert.Equal(full.Etag, unchanged.Etag);
         Assert.Equal(full.CatalogVersion, unchanged.CatalogVersion);
 
@@ -467,7 +467,7 @@ public class CatalogContentsTests
 
         var unchanged = await service.CatalogContentsAsync(attach, ifNoneMatch: "gen-7");
         Assert.True(unchanged.NotModified);
-        Assert.Empty(unchanged.Schemas);
+        Assert.Empty(MetadataCollections.DecodeCatalog(unchanged));
         Assert.Equal("gen-7", unchanged.Etag);
         Assert.Equal(1, builds);
 
@@ -510,7 +510,7 @@ public class CatalogContentsTests
 
         var response = await service.CatalogContentsAsync(await AttachAsync(service), ifNoneMatch: "v1");
         Assert.True(response.NotModified);
-        Assert.Empty(response.Schemas);
+        Assert.Empty(MetadataCollections.DecodeCatalog(response));
         Assert.Equal("v1", response.Etag);
     }
 
@@ -546,7 +546,7 @@ public class CatalogContentsTests
     private static SchemaContents Entry(params string[] path) => new()
     {
         Path = [.. path],
-        Schema = EmbeddedIpc.Encode(new SchemaInfo { AttachOpaqueData = [], Path = [.. path], Comment = null, Tags = [] }),
+        Schema = EmbeddedIpc.Encode(new SchemaInfo { Path = [.. path], Comment = null, Tags = [] }),
     };
 
     [Fact]
@@ -555,7 +555,7 @@ public class CatalogContentsTests
         var ordered = CatalogContentsResponder.Respond(
             3, new CatalogContentsResult { Schemas = [Entry("a", "b"), Entry("z"), Entry("a")] }, null, CatalogContentsEtagMode.None);
         Assert.Equal(3, ordered.CatalogVersion);
-        Assert.Equal([["z"], ["a"], ["a", "b"]], ordered.Schemas.Select(s => s.Path));
+        Assert.Equal([["z"], ["a"], ["a", "b"]], MetadataCollections.DecodeCatalog(ordered).Select(s => s.Path));
 
         Assert.Contains("duplicate", Assert.Throws<InvalidOperationException>(() => CatalogContentsResponder.Respond(
             1, new CatalogContentsResult { Schemas = [Entry("a"), Entry("a")] }, null, CatalogContentsEtagMode.None)).Message);
@@ -579,7 +579,7 @@ public class CatalogContentsTests
 
         var first = await service.CatalogContentsAsync(attach);
         var second = await service.CatalogContentsAsync(attach);
-        Assert.Same(first.Schemas[0], second.Schemas[0]);
+        Assert.Equal(first.Schemas, second.Schemas);
         Assert.Equal(first.Etag, second.Etag);
 
         registry.RegisterView(new CatalogView { Name = "late_view", SchemaName = "data", Definition = "SELECT 3 AS three" });
@@ -587,7 +587,7 @@ public class CatalogContentsTests
         Assert.False(third.NotModified);
         Assert.NotEqual(first.Etag, third.Etag);
         Assert.Contains(
-            third.Schemas.Single(s => s.Path.SequenceEqual(["data"])).Views,
+            MetadataCollections.DecodeCatalog(third).Single(s => s.Path.SequenceEqual(["data"])).Views,
             item => EmbeddedIpc.Decode<ViewInfo>(item).Name == "late_view");
     }
 

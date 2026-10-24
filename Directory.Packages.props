@@ -20,8 +20,8 @@
          did not reach the elements, so the generated InitRequest/TableFunctionPlanRequest
          join_keys/split_tokens derived list<binary> where the protocol declares
          list<large_binary> (Protocol/GeneratedProtocolConformanceTests catches it). -->
-    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.16.0" />
-    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.16.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc" Version="0.18.1" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.18.1" />
 
     <!-- Same sibling-source-vs-NuGet split as QueryFarm.VgiRpc above; only used when the
          vgi-rpc-csharp checkout isn't present. QueryFarm.VgiRpc.Client's first-ever NuGet publish
@@ -62,8 +62,8 @@
          and through Rowfence — so the stricter server changes nothing for real clients.
          MUST be >= 0.16.0, a compile floor: it makes QueryFarm.VgiRpc.Identity.XChaCha20Poly1305
          public, which AttachTickets and Internal/OpaqueSealing seal with instead of a copy. -->
-    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.16.0" />
-    <PackageVersion Include="QueryFarm.VgiRpc.Client.Http" Version="0.16.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Client" Version="0.18.1" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Client.Http" Version="0.18.1" />
 
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
 

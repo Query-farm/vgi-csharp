@@ -14,7 +14,7 @@ using Xunit;
 namespace QueryFarm.Vgi.Tests;
 
 /// <summary>Sealed grants and <c>resolve_token</c> bearers through the worker
-/// (IDENTITY_V1_SPEC.md §9): opt-in, HTTP-only, and accepted back on vgi.v2 calls.</summary>
+/// (IDENTITY_V2_SPEC.md §9): opt-in, HTTP-only, and accepted back on vgi.v2 calls.</summary>
 [Collection("environment")]
 public sealed class WorkerSealedGrantsTests
 {
@@ -24,7 +24,7 @@ public sealed class WorkerSealedGrantsTests
 
     private static Worker NewWorker() => new Worker().CatalogName("test_catalog").DefaultSchema("main");
 
-    /// <summary>Keys alone host vgi_rpc.Identity.v1 with issue_grant -- on HTTP only.</summary>
+    /// <summary>Keys alone host vgi_rpc.Identity.v2 with issue_grant -- on HTTP only.</summary>
     [Fact]
     public void KeysHostIssueGrantOnHttpOnly()
     {
@@ -69,7 +69,7 @@ public sealed class WorkerSealedGrantsTests
     [Fact]
     public void HooksAndAllowlistRulesStillHold()
     {
-        static IssuedGrant Mint(string principal, string purpose, List<string> scopes, long ttl) => new("custom", 1.0);
+        static IssuedGrant Mint(string principal, string purpose, List<string> scopes, long ttl) => new("custom", DateTimeOffset.UnixEpoch.AddSeconds(1));
         var worker = NewWorker().SealedGrants(s_keys).Identity(mintGrant: Mint);
         var identity = worker.NewRpcServer(Worker.ServerTransport.Http).HostedIdentity!;
         var fresh = new AuthContext("t", true, "alice",
@@ -114,13 +114,13 @@ public sealed class WorkerSealedGrantsTests
         var builder = WebApplication.CreateSlimBuilder(Worker.WorkerHostOptions());
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         await using var app = builder.Build();
-        AuthContext? vgiCaller = null;
+        var callerCaptured = new TaskCompletionSource<AuthContext?>(TaskCreationOptions.RunContinuationsAsynchronously);
         app.Use(async (HttpContext context, Func<Task> next) =>
         {
             await next();
             if (context.Request.Path.Value?.Contains("/vgi.v2/", StringComparison.Ordinal) == true)
             {
-                vgiCaller = PeerIdentityAuthentication.GetAuth(context);
+                callerCaptured.TrySetResult(PeerIdentityAuthentication.GetAuth(context));
             }
         });
         worker.MapHttp(app);
@@ -143,6 +143,8 @@ public sealed class WorkerSealedGrantsTests
         });
         await automation.CreateProxy<IVgiClient>().CatalogCatalogsAsync();
 
+        // The response can reach the client before the outer middleware resumes.
+        var vgiCaller = await callerCaptured.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         Assert.NotNull(vgiCaller);
         Assert.Equal(("grant", true, "owner@example.com"), (vgiCaller!.Domain, vgiCaller.Authenticated, vgiCaller.Principal));
         Assert.Equal(grant.GrantId, vgiCaller.Claims["grant_id"]);

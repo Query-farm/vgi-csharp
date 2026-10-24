@@ -232,10 +232,10 @@ public class InMemoryCatalogTests
         Assert.Equal("SELECT 3", view.Definition);
         Assert.Equal(3, (await service.CatalogVersionAsync(attach, null)).Version);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<VgiNotFoundException>(() =>
             service.CatalogTableDropAsync(attach, ["main"], "missing", false, false, null));
         await service.CatalogTableDropAsync(attach, ["main"], "missing", true, false, null);
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<VgiNotFoundException>(() =>
         {
             var request = CreateTable(attach, "t");
             request.SchemaPath = ["nope"];
@@ -294,15 +294,15 @@ public class InMemoryCatalogTests
         var (first, _) = await AttachAsync(service);
         var (second, _) = await AttachAsync(service);
 
-        Assert.Empty(Assert.Single((await service.CatalogContentsAsync(first)).Schemas).Tables);
+        Assert.Empty(Assert.Single(MetadataCollections.DecodeCatalog(await service.CatalogContentsAsync(first))).Tables);
         await service.CatalogTableCreateAsync(CreateTable(first, "t1"));
 
         var contents = await service.CatalogContentsAsync(first);
         Assert.Equal(2, contents.CatalogVersion);
-        var entry = Assert.Single(contents.Schemas);
+        var entry = Assert.Single(MetadataCollections.DecodeCatalog(contents));
         Assert.Equal(["main"], entry.Path);
         Assert.Equal((await service.CatalogSchemaContentsTablesAsync(first, ["main"], null)).Items.Single(), Assert.Single(entry.Tables));
-        Assert.Empty(Assert.Single((await service.CatalogContentsAsync(second)).Schemas).Tables);
+        Assert.Empty(Assert.Single(MetadataCollections.DecodeCatalog(await service.CatalogContentsAsync(second))).Tables);
     }
 
     [Fact]
@@ -320,7 +320,7 @@ public class InMemoryCatalogTests
         var after = await service.CatalogContentsAsync(attach, ifNoneMatch: before.Etag);
         Assert.False(after.NotModified);
         Assert.NotEqual(before.Etag, after.Etag);
-        Assert.Single(Assert.Single(after.Schemas).Views);
+        Assert.Single(Assert.Single(MetadataCollections.DecodeCatalog(after)).Views);
     }
 
     /// <summary>The <c>gen-&lt;version&gt;</c> revalidation pattern: the handler sees the attach's
@@ -351,7 +351,7 @@ public class InMemoryCatalogTests
         await service.CatalogSchemaCreateAsync(attach, ["s2"], OnConflict.Error, null, null, null);
         var changed = await service.CatalogContentsAsync(attach, ifNoneMatch: "gen-1");
         Assert.Equal("gen-2", changed.Etag);
-        Assert.Equal(2, changed.Schemas.Count);
+        Assert.Equal(2, MetadataCollections.DecodeCatalog(changed).Count);
         Assert.Equal(2, builds);
     }
     [Fact]

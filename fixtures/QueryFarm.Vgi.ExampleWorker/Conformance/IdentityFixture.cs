@@ -7,7 +7,7 @@ using QueryFarm.VgiRpc.Server;
 namespace QueryFarm.Vgi.ExampleWorker.Conformance;
 
 /// <summary>
-/// The fixed <c>vgi_rpc.Identity.v1</c> policy of vgi-rpc's
+/// The fixed <c>vgi_rpc.Identity.v2</c> policy of vgi-rpc's
 /// <c>tools/cross-port/specs/IDENTITY_CONFORMANCE_FIXTURE.md</c>, for
 /// <c>vgi-rpc-test-hosted --identity</c>. Opted into with <c>--identity</c> (or
 /// <c>VGI_FIXTURE_IDENTITY=1</c>) on <c>--http</c> only. <b>Test-only</b>: its authentication is
@@ -30,7 +30,8 @@ public static class IdentityFixture
     public const string PaddedProbeToken = "  conformance-padded-probe  ";
     public const string PaddedProbeName = "conformance-padded";
     public const string GrantTokenPrefix = "conformance-grant-for:";
-    public const double GrantExpiresAt = 1893456000.0;
+    /// <summary>2030-01-01T00:00:00Z (1893456000000000 us), fixed so the wire value is exact.</summary>
+    public static readonly DateTimeOffset GrantExpiresAt = DateTimeOffset.FromUnixTimeSeconds(1893456000);
     public const string GrantId = "conformance-grant-id";
     public const string RefusedPurpose = "conformance-refused";
     public const string MinimalPurpose = "conformance-minimal";
