@@ -99,4 +99,85 @@ public class ProjectionExpressionsTests
         Assert.Throws<ArgumentException>(() => ProjectionExpressions.DecodeRequest(sink.ToArray()));
     }
 
+    [Fact]
+    public void RepeatabilityDefaultsAndProjectionPreservation()
+    {
+        Assert.Equal(BindRepeatability.Unknown, new BindResponse().Repeatability);
+        Assert.Throws<ArgumentException>(() => ProjectionExpressions.ValidateRepeatability((BindRepeatability)999));
+        foreach (var promise in Enum.GetValues<BindRepeatability>())
+        {
+            var request = Proposal(["main"]);
+            var original = EmbeddedIpc.Decode<BindResponse>(request.BindResult);
+            original.Repeatability = promise;
+            request.BindResult = EmbeddedIpc.Encode(original);
+            var response = Accepted(new Schema(Source.FieldsList.Concat([Result]), Source.Metadata));
+            var accepted = EmbeddedIpc.Decode<BindResponse>(response.BindResult!);
+            accepted.Repeatability = promise;
+            response.BindResult = EmbeddedIpc.Encode(accepted);
+            ProjectionExpressions.ValidateResponse(request, response);
+            accepted.Repeatability = promise == BindRepeatability.Unknown
+                ? BindRepeatability.StableWithinQuery : BindRepeatability.Unknown;
+            response.BindResult = EmbeddedIpc.Encode(accepted);
+            Assert.Throws<ArgumentException>(() => ProjectionExpressions.ValidateResponse(request, response));
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("unknown")]
+    [InlineData("stable_within_query")]
+    [InlineData("0")]
+    [InlineData("ALWAYS")]
+    public void RejectsMalformedDictionaryPromise(string? wireValue)
+    {
+        var request = Proposal(["main"]);
+        using var source = new MemoryStream(request.BindResult);
+        using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(source);
+        using var row = reader.ReadNextRecordBatch()!;
+        int index = row.Schema.GetFieldIndex("repeatability");
+        var dictionary = (DictionaryArray)row.Column(index);
+        var original = new StringArray.Builder().Append(wireValue ?? "UNKNOWN").Build();
+        // The valid index still references UNKNOWN's bytes, but the value is NULL.
+        var values = wireValue is null
+            ? new StringArray(1, original.Data.Buffers[1], original.Data.Buffers[2],
+                              new ArrowBuffer(new byte[] { 0 }), nullCount: 1)
+            : original;
+        var columns = row.Arrays.ToArray();
+        columns[index] = new DictionaryArray((DictionaryType)dictionary.Data.DataType,
+            new Int16Array.Builder().Append((short)0).Build(), values);
+        using var malformed = new RecordBatch(row.Schema, columns, 1);
+        using var sink = new MemoryStream();
+        using (var writer = new Apache.Arrow.Ipc.ArrowStreamWriter(sink, row.Schema, leaveOpen: true))
+        {
+            writer.WriteRecordBatch(malformed);
+            writer.WriteEnd();
+        }
+        request.BindResult = sink.ToArray();
+        Assert.Throws<ArgumentException>(() => ProjectionExpressions.ValidateRequest(request));
+    }
+
+    private sealed class PerBindPromise : QueryFarm.Vgi.Table.ITableFunction
+    {
+        public string Name => "per_bind_promise";
+        public Schema ArgumentsSchema { get; } = new([], null);
+        public Schema OutputSchema => Source;
+        public BindRepeatability Repeatability(QueryFarm.Vgi.Table.TableBindParams parameters) =>
+            parameters.TransactionOpaqueData.Length == 0 ? BindRepeatability.Unknown : BindRepeatability.StableWithinQuery;
+        public QueryFarm.Vgi.Table.ITableFunctionProducer CreateProducer(QueryFarm.Vgi.Table.TableInitParams parameters) =>
+            throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task ProviderPromiseCanDependOnExistingBindTransactionAnchor()
+    {
+        var catalog = new CatalogRegistry();
+        catalog.RegisterTable(new PerBindPromise());
+        var service = new VgiServiceImpl(catalog);
+        var request = new BindRequest { FunctionName = "per_bind_promise", FunctionType = FunctionType.Table,
+                                        SchemaPath = ["main"] };
+        Assert.Equal(BindRepeatability.Unknown, (await service.BindAsync(request)).Repeatability);
+        request.TransactionOpaqueData = [1, 2, 3];
+        Assert.Equal(BindRepeatability.StableWithinQuery, (await service.BindAsync(request)).Repeatability);
+    }
+
 }

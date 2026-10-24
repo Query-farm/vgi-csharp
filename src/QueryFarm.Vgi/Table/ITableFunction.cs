@@ -69,6 +69,9 @@ public interface ITableFunction
     bool? ProjectionPushdown => null;
     /// <summary>Explicit scalar proposal offer; empty keeps ordinary local execution.</summary>
     IReadOnlyList<string> ProjectionExpressionProfiles => [];
+    /// <summary>Promise for equivalent scans from this bind within one query. Independent binds,
+    /// ordering, retries and cross-query cache validity remain separate contracts.</summary>
+    BindRepeatability Repeatability(TableBindParams parameters) => BindRepeatability.Unknown;
     /// <summary>Planning only: no execution resources, row consumption or effects.</summary>
     TableFunctionProjectionResponse Projection(TableFunctionProjectionRequest request) => new();
 

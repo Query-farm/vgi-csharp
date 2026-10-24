@@ -7,6 +7,36 @@ namespace QueryFarm.Vgi.Internal;
 public static class ProjectionExpressions
 {
     public const string Profile = "vgi.expression.duckdb.scalar.v1";
+    public static void ValidateRepeatability(BindRepeatability value)
+    {
+        if (!Enum.IsDefined(value)) throw new ArgumentException("Invalid bind repeatability.");
+    }
+
+    private static BindResponse ReadBind(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes);
+        using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(stream);
+        using var row = reader.ReadNextRecordBatch() ?? throw new ArgumentException("Bind response missing.");
+        int index = row.Schema.GetFieldIndex("repeatability");
+        if (row.Length != 1 || index < 0 || row.Column(index).IsNull(0))
+            throw new ArgumentException("Bind repeatability must be present and non-null.");
+        if (row.Schema.GetFieldByIndex(index).DataType is not Apache.Arrow.Types.DictionaryType {
+                IndexType: Apache.Arrow.Types.Int16Type, ValueType: Apache.Arrow.Types.StringType })
+            throw new ArgumentException("Bind repeatability requires dictionary<int16, utf8>.");
+        if (row.Schema.GetFieldByIndex(index).IsNullable ||
+            row.Column(index) is not DictionaryArray dictionary ||
+            dictionary.Indices is not Int16Array indices || dictionary.Dictionary is not StringArray values)
+            throw new ArgumentException("Bind repeatability requires a nonnullable dictionary value.");
+        int selected = indices.GetValue(0) ?? throw new ArgumentException("Bind repeatability index is null.");
+        if (selected < 0 || selected >= values.Length || values.IsNull(selected))
+            throw new ArgumentException("Bind repeatability dictionary value must be present and non-null.");
+        if (values.GetString(selected) is not ("UNKNOWN" or "STABLE_WITHIN_QUERY"))
+            throw new ArgumentException("Invalid bind repeatability wire name.");
+        var result = EmbeddedIpc.Decode<BindResponse>(bytes);
+        ValidateRepeatability(result.Repeatability);
+        return result;
+    }
+
     public static void ValidateOffer(IReadOnlyList<string> profiles)
     {
         if (profiles.Count > 64 || profiles.Distinct(StringComparer.Ordinal).Count() != profiles.Count ||
@@ -45,7 +75,7 @@ public static class ProjectionExpressions
              request.Expressions.Sum(b => (long)b.Length));
         Size(EmbeddedIpc.Encode(request).Length);
         var bind = EmbeddedIpc.Decode<BindRequest>(request.BindCall);
-        var source = EmbeddedIpc.Decode<BindResponse>(request.BindResult);
+        var source = ReadBind(request.BindResult);
         ValidateOffer(source.ProjectionExpressionProfiles);
         if (bind.FunctionType != FunctionType.Table || bind.InputSchema is not null || bind.SchemaPath is null)
             throw new ArgumentException("Projection requires an ordinary table and explicit owner.");
@@ -91,9 +121,11 @@ public static class ProjectionExpressions
         }
         if (response.BindResult is null)
             return;
-        var original = EmbeddedIpc.Decode<BindResponse>(request.BindResult);
-        var accepted = EmbeddedIpc.Decode<BindResponse>(response.BindResult);
+        var original = ReadBind(request.BindResult);
+        var accepted = ReadBind(response.BindResult);
         ValidateOffer(accepted.ProjectionExpressionProfiles);
+        if (original.Repeatability != accepted.Repeatability)
+            throw new ArgumentException("Accepted projection changed bind repeatability.");
         if (!original.ProjectionExpressionProfiles.SequenceEqual(accepted.ProjectionExpressionProfiles) ||
             accepted.LookupSecretTypes.Count + accepted.LookupScopes.Count + accepted.LookupNames.Count != 0)
             throw new ArgumentException("Accepted projection changed bind offer/secrets.");

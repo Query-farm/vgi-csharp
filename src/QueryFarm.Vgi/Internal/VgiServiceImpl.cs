@@ -70,8 +70,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         // protocol this implements.
         try
         {
+            var repeatability = BindRepeatability.Unknown;
             var outputSchema = request.FunctionType == FunctionType.Table
-                ? BindAnyTable(identity, schemaPath, request)
+                ? BindAnyTable(identity, schemaPath, request, out repeatability)
                 : BindScalar(identity, schemaPath, request);
 
             var profiles = request.FunctionType == FunctionType.Table
@@ -80,6 +81,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return Task.FromResult(new BindResponse
             {
                 ProjectionExpressionProfiles = profiles,
+                Repeatability = repeatability,
                 OutputSchema = SchemaIpc.WriteSchemaOnly(outputSchema),
                 OpaqueData = null,
                 LookupSecretTypes = [],
@@ -690,13 +692,15 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return function.ResolveOutputSchema(inputSchema);
     }
 
-    private Apache.Arrow.Schema BindAnyTable(string identity, IReadOnlyList<string> schemaPath, BindRequest request)
+    private Apache.Arrow.Schema BindAnyTable(string identity, IReadOnlyList<string> schemaPath, BindRequest request,
+        out BindRepeatability repeatability)
     {
+        repeatability = BindRepeatability.Unknown;
         var name = request.FunctionName;
 
         if (catalog.FindTable(identity, schemaPath, name, TableArgCodec.Decode(request.Arguments)) is { } table)
         {
-            return BindTable(table, request);
+            return BindTable(table, request, out repeatability);
         }
 
         if (catalog.FindTableInOut(identity, schemaPath, name, DecodeInputSchema(request.InputSchema)) is { } tableInOut)
@@ -719,7 +723,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         throw new InvalidOperationException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
     }
 
-    private static Apache.Arrow.Schema BindTable(ITableFunction function, BindRequest request)
+    private static Apache.Arrow.Schema BindTable(ITableFunction function, BindRequest request,
+        out BindRepeatability repeatability)
     {
         RequirePlainTableNoInputSchema(function.Name, request.InputSchema);
 
@@ -744,8 +749,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         function.Bind(bindParams);
         ThrowIfSecretsPending(bindParams.Secrets);
-
-        return function.ResolveOutputSchema(bindParams);
+        var schema = function.ResolveOutputSchema(bindParams);
+        repeatability = function.Repeatability(bindParams);
+        ProjectionExpressions.ValidateRepeatability(repeatability);
+        ThrowIfSecretsPending(bindParams.Secrets);
+        return schema;
     }
 
     /// <summary>Aborts an in-progress bind dispatch with a <see cref="SecretScopeRequestException"/>

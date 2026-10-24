@@ -15,6 +15,7 @@ public sealed class ProjectionSequenceFunction : ITableFunction
     public Schema ArgumentsSchema { get; } = new([], null);
     public Schema OutputSchema { get; } = new([new Field("n", Int32Type.Default, true)], null);
     public IReadOnlyList<string> ProjectionExpressionProfiles => [ProjectionExpressions.Profile];
+    public BindRepeatability Repeatability(TableBindParams parameters) => BindRepeatability.StableWithinQuery;
 
     public TableFunctionProjectionResponse Projection(TableFunctionProjectionRequest request)
     {
@@ -48,6 +49,7 @@ public sealed class ProjectionSequenceFunction : ITableFunction
                 OpaqueData = System.Text.Encoding.ASCII.GetBytes(
                     indices.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 ProjectionExpressionProfiles = original.ProjectionExpressionProfiles,
+                Repeatability = original.Repeatability,
             }),
         };
     }
