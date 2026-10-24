@@ -87,6 +87,10 @@ public class ProjectionExpressionsTests
     {
         var raw = EmbeddedIpc.Encode(Proposal(["main"]));
         Assert.Single(ProjectionExpressions.DecodeRequest(raw).Expressions);
+        Assert.Single(ProjectionExpressions.DecodeRequest(raw[..^8]).Expressions);
+        Assert.Single(ProjectionExpressions.DecodeRequest([..raw[..^8], 0, 0, 0, 0]).Expressions);
+        Assert.Throws<ArgumentException>(() => ProjectionExpressions.DecodeRequest(raw[..^1]));
+        Assert.Throws<ArgumentException>(() => ProjectionExpressions.DecodeRequest([..raw, ..raw[^8..]]));
         Assert.Throws<ArgumentException>(() => ProjectionExpressions.DecodeRequest([.. raw, 0]));
         using var source = new MemoryStream(raw);
         using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(source);

@@ -64,6 +64,12 @@ public static class ProjectionExpressions
             throw new ArgumentException("Projection requires one row with its exact schema.");
         foreach (var column in row.Arrays)
             if (column.NullCount != 0) throw new ArgumentException("Required projection field is NULL.");
+        // Arrow permits physical EOF and both EOS forms. Its reader also tolerates
+        // partial EOS prefixes, so validate the exact remaining carrier bytes here.
+        var remaining = bytes.AsSpan(checked((int)stream.Position));
+        if (!(remaining.Length == 0 || remaining.SequenceEqual(new byte[] { 0, 0, 0, 0 }) ||
+              remaining.SequenceEqual(new byte[] { 255, 255, 255, 255, 0, 0, 0, 0 })))
+            throw new ArgumentException("Projection requires one complete IPC batch.");
         using var extra = reader.ReadNextRecordBatch();
         if (extra is not null || stream.Position != stream.Length)
             throw new ArgumentException("Projection requires one complete IPC batch.");
