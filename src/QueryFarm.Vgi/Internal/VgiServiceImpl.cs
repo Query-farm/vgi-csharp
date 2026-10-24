@@ -74,8 +74,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 ? BindAnyTable(identity, schemaPath, request)
                 : BindScalar(identity, schemaPath, request);
 
+            var profiles = request.FunctionType == FunctionType.Table
+                ? catalog.FindTable(identity, schemaPath, request.FunctionName, TableArgCodec.Decode(request.Arguments))?.ProjectionExpressionProfiles.ToList() ?? [] : [];
+            ProjectionExpressions.ValidateOffer(profiles);
             return Task.FromResult(new BindResponse
             {
+                ProjectionExpressionProfiles = profiles,
                 OutputSchema = SchemaIpc.WriteSchemaOnly(outputSchema),
                 OpaqueData = null,
                 LookupSecretTypes = [],
@@ -124,6 +128,19 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         throw new InvalidOperationException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
+    }
+
+    /// <summary>Validate a pure optional proposal before publishing replacement bind state.</summary>
+    public Task<TableFunctionProjectionResponse> TableFunctionProjectionAsync(byte[] request, ICallContext? ctx = null)
+    {
+        var proposal = ProjectionExpressions.DecodeRequest(request);
+        var bind = ProjectionExpressions.ValidateRequest(proposal);
+        var identity = DecodeIdentity(bind.AttachOpaqueData);
+        var function = catalog.FindTable(identity, EffectiveSchemaPath(bind.SchemaPath), bind.FunctionName, TableArgCodec.Decode(bind.Arguments))
+            ?? throw new ArgumentException("Projection requires an ordinary table function.");
+        var result = function.Projection(proposal);
+        ProjectionExpressions.ValidateResponse(proposal, result);
+        return Task.FromResult(result);
     }
 
     /// <summary>Scan planning (splits). Only ever called by the C++ client when the target table
@@ -889,7 +906,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             TransactionOpaqueData = bindRequest.TransactionOpaqueData ?? [],
             CopyFrom = bindRequest.CopyFrom,
         };
-        var outputSchema = function.ResolveOutputSchema(bindParams);
+        // Preserve the accepted bind schema; direct local callers may omit a schema.
+        var outputSchema = request.OutputSchema is { Length: > 0 }
+            ? SchemaIpc.ReadSchemaOnly(request.OutputSchema)
+            : function.ResolveOutputSchema(bindParams);
 
         // The execution id every parallel connection for THIS logical scan shares: the primary
         // connection (no incoming ExecutionId yet) mints one and returns it via GlobalInitResponse;
@@ -912,6 +932,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Settings = bindRequest.Settings,
             Secrets = bindRequest.Secrets,
             OutputSchema = outputSchema,
+            BindOpaqueData = request.BindOpaqueData,
             ProjectionIds = request.ProjectionIds,
             PushdownFilters = request.PushdownFilters,
             JoinKeys = request.JoinKeys,

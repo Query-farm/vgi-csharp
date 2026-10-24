@@ -67,6 +67,10 @@ public interface ITableFunction
     /// DuckDB not to bother pushing projection down — it will still receive/keep only the columns
     /// it asked for from whatever full-width batches this function emits, just less efficiently.</summary>
     bool? ProjectionPushdown => null;
+    /// <summary>Explicit scalar proposal offer; empty keeps ordinary local execution.</summary>
+    IReadOnlyList<string> ProjectionExpressionProfiles => [];
+    /// <summary>Planning only: no execution resources, row consumption or effects.</summary>
+    TableFunctionProjectionResponse Projection(TableFunctionProjectionRequest request) => new();
 
     /// <summary>Advertises whether this function inspects <see cref="TableInitParams.PushdownFilters"/>
     /// and pre-filters its own output. <see langword="null"/>/<see langword="false"/> (the default)

@@ -31,6 +31,7 @@ public sealed class TableInitParams
     /// or the <see cref="ProjectedSchema"/> subset when <see cref="ProjectionIds"/> is non-null and
     /// this function advertises <see cref="ITableFunction.ProjectionPushdown"/>.</summary>
     public required Schema OutputSchema { get; init; }
+    public byte[]? BindOpaqueData { get; init; }
 
     /// <summary>Zero-based indices (into <see cref="OutputSchema"/>) of the columns DuckDB actually
     /// needs — <see langword="null"/> means "all columns". Only meaningful when this function

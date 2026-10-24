@@ -427,6 +427,7 @@ foreach (var table in DataSchemaTables.All(sequenceFunction, tenThousandFunction
 // each ScanFunction under its own schema for us, so these two calls contribute exactly the two
 // test_same_name_table_scan registrations table/function_registration.test's inventory counts —
 // don't also .RegisterTable() them. The `data` comment is asserted verbatim by table/comments.test.
+worker.RegisterCatalogTable(new CatalogTable { Name = "projection_rows", SchemaName = "main", ScanFunction = new ProjectionSequenceFunction() });
 worker.RegisterCatalogTable(new CatalogTable
 {
     Name = "test_same_name_table",

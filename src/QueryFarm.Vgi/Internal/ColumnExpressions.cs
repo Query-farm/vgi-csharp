@@ -26,7 +26,7 @@ public static class ColumnExpressions
         Text(value.Sql, 1024 * 1024);
         if (string.IsNullOrWhiteSpace(value.Sql) || value.Profile != Profile)
             throw new ArgumentException("Unsupported generated expression profile or empty SQL.");
-        if (value.SchemaPath is null || value.SchemaPath.Count is 0 or > 32)
+        if (value.SchemaPath is null || value.SchemaPath.Count > 32)
             throw new ArgumentException("Invalid expression owner.");
         foreach (var part in value.SchemaPath)
             Text(part, 4096);
@@ -61,7 +61,7 @@ public static class ColumnExpressions
         if (array is ListArray list)
             Required(list.Values);
     }
-    private static void Encoded(string encoded, IReadOnlyList<string> owner)
+    public static void Encoded(string encoded, IReadOnlyList<string> owner)
     {
         if (encoded.Length == 0 || encoded.Length > 4 * ((Maximum + 2) / 3))
             throw new ArgumentException("Invalid expression size.");

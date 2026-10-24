@@ -12,7 +12,7 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 public sealed class VgiProtocolHashTests
 {
     /// <summary>
-    /// The <c>vgi.v2</c> protocol hash vgi-python 0.43.0 (the reference) reports: 72 methods, over
+    /// The <c>vgi.v2</c> protocol hash the current vgi-python reference reports: 85 methods, over
     /// method names, types and params/result/header schemas (WIRE_PROTOCOL.md §14).
     /// </summary>
     /// <remarks>
@@ -20,7 +20,7 @@ public sealed class VgiProtocolHashTests
     /// (2.1.0) does — a new value here means the protocol changed, so take it from the reference,
     /// never from this port's own output.
     /// </remarks>
-    public const string ReferenceVgiV2Hash = "457a2fc7c24a637480d2c34237ea0ccf826b10f4ea5e316d4623895f4a535585";
+    public const string ReferenceVgiV2Hash = "41f61f37c7ce42f63f3ca47f8861508f3f356d2422a5b8a0bab48ff92c0857a8";
 
     [Fact]
     public void HostsTheReferenceVgiV2Surface()
