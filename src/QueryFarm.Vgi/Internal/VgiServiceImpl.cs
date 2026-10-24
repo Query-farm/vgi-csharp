@@ -1207,6 +1207,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ResolvedDataVersion = attachContext?.ResolvedDataVersion,
             ResolvedImplementationVersion = attachContext?.ResolvedImplementationVersion,
             SupportsCatalogContents = attachContext?.SupportsCatalogContents ?? catalog.SupportsCatalogContents,
+            CatalogCapabilities = attachContext?.CatalogCapabilities,
+            SelectedCapabilities = attachContext?.SelectedCapabilities,
         });
     }
 

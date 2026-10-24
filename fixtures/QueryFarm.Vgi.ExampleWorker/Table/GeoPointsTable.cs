@@ -54,31 +54,28 @@ public static class GeoPointsTable
     {
         var pointStruct = new StructType(
         [
-            new Field("x", DoubleType.Default, nullable: false),
-            new Field("y", DoubleType.Default, nullable: false),
+            new Field("x", DoubleType.Default, nullable: true),
+            new Field("y", DoubleType.Default, nullable: true),
         ]);
         var geomField = new Field(
             "geom",
             pointStruct,
-            nullable: true,
+            nullable: false,
             metadata: new Dictionary<string, string> { ["ARROW:extension:name"] = "geoarrow.point" });
 
-        var schema = new Schema([new Field("id", Int64Type.Default, nullable: true), geomField], metadata: null);
+        var schema = new Schema([new Field("id", Int64Type.Default, nullable: false), geomField], metadata: null);
 
+        var points = new StructArray(pointStruct, 2,
+            [new DoubleArray.Builder().AppendRange([0.0, 4.0]).Build(),
+             new DoubleArray.Builder().AppendRange([0.0, 4.0]).Build()], ArrowBuffer.Empty, 0);
+        var data = new RecordBatch(schema, [new Int64Array.Builder().AppendRange([1L, 2L]).Build(), points], 2);
+        FixtureConstraints.Register("geo_points", data);
         return new CatalogTable
         {
             Name = "geo_points",
             SchemaName = SchemaName,
             Comment = "Point geometries with spatial bounding-box statistics",
-            // Declared columns only — deliberately NO ScanFunction. Neither test that touches this
-            // fixture (table/column_statistics.test's vgi_table_statistics() diagnostic,
-            // table/comments.test's listing, which explicitly excludes this table) ever scans it,
-            // and table/function_registration.test's pinned 162-function inventory does NOT count
-            // a "geo_points"-named table function — so this table must NOT also register a callable
-            // scan function the way every other CatalogTable.ScanFunction here does (see
-            // CatalogRegistry.RegisterCatalogTable's doc comment on that dedup-by-reference
-            // convention). CatalogTable.ResolveColumns() falls back to Columns when ScanFunction is
-            // null, so the catalog listing/statistics paths work fine without one.
+            ScanFunction = new StaticRowsFunction("geo_points", SchemaName, data),
             Columns = schema,
             Constraints =
             [

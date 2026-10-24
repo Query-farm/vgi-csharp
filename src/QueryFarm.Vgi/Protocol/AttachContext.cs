@@ -10,6 +10,12 @@ namespace QueryFarm.Vgi.Protocol;
 /// </summary>
 public sealed class AttachContext
 {
+    /// <summary>Provider-owned profile advertisement, independent of client selection.</summary>
+    public byte[]? CatalogCapabilities { get; init; }
+
+    /// <summary>Provider-selected intersection with this attachment's client offer.</summary>
+    public byte[]? SelectedCapabilities { get; init; }
+
     /// <summary>Overrides the <c>CatalogRegistry</c> routing identity used by every subsequent RPC
     /// for this attach (defaults to <see cref="CatalogAttachRequest.Name"/> when
     /// <see langword="null"/>) — lets one catalog NAME fan out into several registry buckets keyed

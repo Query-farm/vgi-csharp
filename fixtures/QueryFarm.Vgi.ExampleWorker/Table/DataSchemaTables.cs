@@ -53,8 +53,8 @@ public static class DataSchemaTables
     {
         var schema = new Schema(
             [
-                new Field("id", Int64Type.Default, nullable: true),
-                new Field("name", StringType.Default, nullable: true),
+                new Field("id", Int64Type.Default, nullable: false),
+                new Field("name", StringType.Default, nullable: false),
                 new Field("budget", DoubleType.Default, nullable: true),
             ],
             metadata: null);
@@ -65,6 +65,8 @@ public static class DataSchemaTables
         // vgi-python fixture's departments_scan data).
         var budget = new DoubleArray.Builder().AppendRange([500_000.0, 300_000.0, 200_000.0]).Build();
         var data = new RecordBatch(schema, [id, name, budget], 3);
+
+        FixtureConstraints.Register("departments", data);
 
         return new CatalogTable
         {
@@ -109,9 +111,9 @@ public static class DataSchemaTables
     {
         var schema = new Schema(
             [
-                new Field("id", Int64Type.Default, nullable: true),
-                new Field("name", StringType.Default, nullable: true),
-                new Field("email", StringType.Default, nullable: true),
+                new Field("id", Int64Type.Default, nullable: false),
+                new Field("name", StringType.Default, nullable: false),
+                new Field("email", StringType.Default, nullable: false),
                 new Field("department_id", Int64Type.Default, nullable: true),
             ],
             metadata: null);
@@ -123,6 +125,8 @@ public static class DataSchemaTables
             .Build();
         var departmentId = new Int64Array.Builder().AppendRange([1L, 1L, 2L, 2L, 3L]).Build();
         var data = new RecordBatch(schema, [id, name, email, departmentId], 5);
+
+        FixtureConstraints.Register("employees", data);
 
         return new CatalogTable
         {
@@ -147,9 +151,9 @@ public static class DataSchemaTables
     {
         var schema = new Schema(
             [
-                new Field("department_id", Int64Type.Default, nullable: true),
-                new Field("project_code", StringType.Default, nullable: true),
-                new Field("title", StringType.Default, nullable: true),
+                new Field("department_id", Int64Type.Default, nullable: false),
+                new Field("project_code", StringType.Default, nullable: false),
+                new Field("title", StringType.Default, nullable: false),
             ],
             metadata: null);
 
@@ -157,6 +161,8 @@ public static class DataSchemaTables
         var projectCode = new StringArray.Builder().AppendRange(["P001", "P002", "P003"]).Build();
         var title = new StringArray.Builder().AppendRange(["Backend API", "Frontend UI", "Sales Portal"]).Build();
         var data = new RecordBatch(schema, [departmentId, projectCode, title], 3);
+
+        FixtureConstraints.Register("projects", data);
 
         return new CatalogTable
         {
@@ -177,15 +183,14 @@ public static class DataSchemaTables
     }
 
     /// <summary>Not directly queried by <c>constraints.test</c> — exists only so its own
-    /// PRIMARY KEY is a metadata-only declaration. Trusted DuckDB constraint introspection requires
-    /// a qualified enforcement adapter. Also backs <c>table/defaults.test</c> (column defaults) and
+    /// PRIMARY KEY is checked against its fixed immutable rows. Also backs <c>table/defaults.test</c> (column defaults) and
     /// <c>table/comments.test</c> (a table exercising BOTH a default AND a comment on the same
     /// column — <c>name</c>/<c>price</c> — plus a column with neither, <c>quantity</c>).</summary>
     private static CatalogTable BuildProducts()
     {
         var schema = new Schema(
             [
-                new Field("id", Int64Type.Default, nullable: true),
+                new Field("id", Int64Type.Default, nullable: false),
                 new Field("name", StringType.Default, nullable: true),
                 new Field("quantity", Int64Type.Default, nullable: true),
                 new Field("price", DoubleType.Default, nullable: true),
@@ -197,6 +202,8 @@ public static class DataSchemaTables
         var quantity = new Int64Array.Builder().AppendRange([100L, 50L, 200L]).Build();
         var price = new DoubleArray.Builder().AppendRange([9.99, 24.99, 4.99]).Build();
         var data = new RecordBatch(schema, [id, name, quantity, price], 3);
+
+        FixtureConstraints.Register("products", data);
 
         return new CatalogTable
         {
@@ -269,11 +276,11 @@ public static class DataSchemaTables
         SchemaName = SchemaName,
         Constraints =
         [
-            FixtureConstraints.Of("numbers", "value_nn", ConstraintKind.NotNull, "value"),
+            FixtureConstraints.SequenceNotNull("numbers", "value_nn", "value", 100),
         ],
         DefinitionRevision = FixtureConstraints.Revision,
         Comment = "First 100 integers (demonstrates explicit columns)",
-        Columns = new Schema([new Field("value", Int64Type.Default, nullable: true)], metadata: null),
+        Columns = new Schema([new Field("value", Int64Type.Default, nullable: false)], metadata: null),
         // Deliberately NOT inlined (test/sql/integration/table/inlined_scan_function.test):
         // this table exercises the legacy per-bind catalog_table_scan_branches_get RPC lookup
         // path instead of the "declarative Table(function=...)" inline fast path that
@@ -302,11 +309,11 @@ public static class DataSchemaTables
         SchemaName = SchemaName,
         Constraints =
         [
-            FixtureConstraints.Of("volatile_numbers", "value_nn", ConstraintKind.NotNull, "value"),
+            FixtureConstraints.SequenceNotNull("volatile_numbers", "value_nn", "value", 100),
         ],
         DefinitionRevision = FixtureConstraints.Revision,
         Comment = "Numbers with volatile stats (TTL=0, always re-fetched)",
-        Columns = new Schema([new Field("value", Int64Type.Default, nullable: true)], metadata: null),
+        Columns = new Schema([new Field("value", Int64Type.Default, nullable: false)], metadata: null),
         InlineScanFunction = false,
         Statistics = new Dictionary<string, ColumnStatisticsInput>
         {
@@ -327,9 +334,9 @@ public static class DataSchemaTables
     {
         var schema = new Schema(
             [
-                new Field("id", Int64Type.Default, nullable: true),
-                new Field("color", StringType.Default, nullable: true),
-                new Field("hex_code", StringType.Default, nullable: true),
+                new Field("id", Int64Type.Default, nullable: false),
+                new Field("color", StringType.Default, nullable: false),
+                new Field("hex_code", StringType.Default, nullable: false),
             ],
             metadata: null);
 
@@ -337,6 +344,8 @@ public static class DataSchemaTables
         var color = new StringArray.Builder().AppendRange(["blue", "green", "red"]).Build();
         var hexCode = new StringArray.Builder().AppendRange(["#0000FF", "#00FF00", "#FF0000"]).Build();
         var data = new RecordBatch(schema, [id, color, hexCode], 3);
+
+        FixtureConstraints.Register("colors", data);
 
         return new CatalogTable
         {
@@ -396,11 +405,11 @@ public static class DataSchemaTables
         SchemaName = SchemaName,
         Constraints =
         [
-            FixtureConstraints.Of("ten_thousand_table", "n_nn", ConstraintKind.NotNull, "n"),
+            FixtureConstraints.SequenceNotNull("ten_thousand_table", "n_nn", "n", 10000),
         ],
         DefinitionRevision = FixtureConstraints.Revision,
         Comment = "Function-backed table over the no-arg ten_thousand function",
-        Columns = new Schema([new Field("n", Int64Type.Default, nullable: true)], metadata: null),
+        Columns = new Schema([new Field("n", Int64Type.Default, nullable: false)], metadata: null),
         ScanFunction = tenThousandFunction,
     };
 
@@ -438,13 +447,13 @@ public static class DataSchemaTables
         SchemaName = SchemaName,
         Constraints =
         [
-            FixtureConstraints.Of("cardinality_inlined_table", "n_nn", ConstraintKind.NotNull, "n"),
+            FixtureConstraints.SequenceNotNull("cardinality_inlined_table", "n_nn", "n", 10000),
         ],
         DefinitionRevision = FixtureConstraints.Revision,
         Comment = "Function-backed table with inlined cardinality (10000 rows)",
         CardinalityEstimate = 10_000,
         CardinalityMax = 10_000,
-        Columns = new Schema([new Field("n", Int64Type.Default, nullable: true)], metadata: null),
+        Columns = new Schema([new Field("n", Int64Type.Default, nullable: false)], metadata: null),
         ScanFunction = tenThousandFunction,
     };
 }

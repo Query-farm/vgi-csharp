@@ -81,11 +81,11 @@ public static class VersionedTimeTravelTables
 {
     private const string SchemaName = "data";
 
-    public static CatalogTable VersionedData { get; } = BuildVersionedData();
+    public static CatalogTable VersionedData => BuildVersionedData();
 
-    public static CatalogTable VersionedConstraints { get; } = BuildVersionedConstraints();
+    public static CatalogTable VersionedConstraints => BuildVersionedConstraints();
 
-    public static IReadOnlyList<CatalogTable> All { get; } = [VersionedData, VersionedConstraints];
+    public static IReadOnlyList<CatalogTable> All => [VersionedData, VersionedConstraints];
 
     // ------------------------------------------------------------------
     // versioned_data
@@ -93,11 +93,11 @@ public static class VersionedTimeTravelTables
 
     private static readonly IReadOnlyList<int> DataVersions = [1, 2, 3];
 
-    private static readonly Schema V1Schema = new([new Field("id", Int64Type.Default, nullable: true)], metadata: null);
+    private static readonly Schema V1Schema = new([new Field("id", Int64Type.Default, nullable: false)], metadata: null);
 
     private static readonly Schema V2Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: true),
+            new Field("id", Int64Type.Default, nullable: false),
             new Field("name", StringType.Default, nullable: true),
             new Field("score", DoubleType.Default, nullable: true),
             new Field("active", BooleanType.Default, nullable: true),
@@ -106,7 +106,7 @@ public static class VersionedTimeTravelTables
 
     private static readonly Schema V3Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: true),
+            new Field("id", Int64Type.Default, nullable: false),
             new Field("score", DoubleType.Default, nullable: true),
         ],
         metadata: null);
@@ -114,6 +114,8 @@ public static class VersionedTimeTravelTables
     private static CatalogTable BuildVersionedData()
     {
         var scan = new VersionedDataScanFunction();
+        using var proof = VersionedDataScanFunction.Producer.BuildBatch(3, V3Schema);
+        FixtureConstraints.Register("versioned_data", proof);
         return new CatalogTable
         {
             Name = "versioned_data",
@@ -128,12 +130,17 @@ public static class VersionedTimeTravelTables
             ResolveAtClause = (atUnit, atValue) =>
             {
                 var version = VersionResolution.Resolve(atUnit, atValue, DataVersions);
+                using var proof = VersionedDataScanFunction.Producer.BuildBatch(version,
+                    version switch { 1 => V1Schema, 2 => V2Schema, _ => V3Schema });
+                FixtureConstraints.Register("versioned_data", proof);
                 return new CatalogTable
                 {
                     Name = "versioned_data",
                     SchemaName = SchemaName,
                     Comment = "Versioned data table demonstrating time travel with schema evolution",
                     Columns = version switch { 1 => V1Schema, 2 => V2Schema, _ => V3Schema },
+                    Constraints = [FixtureConstraints.Of("versioned_data", "id_nn", ConstraintKind.NotNull, "id")],
+                    DefinitionRevision = FixtureConstraints.Revision,
                     ScanFunction = scan,
                     ScanArguments = [(long)version],
                     SupportsTimeTravel = true,
@@ -188,7 +195,7 @@ public static class VersionedTimeTravelTables
             _ => throw new InvalidOperationException($"Unknown version: {version}. Valid versions: 1, 2, 3"),
         };
 
-        private sealed class Producer(long version, Schema outputSchema) : ITableFunctionProducer
+        internal sealed class Producer(long version, Schema outputSchema) : ITableFunctionProducer
         {
             private bool _emitted;
 
@@ -203,7 +210,7 @@ public static class VersionedTimeTravelTables
                 output.Finish();
             }
 
-            private static RecordBatch BuildBatch(long version, Schema schema) => version switch
+            internal static RecordBatch BuildBatch(long version, Schema schema) => version switch
             {
                 1 => new RecordBatch(schema, [Ints([1, 2, 3])], 3),
                 2 => new RecordBatch(
@@ -228,23 +235,23 @@ public static class VersionedTimeTravelTables
 
     private static readonly Schema C1Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: true),
+            new Field("id", Int64Type.Default, nullable: false),
             new Field("name", StringType.Default, nullable: true),
         ],
         metadata: null);
 
     private static readonly Schema C2Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: true),
-            new Field("name", StringType.Default, nullable: true),
+            new Field("id", Int64Type.Default, nullable: false),
+            new Field("name", StringType.Default, nullable: false),
             new Field("email", StringType.Default, nullable: true),
         ],
         metadata: null);
 
     private static readonly Schema C3Schema = new(
         [
-            new Field("id", Int64Type.Default, nullable: true),
-            new Field("name", StringType.Default, nullable: true),
+            new Field("id", Int64Type.Default, nullable: false),
+            new Field("name", StringType.Default, nullable: false),
             new Field("email", StringType.Default, nullable: true),
             new Field("department_id", Int64Type.Default, nullable: true),
         ],
@@ -253,47 +260,41 @@ public static class VersionedTimeTravelTables
     /// <summary>Version 1: <c>(id, name)</c> — NOT NULL id only. Version 2 adds <c>email</c>
     /// (PK id, UNIQUE email). Version 3 (current/default) adds <c>department_id</c> (+ FK to
     /// <c>departments.id</c>). <c>duckdb_constraints()</c> always reflects the DEFAULT (version 3)
-    /// registration — the AT-resolved variants below carry NO constraints of their own (constraint
-    /// column indices are resolved against each variant's OWN <see cref="CatalogTable.Columns"/>,
-    /// and versions 1/2 are missing columns the v3 constraint set references) — see
-    /// <c>table/constraints_time_travel.test</c>'s own doc comment: "Time travel changes schema/data
-    /// for queries but not the constraint metadata."</summary>
+    /// registration. Each AT-resolved variant also carries its own validated canonical snapshot,
+    /// resolved against that version's exact schema and immutable rows.</summary>
+    private static IReadOnlyList<byte[]> ConstraintsFor(int version)
+    {
+        _ = DataSchemaTables.Departments;
+        lock (FixtureConstraints.VersionLock)
+        {
+            using var proof = VersionedConstraintsScanFunction.Producer.BuildBatch(version,
+                version switch { 1 => C1Schema, 2 => C2Schema, _ => C3Schema });
+            FixtureConstraints.Register("versioned_constraints", proof);
+            List<byte[]> result = [FixtureConstraints.Of("versioned_constraints", "id_nn", ConstraintKind.NotNull, "id")];
+            if (version >= 2)
+            {
+                result.Add(FixtureConstraints.Of("versioned_constraints", "name_nn", ConstraintKind.NotNull, "name"));
+                result.Add(FixtureConstraints.Of("versioned_constraints", "primary", ConstraintKind.PrimaryKey, "id"));
+                result.Add(FixtureConstraints.Of("versioned_constraints", "email_unique", ConstraintKind.Unique, "email"));
+            }
+            if (version >= 3) result.Add(FixtureConstraints.DepartmentForeignKey("versioned_constraints"));
+            return result;
+        }
+    }
+
     private static CatalogTable BuildVersionedConstraints()
     {
         var scan = new VersionedConstraintsScanFunction();
-        return new CatalogTable
+        CatalogTable Variant(int version) => new()
         {
-            Name = "versioned_constraints",
-            SchemaName = SchemaName,
+            Name = "versioned_constraints", SchemaName = SchemaName,
             Comment = "Table with constraints that evolve across versions",
-            Columns = C3Schema,
-            Constraints =
-            [
-                FixtureConstraints.Of("versioned_constraints", "id_nn", ConstraintKind.NotNull, "id"),
-                FixtureConstraints.Of("versioned_constraints", "name_nn", ConstraintKind.NotNull, "name"),
-                FixtureConstraints.Of("versioned_constraints", "primary", ConstraintKind.PrimaryKey, "id"),
-                FixtureConstraints.Of("versioned_constraints", "email_unique", ConstraintKind.Unique, "email"),
-                FixtureConstraints.DepartmentForeignKey("versioned_constraints"),
-            ],
-            DefinitionRevision = FixtureConstraints.Revision,
-            ScanFunction = scan,
-            ScanArguments = [3L],
-            SupportsTimeTravel = true,
-            ResolveAtClause = (atUnit, atValue) =>
-            {
-                var version = VersionResolution.Resolve(atUnit, atValue, ConstraintsVersions);
-                return new CatalogTable
-                {
-                    Name = "versioned_constraints",
-                    SchemaName = SchemaName,
-                    Comment = "Table with constraints that evolve across versions",
-                    Columns = version switch { 1 => C1Schema, 2 => C2Schema, _ => C3Schema },
-                    ScanFunction = scan,
-                    ScanArguments = [(long)version],
-                    SupportsTimeTravel = true,
-                };
-            },
+            Columns = version switch { 1 => C1Schema, 2 => C2Schema, _ => C3Schema },
+            Constraints = ConstraintsFor(version), DefinitionRevision = FixtureConstraints.Revision,
+            ScanFunction = scan, ScanArguments = [(long)version], SupportsTimeTravel = true,
+            ResolveAtClause = (unit, value) => Variant(VersionResolution.Resolve(unit, value, ConstraintsVersions)),
         };
+        return Variant(3);
     }
 
     public sealed class VersionedConstraintsScanFunction : ITableFunction
@@ -335,7 +336,7 @@ public static class VersionedTimeTravelTables
             _ => throw new InvalidOperationException($"Unknown version: {version}"),
         };
 
-        private sealed class Producer(long version, Schema outputSchema) : ITableFunctionProducer
+        internal sealed class Producer(long version, Schema outputSchema) : ITableFunctionProducer
         {
             private bool _emitted;
 
@@ -350,7 +351,7 @@ public static class VersionedTimeTravelTables
                 output.Finish();
             }
 
-            private static RecordBatch BuildBatch(long version, Schema schema) => version switch
+            internal static RecordBatch BuildBatch(long version, Schema schema) => version switch
             {
                 1 => new RecordBatch(schema, [Ints([1, 2]), Strings(["Alice", "Bob"])], 2),
                 2 => new RecordBatch(

@@ -93,6 +93,9 @@ public static class CacheDataTables
         SchemaName = SchemaName,
         Comment = comment,
         ScanFunction = scanFunction,
+        // This fixture advertises no canonical constraints; Arrow output flags are not SQL facts.
+        Columns = new Schema(scanFunction.OutputSchema.FieldsList.Select(field =>
+            new Field(field.Name, field.DataType, true, field.Metadata)).ToList(), scanFunction.OutputSchema.Metadata),
     };
 }
 

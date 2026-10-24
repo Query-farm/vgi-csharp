@@ -28,7 +28,7 @@ public sealed class SameNameTableScanFunction(string schemaName) : ITableFunctio
 
     public Schema ArgumentsSchema { get; } = new([], metadata: null);
 
-    public Schema OutputSchema { get; } = new([new Field("tag", StringType.Default, nullable: false)], metadata: null);
+    public Schema OutputSchema { get; } = new([new Field("tag", StringType.Default, nullable: true)], metadata: null);
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams) => new Producer(schemaName, initParams.OutputSchema);
 

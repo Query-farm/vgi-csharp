@@ -379,7 +379,7 @@ var worker = new Worker()
     .RegisterTable(new EchoAttachOptionsFunction(), identity: "attach_options")
     // attach/attach_options_echo.test + attach/attach_options_required.test's catalog_attach
     // validation/echo hook.
-    .OnAttach(request => AttachOptionsSetup.Handle(request) ?? CatalogContentsSetup.Handle(request) ?? TicketProbeSetup.Handle(request));
+    .OnAttach(request => AttachOptionsSetup.Handle(request) ?? CatalogContentsSetup.Handle(request) ?? TicketProbeSetup.Handle(request) ?? FixtureConstraints.Attach(request));
 
 // table/function_registration.test — PASSES (exactly 162 table-type functions, matching the
 // vgi-python reference worker's roster count). Closed via a full class-hierarchy diff of every

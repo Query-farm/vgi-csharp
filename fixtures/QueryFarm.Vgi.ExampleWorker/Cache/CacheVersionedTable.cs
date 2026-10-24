@@ -87,7 +87,7 @@ public static class CacheVersionedTable
 
         public Schema ArgumentsSchema { get; } = new([TableArgFields.Positional("version", Int64Type.Default)], metadata: null);
 
-        public Schema OutputSchema { get; } = new([new Field("v", Int64Type.Default, nullable: false)], metadata: null);
+        public Schema OutputSchema { get; } = new([new Field("v", Int64Type.Default, nullable: true)], metadata: null);
 
         public ITableFunctionProducer CreateProducer(TableInitParams initParams)
         {
