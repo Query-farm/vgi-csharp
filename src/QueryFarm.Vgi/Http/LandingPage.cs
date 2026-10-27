@@ -39,7 +39,7 @@ public static class LandingPage
         {
             status = "ok",
             server_id = serverId,
-            protocol = "vgi.v2",
+            protocol = "vgi.v3",
             worker = name,
             doc,
             version,

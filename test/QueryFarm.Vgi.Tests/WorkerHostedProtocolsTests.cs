@@ -27,7 +27,7 @@ public sealed class ReportsAgain : IReportsAgain
     public string Pong(string value) => value;
 }
 
-[ProtocolName("vgi.v2")]
+[ProtocolName("vgi.v3")]
 public interface IImpersonatesVgi
 {
     string Ping(string value);
@@ -69,12 +69,12 @@ public sealed class WorkerHostedProtocolsTests
         var server = worker.NewRpcServer(transport);
 
         Assert.Equal(1, calls);
-        Assert.Equal(["vgi.v2", "test.Reports.v1", "vgi_rpc.Reflection.v1"], server.HostedProtocols);
+        Assert.Equal(["vgi.v3", "test.Reports.v1", "vgi_rpc.Reflection.v1"], server.HostedProtocols);
     }
 
     [Fact]
     public void NoHookHostsVgiAndReflectionOnly() =>
-        Assert.Equal(["vgi.v2", "vgi_rpc.Reflection.v1"], NewWorker().NewRpcServer(Worker.ServerTransport.Stdio).HostedProtocols);
+        Assert.Equal(["vgi.v3", "vgi_rpc.Reflection.v1"], NewWorker().NewRpcServer(Worker.ServerTransport.Stdio).HostedProtocols);
 
     [Fact]
     public void AReservedNameIsRefusedNamingTheHook()

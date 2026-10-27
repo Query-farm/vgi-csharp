@@ -27,7 +27,7 @@ public sealed class OpaqueSealingTests
     private const string PrincipalHeader = "X-Test-Principal";
     private const string Secret = "sk-sealing-secret-0123456789";
 
-    [ProtocolName("vgi.v2")]
+    [ProtocolName("vgi.v3")]
     public interface IVgiView
     {
         Task<CatalogAttachResult> CatalogAttachAsync(CatalogAttachRequest request);
@@ -104,7 +104,7 @@ public sealed class OpaqueSealingTests
 
             return new HttpRpcClient(Address, new HttpRpcClientOptions
             {
-                Protocol = "vgi.v2",
+                Protocol = "vgi.v3",
                 ProtocolVersion = Worker.DefaultProtocolVersion,
                 DefaultHeaders = headers,
             });

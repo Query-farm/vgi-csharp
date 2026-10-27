@@ -363,7 +363,7 @@ public sealed class AttachTicketTests
         Task<IssuedGrant> IssueGrantAsync(string purpose, List<string> scopes, long ttlSeconds);
     }
 
-    [ProtocolName("vgi.v2")]
+    [ProtocolName("vgi.v3")]
     public interface IVgiAttachClient
     {
         Task<CatalogAttachResult> CatalogAttachAsync(CatalogAttachRequest request);
@@ -416,7 +416,7 @@ public sealed class AttachTicketTests
         var options = OptionsIpc([("region", "eu-west-2"), ("api_key", "sk-test-0123456789")]);
 
         // Alice, logged in: attach, seal, mint.
-        await using var aliceVgi = Client("vgi.v2", "vgi-test-alice", Worker.DefaultProtocolVersion);
+        await using var aliceVgi = Client("vgi.v3", "vgi-test-alice", Worker.DefaultProtocolVersion);
         var original = await aliceVgi.CreateProxy<IVgiAttachClient>().CatalogAttachAsync(
             new CatalogAttachRequest { Name = TicketProbeSetup.CatalogName, Options = options });
         Assert.Equal(("eu-west-2", "0d3b56072291"), ProbeRow(original, new AuthContext("bearer", true, "alice")));
@@ -433,7 +433,7 @@ public sealed class AttachTicketTests
         var aliceGrant = await aliceIdentity.CreateProxy<IGrantClient>().IssueGrantAsync("nightly", [], 600);
 
         // The runner: only the grant, only the ticket.
-        await using var runner = Client("vgi.v2", aliceGrant.Token, Worker.DefaultProtocolVersion);
+        await using var runner = Client("vgi.v3", aliceGrant.Token, Worker.DefaultProtocolVersion);
         var reattached = await runner.CreateProxy<IVgiAttachClient>().CatalogAttachAsync(new CatalogAttachRequest
         {
             Name = "anything",
@@ -459,7 +459,7 @@ public sealed class AttachTicketTests
         // Bob's grant with Alice's ticket.
         await using var bobIdentity = Client(IdentityProtocol.ProtocolName, "vgi-test-bob");
         var bobGrant = await bobIdentity.CreateProxy<IGrantClient>().IssueGrantAsync("nightly", [], 600);
-        await using var bobRunner = Client("vgi.v2", bobGrant.Token, Worker.DefaultProtocolVersion);
+        await using var bobRunner = Client("vgi.v3", bobGrant.Token, Worker.DefaultProtocolVersion);
         var refused = await Assert.ThrowsAnyAsync<RpcException>(() => bobRunner.CreateProxy<IVgiAttachClient>().CatalogAttachAsync(
             new CatalogAttachRequest { Name = "anything", Options = OptionsIpc([(AttachTickets.OptionName, sealedTicket.Ticket)]) }));
         Assert.Equal((AttachTickets.InvalidKind, ErrorCodes.InvalidArgument), (refused.ErrorKind, refused.ErrorCode));

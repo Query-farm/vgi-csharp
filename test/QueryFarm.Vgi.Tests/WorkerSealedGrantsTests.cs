@@ -14,7 +14,7 @@ using Xunit;
 namespace QueryFarm.Vgi.Tests;
 
 /// <summary>Sealed grants and <c>resolve_token</c> bearers through the worker
-/// (IDENTITY_V2_SPEC.md §9): opt-in, HTTP-only, and accepted back on vgi.v2 calls.</summary>
+/// (IDENTITY_V2_SPEC.md §9): opt-in, HTTP-only, and accepted back on vgi.v3 calls.</summary>
 [Collection("environment")]
 public sealed class WorkerSealedGrantsTests
 {
@@ -90,7 +90,7 @@ public sealed class WorkerSealedGrantsTests
         Task<ItemsResponse> CatalogCatalogsAsync();
     }
 
-    /// <summary>End to end over HTTP: mint with a fresh-auth caller, then call a vgi.v2 method with
+    /// <summary>End to end over HTTP: mint with a fresh-auth caller, then call a vgi.v3 method with
     /// <c>Bearer &lt;grant&gt;</c> and observe it authenticated as the grant's owner.</summary>
     [Fact]
     public async Task AMintedGrantAuthenticatesAVgiCallAsItsOwner()
@@ -118,7 +118,7 @@ public sealed class WorkerSealedGrantsTests
         app.Use(async (HttpContext context, Func<Task> next) =>
         {
             await next();
-            if (context.Request.Path.Value?.Contains("/vgi.v2/", StringComparison.Ordinal) == true)
+            if (context.Request.Path.Value?.Contains("/vgi.v3/", StringComparison.Ordinal) == true)
             {
                 callerCaptured.TrySetResult(PeerIdentityAuthentication.GetAuth(context));
             }
@@ -137,7 +137,7 @@ public sealed class WorkerSealedGrantsTests
 
         await using var automation = new HttpRpcClient(address, new HttpRpcClientOptions
         {
-            Protocol = "vgi.v2",
+            Protocol = "vgi.v3",
             ProtocolVersion = Worker.DefaultProtocolVersion,
             DefaultHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {grant.Token}" },
         });

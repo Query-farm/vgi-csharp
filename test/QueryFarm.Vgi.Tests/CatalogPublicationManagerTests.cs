@@ -21,7 +21,7 @@ namespace QueryFarm.Vgi.Tests;
 
 public sealed class CatalogPublicationManagerTests
 {
-    [ProtocolName("vgi.v2")]
+    [ProtocolName("vgi.v3")]
     public interface ICatalogClient
     {
         Task<CatalogAttachResult> CatalogAttachAsync(CatalogAttachRequest request);
@@ -131,7 +131,7 @@ public sealed class CatalogPublicationManagerTests
         var address = new Uri(app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single());
         await using var client = new HttpRpcClient(address, new HttpRpcClientOptions
         {
-            Protocol = "vgi.v2",
+            Protocol = "vgi.v3",
             ProtocolVersion = Worker.DefaultProtocolVersion,
             ExternalLocation = new() { UrlValidator = null },
         });

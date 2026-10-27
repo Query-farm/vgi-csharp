@@ -65,7 +65,7 @@ public sealed record SnapshotDelivery(CatalogContentsResponse? Response, Externa
 /// <summary>Validated immutable catalog publications. Warm calls perform no inventory or object work.</summary>
 public sealed class CatalogSnapshotManager
 {
-    private const string Wire = "2.2", Codec = "catalog-collections-1";
+    private const string Wire = "3.0", Codec = "catalog-collections-1";
     private static readonly Schema Outer = new([new Field("result", BinaryType.Default, false)], null);
     private readonly object _stateLock = new();
     private readonly Dictionary<string, KeyGate> _gates = new(StringComparer.Ordinal);
@@ -143,7 +143,7 @@ public sealed class CatalogSnapshotManager
             var bounded = new BoundedStorage(p.Repository.Storage, p.MaxRawBytes, p.MaxStoredBytes);
             var reference = await ExternalLocation.PublishExternalAsync(envelope, bounded, p.Compression).ConfigureAwait(false);
             var location = await p.Repository.LocationAsync(reference).ConfigureAwait(false);
-            manifest = new(key, Guid.NewGuid().ToString("N"), "vgi.v2", Wire, ContractHash(), Codec, identity.CatalogVersion, response.Etag,
+            manifest = new(key, Guid.NewGuid().ToString("N"), "vgi.v3", Wire, ContractHash(), Codec, identity.CatalogVersion, response.Etag,
                 reference.Sha256!, bounded.RawSize, bounded.StoredSize, reference.Url, location.ObjectId, location.ExpiresAt, location.RetainUntil, location.Stable);
             var readback = await ReadAsync(p, key, identity, manifest).ConfigureAwait(false);
             if (response.CatalogVersion != readback.CatalogVersion || response.Etag != readback.Etag || !Streams(response).Zip(Streams(readback)).All(pair => pair.First is null ? pair.Second is null : pair.Second is not null && pair.First.AsSpan().SequenceEqual(pair.Second))) throw new InvalidOperationException("Published catalog differs from collected snapshot.");
@@ -208,7 +208,7 @@ public sealed class CatalogSnapshotManager
     }
     private async Task<CatalogContentsResponse> ReadAsync(CatalogSnapshotPolicy p, string key, SnapshotIdentity identity, CatalogPublicationManifest m)
     {
-        if (m.CacheKey != key || m.CatalogVersion != identity.CatalogVersion || m.ProtocolName != "vgi.v2" || m.WireRevision != Wire || m.ContractHash != ContractHash() || m.CodecRevision != Codec || m.FormatVersion != 1 || m.ValidatorRevision != 1 || m.Sha256 is not { Length: 64 } || m.RawSize <= 0 || m.RawSize > p.MaxRawBytes || m.StoredSize <= 0 || m.StoredSize > p.MaxStoredBytes || !Usable(m, p.ExpiryMarginSeconds)) throw new InvalidOperationException("Invalid or expired catalog publication manifest.");
+        if (m.CacheKey != key || m.CatalogVersion != identity.CatalogVersion || m.ProtocolName != "vgi.v3" || m.WireRevision != Wire || m.ContractHash != ContractHash() || m.CodecRevision != Codec || m.FormatVersion != 1 || m.ValidatorRevision != 1 || m.Sha256 is not { Length: 64 } || m.RawSize <= 0 || m.RawSize > p.MaxRawBytes || m.StoredSize <= 0 || m.StoredSize > p.MaxStoredBytes || !Usable(m, p.ExpiryMarginSeconds)) throw new InvalidOperationException("Invalid or expired catalog publication manifest.");
         var config = new FetchConfig { MaxFetchBytes = Math.Min(p.External.FetchConfig.MaxFetchBytes, p.MaxStoredBytes), MaxDecompressedBytes = Math.Min(p.External.FetchConfig.MaxDecompressedBytes ?? p.MaxRawBytes, p.MaxRawBytes), MaxRedirects = p.External.FetchConfig.MaxRedirects, Timeout = p.External.FetchConfig.Timeout };
         var raw = await ExternalFetch.FetchUrlAsync(m.Url, config, p.External.UrlValidator, CancellationToken.None).ConfigureAwait(false);
         if (raw.LongLength != m.RawSize || Hash(raw) != m.Sha256) throw new InvalidOperationException("Catalog publication digest or size mismatch.");
@@ -257,7 +257,7 @@ public sealed class CatalogSnapshotManager
     private static string Key(CatalogSnapshotPolicy p, SnapshotRequest r, SnapshotIdentity id)
     {
         if (string.IsNullOrEmpty(id.CatalogNamespace) || string.IsNullOrEmpty(id.SourceRevision) || id.CatalogVersion != r.CatalogVersion) throw new InvalidOperationException("Publication needs namespace, stable revision and matching catalog version.");
-        return Hash(JsonSerializer.SerializeToUtf8Bytes(new object[] { "vgi.v2", Wire, ContractHash(), Codec, id.CatalogNamespace, id.SourceRevision, id.VisibilityScope ?? r.AttachmentScope, id.CatalogVersion, p.Repository.Profile, p.Compression?.ToString() ?? "none" }));
+        return Hash(JsonSerializer.SerializeToUtf8Bytes(new object[] { "vgi.v3", Wire, ContractHash(), Codec, id.CatalogNamespace, id.SourceRevision, id.VisibilityScope ?? r.AttachmentScope, id.CatalogVersion, p.Repository.Profile, p.Compression?.ToString() ?? "none" }));
     }
     private static string ContractHash() => CatalogWireContract.Hash;
     private static byte[]?[] Streams(CatalogContentsResponse r) => [r.Schemas, r.Tables, r.Views, r.Functions, r.Macros, r.Indexes];

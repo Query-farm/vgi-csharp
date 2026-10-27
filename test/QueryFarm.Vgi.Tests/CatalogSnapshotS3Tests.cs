@@ -38,7 +38,7 @@ public sealed class CatalogSnapshotS3Tests
         var url = await first.UploadAsync(bytes, new Schema([], []), null, CancellationToken.None);
         var reference = new ExternalRef(url, new string('a', 64));
         var location = await first.LocationAsync(reference);
-        var manifest = new CatalogPublicationManifest("key", "first", "vgi.v2", "2.2", "contract", "catalog-collections-1",
+        var manifest = new CatalogPublicationManifest("key", "first", "vgi.v3", "3.0", "contract", "catalog-collections-1",
             1, null, reference.Sha256!, bytes.Length, bytes.Length, url, location.ObjectId, location.ExpiresAt, location.RetainUntil, false);
         Assert.Equal(manifest, await first.CommitIfAbsentAsync(manifest));
         var second = new S3CatalogPublicationRepository(store, "bucket", "catalog", "test");

@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 CONFIGURATION="${CONFIGURATION:-Release}"
 WORKER="$REPO/fixtures/QueryFarm.Vgi.ExampleWorker/bin/$CONFIGURATION/net10.0/vgi-example-worker"
-EXPECT="vgi.v2,conformance.Secondary.v1"
+EXPECT="vgi.v3,conformance.Secondary.v1"
 [ -x "$WORKER" ] || { echo "::error::missing $WORKER (run: dotnet build -c $CONFIGURATION)"; exit 1; }
 
 # Workers run from an empty directory: the HTTP fixture's content root is its cwd.

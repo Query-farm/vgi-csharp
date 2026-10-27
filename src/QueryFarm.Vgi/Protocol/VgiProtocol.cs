@@ -27,7 +27,7 @@ public static class VgiProtocol
     ///
     /// <para>The major version is in the name deliberately: an incompatible major becomes a
     /// <em>different</em> name and therefore a 404 — an answer every proxy and load balancer
-    /// understands without an Arrow parser — and <c>vgi.v2</c> can be served beside a future
+    /// understands without an Arrow parser — and <c>vgi.v2</c> can be served beside
     /// <c>vgi.v3</c> while clients migrate. That matters for this consumer specifically: the
     /// extension ships to users and cannot be flag-dayed.</para>
     ///
@@ -36,5 +36,5 @@ public static class VgiProtocol
     /// secret-provider surface; <c>Internal/SecretsAccessor.cs</c> is the worker <em>requesting</em>
     /// secrets through its own bind response, which rides the VGI protocol below.</para>
     /// </remarks>
-    public const string Name = "vgi.v2";
+    public const string Name = "vgi.v3";
 }

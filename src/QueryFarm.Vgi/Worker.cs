@@ -55,7 +55,7 @@ public sealed class Worker
     /// the <c>catalog_contents</c> RPC and the <c>supports_catalog_contents</c> column on the
     /// <c>catalog_attach</c> result (see <see cref="CatalogContents"/>).</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "2.2.0";
+    public const string DefaultProtocolVersion = "3.0.0";
 
     private readonly CatalogRegistry _catalog = new();
     public Worker CatalogSnapshot(Catalog.Snapshots.CatalogSnapshotPolicy policy) { _catalog.SnapshotPolicy = policy; return this; }
@@ -83,21 +83,21 @@ public sealed class Worker
     }
 
     /// <summary>The hook that supplies further application protocols for this worker to host
-    /// beside <c>vgi.v2</c>, as <see cref="HostedProtocol"/> <c>(interface, implementation)</c>
+    /// beside <c>vgi.v3</c>, as <see cref="HostedProtocol"/> <c>(interface, implementation)</c>
     /// pairs.</summary>
     /// <param name="hook">Called <b>exactly once</b>, when the worker's server is built -- so it
     /// may consult configuration or the environment -- and its result is fixed for the life of the
     /// process. The protocols are hosted, in the order returned, on <b>every</b> transport this
     /// worker serves (stdio, unix, the Iroh raw upstream, HTTP), listed by
-    /// <c>vgi_rpc.Reflection.v1</c> after <c>vgi.v2</c>.</param>
+    /// <c>vgi_rpc.Reflection.v1</c> after <c>vgi.v3</c>.</param>
     /// <returns>This builder.</returns>
     /// <remarks>
-    /// <para>Hosting another protocol cannot change <c>vgi.v2</c>: every request is routed on its
+    /// <para>Hosting another protocol cannot change <c>vgi.v3</c>: every request is routed on its
     /// <c>vgi_rpc.protocol</c> key with no fallback to the primary, so the DuckDB extension, which
-    /// only ever names <c>vgi.v2</c>, dispatches exactly as it would against a single-protocol
+    /// only ever names <c>vgi.v3</c>, dispatches exactly as it would against a single-protocol
     /// worker.</para>
     /// <para>Each protocol needs a distinct wire name (<c>[ProtocolName]</c> on its interface,
-    /// conventionally dot-qualified with a major version), not <c>vgi.v2</c>, and not under the
+    /// conventionally dot-qualified with a major version), not <c>vgi.v3</c>, and not under the
     /// reserved <c>vgi_rpc.</c> prefix: framework protocols are not supplied here. Reflection is
     /// hosted automatically, and <c>vgi_rpc.Identity.v2</c> is enabled with
     /// <see cref="Identity"/>. The protocol is the unit of optionality -- there is no way to host
@@ -715,7 +715,7 @@ public sealed class Worker
     /// not under the C# type's own name, and any other site that hosts the same interface gets
     /// the same name whether or not it went through here.
     /// </remarks>
-    /// <para>What it hosts, in reflection order: <c>vgi.v2</c>; the protocols the
+    /// <para>What it hosts, in reflection order: <c>vgi.v3</c>; the protocols the
     /// <see cref="HostedProtocols"/> hook returns, on every transport; <c>vgi_rpc.Reflection.v1</c>,
     /// on every transport; and <c>vgi_rpc.Identity.v2</c> on HTTP when <see cref="Identity"/> was
     /// called.</para>

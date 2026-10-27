@@ -5,12 +5,12 @@ using QueryFarm.VgiRpc.Wire;
 namespace QueryFarm.Vgi.Internal;
 
 /// <summary>
-/// The answer for a <c>vgi.v2</c> method this port registers but does not implement:
+/// The answer for a <c>vgi.v3</c> method this port registers but does not implement:
 /// <c>UNIMPLEMENTED</c> / <c>method_not_implemented</c>, message <c>"&lt;method&gt; is not
 /// implemented by this worker"</c>.
 /// </summary>
 /// <remarks>
-/// <para>The protocol is the unit of optionality: every port hosts every <c>vgi.v2</c> method with
+/// <para>The protocol is the unit of optionality: every port hosts every <c>vgi.v3</c> method with
 /// the reference's exact schemas, so <c>vgi_rpc.Reflection.v1</c> reports one protocol hash
 /// everywhere. A method a port has no implementation for is still registered, and every call to it
 /// answers with this error, never a silent success. The kind is vgi-rpc's own, the one an

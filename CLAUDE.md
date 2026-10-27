@@ -93,7 +93,7 @@ here" error.
   C#-only helpers go in a separate hand-written file, not in the generated one. Every `binary`
   column is a `byte[]` of raw IPC bytes — including ones Python annotates as `pa.RecordBatch` —
   so decode with `Internal.RecordBatchIpc`/`SchemaIpc`/`EmbeddedIpc` where you need the value.
-  `IVgiService` — the whole `vgi.v2` registry — is generated too, into
+  `IVgiService` — the whole `vgi.v3` registry — is generated too, into
   `Protocol/Generated/IVgiService.g.cs` by `vgi.codegen.csharp_registry`: every method of the
   reference with its exact signature (vgi-rpc-csharp derives the schemas from it, so it is the
   registration) and a default body that throws `UnimplementedMethod.For(...)`. `VgiServiceImpl`
@@ -118,13 +118,13 @@ here" error.
   conformance test above compares the serialized schemas rather than trusting the declarations.
 - **Packed vs. flat RPC methods**: packed = single `request: binary` embedded-IPC param; flat =
   params map 1:1 by name to method parameters.
-- **The protocol's wire name is declared, not derived**: `vgi.v2`, and it is a cross-port contract
+- **The protocol's wire name is declared, not derived**: `vgi.v3`, and it is a cross-port contract
   (vgi-python declares the same string; the DuckDB extension sends it as the `vgi_rpc.protocol`
   routing key). QueryFarm.VgiRpc would otherwise name the protocol after the C# contract type
   (`VgiService`), which is how six implementations of one protocol ended up with four different
   names. The declaration is `[ProtocolName(VgiProtocol.Name)]` on `IVgiService` itself (the string
   lives in `src/QueryFarm.Vgi/Protocol/VgiProtocol.cs`), so it rides the *contract*, not the
-  hosting site: every `new RpcServer(typeof(IVgiService), ...)` hosts `vgi.v2` whether or not it
+  hosting site: every `new RpcServer(typeof(IVgiService), ...)` hosts `vgi.v3` whether or not it
   went through `Worker.NewRpcServer()`, and a typed client (`RpcConnection<IVgiService>`) resolves
   the same name without being told. Requires QueryFarm.VgiRpc >= 0.10.1. This port does not host
   the VGI *secret* protocol (`vgi.secret.v1`).

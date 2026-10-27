@@ -35,7 +35,7 @@ var real = new VgiServiceImpl(registry);
 var decorated = new BadEnumVgiService(real);
 
 // The wire name comes from [ProtocolName] on IVgiService itself, so this second server-building
-// site publishes `vgi.v2` exactly like Worker.NewRpcServer does. It did NOT always: when the name
+// site publishes `vgi.v3` exactly like Worker.NewRpcServer does. It did NOT always: when the name
 // could only be declared at the hosting site, this fixture published it under the C# type's name
 // and was refused at routing, before it could ever deliver the bad enum value it exists to test.
 var server = new RpcServer(typeof(IVgiService), decorated, expectedProtocolVersion: Worker.DefaultProtocolVersion);

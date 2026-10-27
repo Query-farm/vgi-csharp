@@ -25,7 +25,7 @@ It is wire-compatible with the canonical [Python](https://github.com/Query-farm/
 the Go/Rust/Java/TypeScript ports, so a C# worker drops in behind the same `ATTACH ... (TYPE vgi)`.
 Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targets **.NET 10**.
 
-Version 0.20.0 uses VGI wire 2.2.0 under `vgi.v2` and requires a native VGI client speaking wire 2.2.x. Upgrade clients and workers together; wire 2.1 clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+This preparation branch uses VGI wire 3.0.0 under `vgi.v3` and requires a native VGI client speaking wire 3.0.x. Upgrade clients and workers together; wire 2.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 
 > **Status: full parity.** All 356 sqllogictests in the canonical
 > `~/Development/vgi/test/sql/integration/**` suite pass — the same unmodified suite the
@@ -230,7 +230,7 @@ the Arrow IPC stream.
 
 ### Hosting additional protocols
 
-A worker can host further application protocols beside `vgi.v2` — a reporting protocol, a shared
+A worker can host further application protocols beside `vgi.v3` — a reporting protocol, a shared
 fixture — through one hook, called exactly once when the server is built:
 
 ```csharp
@@ -241,9 +241,9 @@ new Worker()
 ```
 
 The protocols are hosted, in the order returned, on every transport (stdio, unix, the Iroh raw
-upstream, HTTP), and listed by `vgi_rpc.Reflection.v1` after `vgi.v2`. They cannot change
-`vgi.v2`: every request is routed on its `vgi_rpc.protocol` key with no fallback, so DuckDB
-dispatches exactly as before. Each interface needs its own `[ProtocolName]` (not `vgi.v2`, not
+upstream, HTTP), and listed by `vgi_rpc.Reflection.v1` after `vgi.v3`. They cannot change
+`vgi.v3`: every request is routed on its `vgi_rpc.protocol` key with no fallback, so DuckDB
+dispatches exactly as before. Each interface needs its own `[ProtocolName]` (not `vgi.v3`, not
 under the reserved `vgi_rpc.` prefix); a bad entry fails startup with an error naming the hook.
 
 ### Token introspection (`vgi_rpc.Identity.v2`)

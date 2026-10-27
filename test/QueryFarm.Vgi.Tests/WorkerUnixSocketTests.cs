@@ -48,7 +48,7 @@ public sealed class WorkerUnixSocketTests
 
             using var clientTransport = (SocketTransport)await SocketTransport.ConnectUnixAsync(path);
             // No explicit RpcClientOptions.Protocol: the name is declared on the contract, so the
-            // client resolves the same `vgi.v2` the server hosts under. Reaching the version gate
+            // client resolves the same `vgi.v3` the server hosts under. Reaching the version gate
             // below is what proves they agreed — a disagreement is refused one step earlier.
             var connection = new RpcConnection<IVgiService>(clientTransport);
             var client = connection.CreateProxy();

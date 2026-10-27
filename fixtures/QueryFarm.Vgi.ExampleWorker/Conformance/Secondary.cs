@@ -13,7 +13,7 @@ namespace QueryFarm.Vgi.ExampleWorker.Conformance;
 /// special-cased.
 /// </summary>
 /// <remarks>
-/// Declares no protocol version while <c>vgi.v2</c> declares one, so a server gating every call
+/// Declares no protocol version while <c>vgi.v3</c> declares one, so a server gating every call
 /// against the primary's version would refuse these. Pinned hash
 /// <c>58557cf1611546ad22d1c379bc3ce1b04166082f78375e9fc959f0086347eab6</c>.
 /// </remarks>

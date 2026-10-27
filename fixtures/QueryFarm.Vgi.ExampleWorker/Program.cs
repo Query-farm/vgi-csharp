@@ -754,8 +754,8 @@ TicketProbeSetup.Register(worker);
 worker.HttpAuthenticate(TestBearers.Create(TestBearers.GrantsConfigured(args)));
 
 // conformance.Secondary.v1 through the ordinary hosting hook -- hosted on every transport after
-// vgi.v2 -- so vgi-rpc's shared hosted-protocols group (`vgi-rpc-test-hosted --expect
-// vgi.v2,conformance.Secondary.v1`) runs against this worker. Additive: vgi.v2 is unchanged.
+// vgi.v3 -- so vgi-rpc's shared hosted-protocols group (`vgi-rpc-test-hosted --expect
+// vgi.v3,conformance.Secondary.v1`) runs against this worker. Additive: vgi.v3 is unchanged.
 worker.HostedProtocols(() => [new HostedProtocol(typeof(ISecondary), new SecondaryImpl())]);
 
 // --identity (HTTP only): vgi_rpc.Identity.v2 with the IDENTITY_CONFORMANCE_FIXTURE.md policy and
