@@ -122,7 +122,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         if (catalog.FindTable(identity, schemaPath, name, TableArgCodec.Decode(bindRequest.Arguments)) is { } table)
         {
-            return Task.FromResult(InitTable(table, bindRequest, request));
+            return Task.FromResult(InitTable(table, bindRequest, request, ctx));
         }
 
         if (catalog.FindTableInOut(identity, schemaPath, name, DecodeInputSchema(bindRequest.InputSchema)) is { } tableInOut)
@@ -896,7 +896,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return new RpcStream<StreamState>(outputSchema, state, InputSchema: inputSchema, Header: header);
     }
 
-    private RpcStream<StreamState> InitTable(ITableFunction function, BindRequest bindRequest, InitRequest request)
+    private RpcStream<StreamState> InitTable(ITableFunction function, BindRequest bindRequest, InitRequest request, ICallContext? ctx)
     {
         // Defense-in-depth mirror of BindTable's own bind-time guard: a plain table function's
         // init RPC never carries a table-in-out/table-buffering phase. A non-null phase here means
@@ -941,6 +941,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         var initParams = new TableInitParams
         {
+            Ctx = ctx,
             FunctionName = bindRequest.FunctionName,
             Arguments = arguments,
             Settings = bindRequest.Settings,

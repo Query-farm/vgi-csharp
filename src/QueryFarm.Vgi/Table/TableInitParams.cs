@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
+using QueryFarm.VgiRpc.Server;
 
 namespace QueryFarm.Vgi.Table;
 
@@ -10,6 +11,10 @@ namespace QueryFarm.Vgi.Table;
 /// drives its own output pace.</summary>
 public sealed class TableInitParams
 {
+    /// <summary>The authenticated call context for this init, or null for a direct local call.
+    /// Capture immutable values needed by a producer rather than retaining the transport context.</summary>
+    public ICallContext? Ctx { get; init; }
+
     public required string FunctionName { get; init; }
 
     /// <summary>Same decoded arguments as the bind call that opened this producer (re-decoded

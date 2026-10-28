@@ -550,9 +550,11 @@ public sealed class CacheWhoamiFunction : ITableFunction
 
     public Schema OutputSchema { get; } = new([new Field("who", StringType.Default, nullable: false)], metadata: null);
 
-    public ITableFunctionProducer CreateProducer(TableInitParams initParams) => new Producer(initParams.OutputSchema);
+    public ITableFunctionProducer CreateProducer(TableInitParams initParams) => new Producer(
+        initParams.OutputSchema,
+        initParams.Ctx?.Auth is { Authenticated: true, Principal: { Length: > 0 } principal } ? principal : "anonymous");
 
-    private sealed class Producer(Schema outputSchema) : ITableFunctionProducer
+    private sealed class Producer(Schema outputSchema, string principal) : ITableFunctionProducer
     {
         private bool _emitted;
 
@@ -562,7 +564,7 @@ public sealed class CacheWhoamiFunction : ITableFunction
             {
                 _emitted = true;
                 var builder = new StringArray.Builder();
-                builder.Append("anonymous");
+                builder.Append(principal);
                 output.Emit(new RecordBatch(outputSchema, [builder.Build()], 1), CacheMetadata.Ttl(300));
             }
 
