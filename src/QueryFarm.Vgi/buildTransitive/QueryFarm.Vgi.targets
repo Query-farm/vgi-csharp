@@ -1,0 +1,15 @@
+<Project>
+  <!-- DuckDB.NET's optional Arrow API brings the official signed assemblies. VGI uses the
+       patched QueryFarm.Arrow assemblies with the same names. Apply the repository's existing
+       exclusion policy to package consumers after NuGet has resolved their complete graph. -->
+  <Target Name="VgiSelectPatchedArrowAssets" AfterTargets="ResolvePackageAssets">
+    <ItemGroup>
+      <ResolvedCompileFileDefinitions Remove="@(ResolvedCompileFileDefinitions)"
+          Condition="'%(ResolvedCompileFileDefinitions.NuGetPackageId)' == 'Apache.Arrow' Or '%(ResolvedCompileFileDefinitions.NuGetPackageId)' == 'Apache.Arrow.Scalars'" />
+      <RuntimeCopyLocalItems Remove="@(RuntimeCopyLocalItems)"
+          Condition="'%(RuntimeCopyLocalItems.NuGetPackageId)' == 'Apache.Arrow' Or '%(RuntimeCopyLocalItems.NuGetPackageId)' == 'Apache.Arrow.Scalars'" />
+      <RuntimeTargetsCopyLocalItems Remove="@(RuntimeTargetsCopyLocalItems)"
+          Condition="'%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'Apache.Arrow' Or '%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'Apache.Arrow.Scalars'" />
+    </ItemGroup>
+  </Target>
+</Project>

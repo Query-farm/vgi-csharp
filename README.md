@@ -24,6 +24,8 @@ This repo is the **C#** worker SDK ([`QueryFarm.Vgi`](https://www.nuget.org/pack
 It is wire-compatible with the canonical [Python](https://github.com/Query-farm/vgi-python) SDK and
 the Go/Rust/Java/TypeScript ports, so a C# worker drops in behind the same `ATTACH ... (TYPE vgi)`.
 Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targets **.NET 10**.
+The package selects its patched Arrow assemblies automatically, including in transitive consumers;
+no manual exclusions for DuckDB.NET's optional official Arrow assemblies are required.
 
 Starting with package 0.22.0, this SDK uses VGI wire 3.0.0 under `vgi.v3` and requires a native VGI client speaking wire 3.0.x. Upgrade clients and workers together; wire 2.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 

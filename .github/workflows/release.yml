@@ -39,6 +39,12 @@ jobs:
       # Packing the whole repo relies on IsPackable (true only for src/QueryFarm.Vgi — see the
       # per-folder Directory.Build.props files) to select exactly the one publishable package.
       - run: dotnet pack -c Release --no-build -o ./artifacts/nupkg
+      - name: Verify standalone NuGet consumer
+        run: scripts/check-package-consumer.sh ./artifacts/nupkg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/nupkg/*.nupkg
 
       # Trusted Publishing (https://learn.microsoft.com/nuget/nuget-org/trusted-publishing):
       # exchanges this job's short-lived GitHub OIDC token (id-token: write above) for a NuGet API
