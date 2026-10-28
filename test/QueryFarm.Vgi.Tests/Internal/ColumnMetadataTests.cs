@@ -5,6 +5,7 @@ using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
 using Xunit;
 namespace QueryFarm.Vgi.Tests.Internal;
+
 public class ColumnMetadataTests
 {
     [Fact]
@@ -26,8 +27,14 @@ public class ColumnMetadataTests
             foreach (var item in group.Value.EnumerateObject())
             {
                 var raw = Convert.FromBase64String(item.Value.GetString()!);
-                var request = new TableCreateRequest { AttachOpaqueData = attach, SchemaPath = ["main"],
-                                                       Name = item.Name, Columns = raw, ConstraintDefinitions = [] };
+                var request = new TableCreateRequest
+                {
+                    AttachOpaqueData = attach,
+                    SchemaPath = ["main"],
+                    Name = item.Name,
+                    Columns = raw,
+                    ConstraintDefinitions = []
+                };
                 if (group.Name == "invalid")
                 {
                     Assert.ThrowsAny<Exception>(() => ColumnMetadata.ValidateIpc(raw));

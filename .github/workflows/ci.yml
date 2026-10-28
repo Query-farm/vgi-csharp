@@ -12,7 +12,8 @@ permissions:
 
 env:
   # The suite and linked native runner must come from this same revision.
-  VGI_REF: fc3e08f7e7fd800165a0edc00313de46fed15329
+  VGI_REF: a83ff7e8cd46aa840a10e78fe9b31603931824c2
+  VGI_NATIVE_RUNNER_BRANCH: release/vgi-v3-ci-20261028
 
 jobs:
   build-test:

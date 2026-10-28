@@ -47,8 +47,14 @@ internal static class MacroFamilies
                 var (field, index) = matching[0];
                 value = RecordBatchIpc.Write(new RecordBatch(new Schema([field], defaults!.Schema.Metadata), [defaults!.Column(index)], 1));
             }
-            parameters.Add(new MacroParameter { Name = name, DeclaredType = null,
-                DefaultValue = value, DefaultExpression = null, Documentation = macro.ParameterDocs.GetValueOrDefault(name) });
+            parameters.Add(new MacroParameter
+            {
+                Name = name,
+                DeclaredType = null,
+                DefaultValue = value,
+                DefaultExpression = null,
+                Documentation = macro.ParameterDocs.GetValueOrDefault(name)
+            });
         }
         return [new MacroOverload { Parameters = parameters, Definition = macro.Definition,
             Profile = "duckdb.macro.v1", SchemaPath = owner, MacroType = kind,

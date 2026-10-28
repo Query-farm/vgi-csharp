@@ -35,8 +35,8 @@ public static class ColumnExpressions
         var context = value.EvaluationContext ?? throw new ArgumentException("Missing expression context.");
         Text(context.Timezone, 256);
         Text(context.Collation, 256);
-        if (context.DefaultOrder is not("asc" or "desc") ||
-            context.DefaultNullOrder is not("nulls_first" or "nulls_last" or "nulls_first_on_asc_last_on_desc" or
+        if (context.DefaultOrder is not ("asc" or "desc") ||
+            context.DefaultNullOrder is not ("nulls_first" or "nulls_last" or "nulls_first_on_asc_last_on_desc" or
                                             "nulls_last_on_asc_first_on_desc"))
             throw new ArgumentException("Invalid expression evaluation context.");
     }
@@ -83,11 +83,20 @@ public static class ColumnExpressions
     }
     public static string GeneratedMetadata(string sql, IReadOnlyList<string> owner)
     {
-        var expression = new SqlExpression { Sql = sql, Profile = Profile, SchemaPath = owner.ToList(),
-                                             EvaluationContext = new QueryEvaluationContext {
-                                                 Timezone = "UTC", Collation = "binary", DefaultOrder = "asc",
-                                                 DefaultNullOrder = "nulls_last", PreserveInsertionOrder = true
-                                             } };
+        var expression = new SqlExpression
+        {
+            Sql = sql,
+            Profile = Profile,
+            SchemaPath = owner.ToList(),
+            EvaluationContext = new QueryEvaluationContext
+            {
+                Timezone = "UTC",
+                Collation = "binary",
+                DefaultOrder = "asc",
+                DefaultNullOrder = "nulls_last",
+                PreserveInsertionOrder = true
+            }
+        };
         Expression(expression, owner);
         return Convert.ToBase64String(EmbeddedIpc.Encode(expression));
     }
@@ -122,7 +131,7 @@ public static class ColumnExpressions
                         throw new ArgumentException("Only VIRTUAL generated columns are supported.");
                     if (metadata.ContainsKey("default") || metadata.ContainsKey("vgi.column.default.v1"))
                         throw new ArgumentException("Generated column cannot have a default.");
-                    Encoded(encoded !, owner);
+                    Encoded(encoded!, owner);
                     if (!allowGenerated)
                         throw new NotSupportedException("Generated columns are unsupported by this catalog.");
                 }

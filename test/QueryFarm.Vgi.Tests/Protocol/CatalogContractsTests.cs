@@ -38,7 +38,7 @@ public class CatalogContractsTests
         Assert.Equal(Fixture("state"), info.Options);
         var create = RoundTrip<IndexCreateRequest>("index_create");
         Assert.Equal(info.Definition, create.Definition);
-        Assert.Equal(new byte[] {116, 120, 110, 0, 255}, create.TransactionOpaqueData);
+        Assert.Equal(new byte[] { 116, 120, 110, 0, 255 }, create.TransactionOpaqueData);
         Assert.Equal(["indexes"], RoundTrip<IndexCreateRequest>("index_create_cross_schema").SchemaPath);
     }
 
@@ -469,11 +469,11 @@ public class CatalogContractsTests
         Assert.Equal(Fixture("layout"), info.Layout);
         Assert.Single(create.ConstraintDefinitions);
         Assert.Empty(old.ConstraintDefinitions);
-        Assert.Equal(new byte[] {114, 101, 118, 105, 115, 105, 111, 110, 0, 255}, info.DefinitionRevision);
+        Assert.Equal(new byte[] { 114, 101, 118, 105, 115, 105, 111, 110, 0, 255 }, info.DefinitionRevision);
         var constraint = EmbeddedIpc.Decode<ConstraintInfo>(Assert.Single(info.Constraints));
         Assert.Equal(create.ConstraintDefinitions[0], constraint.Definition);
         Assert.Equal("fixture-stable-key", EmbeddedIpc.Decode<CatalogObjectRef>(constraint.Ref).Name);
-        Assert.Equal(new[] {"record", "a.b"}, Assert.Single(
+        Assert.Equal(new[] { "record", "a.b" }, Assert.Single(
             EmbeddedIpc.Decode<ConstraintDefinition>(constraint.Definition).ColumnPaths));
     }
 }

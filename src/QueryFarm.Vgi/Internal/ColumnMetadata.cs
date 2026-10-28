@@ -96,7 +96,8 @@ public static class ColumnMetadata
             if (depth > 64)
                 throw new ArgumentException("Column metadata nesting too deep.");
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            Vector(p, 6, m => {
+            Vector(p, 6, m =>
+            {
                 string key = Text(m, 0);
                 if (!seen.Add(key))
                     throw new ArgumentException("Duplicate column metadata key.");

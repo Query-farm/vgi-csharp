@@ -16,7 +16,8 @@ public class ExampleConstraintDiscoveryTests
         {
             var request = new CatalogAttachRequest
             {
-                Name = "example", ClientCapabilities = EmbeddedIpc.Encode(new ClientCapabilities
+                Name = "example",
+                ClientCapabilities = EmbeddedIpc.Encode(new ClientCapabilities
                 {
                     Catalog = EmbeddedIpc.Encode(new CatalogCapabilities { Read = profiles, Write = ["vgi.constraint.enforce.v1"] }),
                 }),

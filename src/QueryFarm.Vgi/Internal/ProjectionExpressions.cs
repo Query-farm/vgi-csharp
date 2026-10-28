@@ -20,8 +20,10 @@ public static class ProjectionExpressions
         int index = row.Schema.GetFieldIndex("repeatability");
         if (row.Length != 1 || index < 0 || row.Column(index).IsNull(0))
             throw new ArgumentException("Bind repeatability must be present and non-null.");
-        if (row.Schema.GetFieldByIndex(index).DataType is not Apache.Arrow.Types.DictionaryType {
-                IndexType: Apache.Arrow.Types.Int16Type, ValueType: Apache.Arrow.Types.StringType })
+        if (row.Schema.GetFieldByIndex(index).DataType is not Apache.Arrow.Types.DictionaryType
+            {
+                IndexType: Apache.Arrow.Types.Int16Type, ValueType: Apache.Arrow.Types.StringType
+            })
             throw new ArgumentException("Bind repeatability requires dictionary<int16, utf8>.");
         if (row.Schema.GetFieldByIndex(index).IsNullable ||
             row.Column(index) is not DictionaryArray dictionary ||
@@ -89,7 +91,7 @@ public static class ProjectionExpressions
             throw new ArgumentException("Projection cannot request secrets.");
         var schema = SchemaIpc.ReadSchemaOnly(source.OutputSchema);
         var result = SchemaIpc.ReadSchemaOnly(request.ResultSchema);
-        if (request.Expressions.Count is<1 or> 1024 || result.FieldsList.Count != request.Expressions.Count ||
+        if (request.Expressions.Count is < 1 or > 1024 || result.FieldsList.Count != request.Expressions.Count ||
             result.Metadata?.Count > 0)
             throw new ArgumentException("Invalid projection result schema/count.");
         var names = new HashSet<string>(StringComparer.Ordinal);

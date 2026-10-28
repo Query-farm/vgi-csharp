@@ -13,12 +13,20 @@ public class ProjectionExpressionsTests
         new([new Field("n", Int32Type.Default, true)], new Dictionary<string, string> { ["source"] = "retained" });
     private static readonly Field Result =
         new("wide", Int64Type.Default, true, new Dictionary<string, string> { ["requested"] = "retained" });
-    private static TableFunctionProjectionRequest Proposal(List<string> owner) => new() {
-        BindCall = EmbeddedIpc.Encode(new BindRequest { FunctionName = "projection_sequence",
-                                                        FunctionType = FunctionType.Table, SchemaPath = owner }),
+    private static TableFunctionProjectionRequest Proposal(List<string> owner) => new()
+    {
+        BindCall = EmbeddedIpc.Encode(new BindRequest
+        {
+            FunctionName = "projection_sequence",
+            FunctionType = FunctionType.Table,
+            SchemaPath = owner
+        }),
         BindResult =
-            EmbeddedIpc.Encode(new BindResponse { OutputSchema = SchemaIpc.WriteSchemaOnly(Source),
-                                                  ProjectionExpressionProfiles = [ProjectionExpressions.Profile] }),
+            EmbeddedIpc.Encode(new BindResponse
+            {
+                OutputSchema = SchemaIpc.WriteSchemaOnly(Source),
+                ProjectionExpressionProfiles = [ProjectionExpressions.Profile]
+            }),
         Expressions = [EmbeddedIpc.Encode(new SqlExpression {
             Sql = "CAST(\"n\" AS BIGINT)", Profile = ProjectionExpressions.Profile, SchemaPath = owner,
             EvaluationContext = new() { Timezone = "UTC", Collation = "binary", DefaultOrder = "asc",
@@ -26,11 +34,16 @@ public class ProjectionExpressionsTests
         })],
         ResultSchema = SchemaIpc.WriteSchemaOnly(new Schema([Result], null)),
     };
-    private static TableFunctionProjectionResponse Accepted(Schema schema) => new() {
+    private static TableFunctionProjectionResponse Accepted(Schema schema) => new()
+    {
         AcceptedIndices = [0],
         BindResult =
-            EmbeddedIpc.Encode(new BindResponse { OutputSchema = SchemaIpc.WriteSchemaOnly(schema), OpaqueData = [42],
-                                                  ProjectionExpressionProfiles = [ProjectionExpressions.Profile] }),
+            EmbeddedIpc.Encode(new BindResponse
+            {
+                OutputSchema = SchemaIpc.WriteSchemaOnly(schema),
+                OpaqueData = [42],
+                ProjectionExpressionProfiles = [ProjectionExpressions.Profile]
+            }),
     };
     [Fact]
     public void AcceptsExactAppendedSchemaAndDecline()
@@ -57,7 +70,7 @@ public class ProjectionExpressionsTests
                 proposal, new() { AcceptedIndices = [0, 0], BindResult = proposal.BindResult }));
         Assert.Throws<ArgumentException>(
             () => ProjectionExpressions.ValidateResponse(proposal, new() { BindResult = proposal.BindResult }));
-        proposal.Expressions[0] = [..proposal.Expressions[0], 0];
+        proposal.Expressions[0] = [.. proposal.Expressions[0], 0];
         Assert.Throws<ArgumentException>(() => ProjectionExpressions.ValidateRequest(proposal));
     }
     [Fact]
@@ -88,9 +101,9 @@ public class ProjectionExpressionsTests
         var raw = EmbeddedIpc.Encode(Proposal(["main"]));
         Assert.Single(ProjectionExpressions.DecodeRequest(raw).Expressions);
         Assert.Single(ProjectionExpressions.DecodeRequest(raw[..^8]).Expressions);
-        Assert.Single(ProjectionExpressions.DecodeRequest([..raw[..^8], 0, 0, 0, 0]).Expressions);
+        Assert.Single(ProjectionExpressions.DecodeRequest([.. raw[..^8], 0, 0, 0, 0]).Expressions);
         Assert.Throws<ArgumentException>(() => ProjectionExpressions.DecodeRequest(raw[..^1]));
-        Assert.Throws<ArgumentException>(() => ProjectionExpressions.DecodeRequest([..raw, ..raw[^8..]]));
+        Assert.Throws<ArgumentException>(() => ProjectionExpressions.DecodeRequest([.. raw, .. raw[^8..]]));
         Assert.Throws<ArgumentException>(() => ProjectionExpressions.DecodeRequest([.. raw, 0]));
         using var source = new MemoryStream(raw);
         using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(source);
@@ -177,8 +190,12 @@ public class ProjectionExpressionsTests
         var catalog = new CatalogRegistry();
         catalog.RegisterTable(new PerBindPromise());
         var service = new VgiServiceImpl(catalog);
-        var request = new BindRequest { FunctionName = "per_bind_promise", FunctionType = FunctionType.Table,
-                                        SchemaPath = ["main"] };
+        var request = new BindRequest
+        {
+            FunctionName = "per_bind_promise",
+            FunctionType = FunctionType.Table,
+            SchemaPath = ["main"]
+        };
         Assert.Equal(BindRepeatability.Unknown, (await service.BindAsync(request)).Repeatability);
         request.TransactionOpaqueData = [1, 2, 3];
         Assert.Equal(BindRepeatability.StableWithinQuery, (await service.BindAsync(request)).Repeatability);

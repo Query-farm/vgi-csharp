@@ -5,6 +5,7 @@ using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
 using Xunit;
 namespace QueryFarm.Vgi.Tests.Internal;
+
 public class ColumnExpressionsTests
 {
     [Fact]
@@ -25,9 +26,15 @@ public class ColumnExpressionsTests
         foreach (var group in vectors.EnumerateObject().Where(group => group.Name is "valid" or "invalid"))
             foreach (var item in group.Value.EnumerateObject())
             {
-                var raw = Convert.FromBase64String(item.Value.GetString() !);
-                var request = new TableCreateRequest { AttachOpaqueData = attach, SchemaPath = ["main"],
-                                                       Name = item.Name, Columns = raw, ConstraintDefinitions = [] };
+                var raw = Convert.FromBase64String(item.Value.GetString()!);
+                var request = new TableCreateRequest
+                {
+                    AttachOpaqueData = attach,
+                    SchemaPath = ["main"],
+                    Name = item.Name,
+                    Columns = raw,
+                    ConstraintDefinitions = []
+                };
                 if (group.Name == "invalid")
                 {
                     Assert.ThrowsAny<Exception>(() => ColumnExpressions.ValidateIpc(raw, ["main"]));
@@ -59,14 +66,19 @@ public class ColumnExpressionsTests
     [Fact]
     public async Task GeneratedConveniencePreservesMetadataAndLiteralOwner()
     {
-        var metadata = new Dictionary<string,string> { ["comment"] = "", ["tags"] = "{}", ["provider.note"] = "keep" };
+        var metadata = new Dictionary<string, string> { ["comment"] = "", ["tags"] = "{}", ["provider.note"] = "keep" };
         var columns = new Apache.Arrow.Schema([
             new Apache.Arrow.Field("n", Apache.Arrow.Types.Int64Type.Default, true),
             new Apache.Arrow.Field("doubled", Apache.Arrow.Types.Int64Type.Default, true, metadata)],
-            new Dictionary<string,string> { ["provider"] = "retained" });
+            new Dictionary<string, string> { ["provider"] = "retained" });
         var registry = new CatalogRegistry();
-        registry.RegisterCatalogTable(new CatalogTable { Name = "t", SchemaName = "raw.schema", Columns = columns,
-            GeneratedColumns = new Dictionary<string,string> { ["doubled"] = "n * 2" } });
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "t",
+            SchemaName = "raw.schema",
+            Columns = columns,
+            GeneratedColumns = new Dictionary<string, string> { ["doubled"] = "n * 2" }
+        });
         IVgiService service = new VgiServiceImpl(registry);
         var attach = (await service.CatalogAttachAsync(new CatalogAttachRequest { Name = "example" })).AttachOpaqueData;
         var info = EmbeddedIpc.Decode<TableInfo>(Assert.Single((await service.CatalogTableGetAsync(attach, ["raw.schema"], "t", null, null, null)).Items));

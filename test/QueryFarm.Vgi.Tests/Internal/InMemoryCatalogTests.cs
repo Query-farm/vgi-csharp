@@ -114,8 +114,12 @@ public class InMemoryCatalogTests
         var definition = QueryFarm.Vgi.Tests.Protocol.CatalogContractsTests.Fixture("index_definition");
         foreach (var conflict in new[] { OnConflict.Error, OnConflict.Ignore, OnConflict.Replace })
         {
-            var request = new IndexCreateRequest {
-                AttachOpaqueData = attach, SchemaPath = ["main"], Name = "t", Definition = definition,
+            var request = new IndexCreateRequest
+            {
+                AttachOpaqueData = attach,
+                SchemaPath = ["main"],
+                Name = "t",
+                Definition = definition,
                 OnConflict = conflict,
             };
             await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogIndexCreateAsync(request));
@@ -170,9 +174,9 @@ public class InMemoryCatalogTests
         await service.CatalogViewCreateAsync(attach, ["main"], "v", "SELECT 1", OnConflict.Error, null);
         var before = (await service.CatalogVersionAsync(attach, null)).Version;
         foreach (var security in new[] { "barrier", "unknown", "" })
-        foreach (var conflict in new[] { OnConflict.Error, OnConflict.Ignore, OnConflict.Replace })
-            await Assert.ThrowsAsync<NotSupportedException>(() =>
-                service.CatalogViewCreateAsync(attach, ["main"], "v", "SELECT 2", conflict, null, security: security));
+            foreach (var conflict in new[] { OnConflict.Error, OnConflict.Ignore, OnConflict.Replace })
+                await Assert.ThrowsAsync<NotSupportedException>(() =>
+                    service.CatalogViewCreateAsync(attach, ["main"], "v", "SELECT 2", conflict, null, security: security));
         Assert.Equal(before, (await service.CatalogVersionAsync(attach, null)).Version);
         var view = EmbeddedIpc.Decode<ViewInfo>(Assert.Single((await service.CatalogViewGetAsync(attach, ["main"], "v", null)).Items));
         Assert.Equal("SELECT 1", view.Definition);

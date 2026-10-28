@@ -25,11 +25,11 @@ It is wire-compatible with the canonical [Python](https://github.com/Query-farm/
 the Go/Rust/Java/TypeScript ports, so a C# worker drops in behind the same `ATTACH ... (TYPE vgi)`.
 Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targets **.NET 10**.
 
-This preparation branch uses VGI wire 3.0.0 under `vgi.v3` and requires a native VGI client speaking wire 3.0.x. Upgrade clients and workers together; wire 2.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+Starting with package 0.22.0, this SDK uses VGI wire 3.0.0 under `vgi.v3` and requires a native VGI client speaking wire 3.0.x. Upgrade clients and workers together; wire 2.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 
-> **Status: full parity.** All 356 sqllogictests in the canonical
-> `~/Development/vgi/test/sql/integration/**` suite pass — the same unmodified suite the
-> Python/Go/Rust/Java ports are graded against. See [`docs/roadmap.md`](docs/roadmap.md) for the
+> **Qualification:** the DuckDB 2.0 HTTP lane passed 351 canonical SQLLogic files,
+> with 28 explicit environment or capability skips; writable-catalog files are excluded from this HTTP count.
+> The same shared suite tests the other SDKs. See [`docs/roadmap.md`](docs/roadmap.md) for the
 > milestone history.
 
 ## Why a worker instead of a C++ extension?

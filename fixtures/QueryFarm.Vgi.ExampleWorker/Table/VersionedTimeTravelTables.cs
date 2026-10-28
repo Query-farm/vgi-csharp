@@ -287,11 +287,15 @@ public static class VersionedTimeTravelTables
         var scan = new VersionedConstraintsScanFunction();
         CatalogTable Variant(int version) => new()
         {
-            Name = "versioned_constraints", SchemaName = SchemaName,
+            Name = "versioned_constraints",
+            SchemaName = SchemaName,
             Comment = "Table with constraints that evolve across versions",
             Columns = version switch { 1 => C1Schema, 2 => C2Schema, _ => C3Schema },
-            Constraints = ConstraintsFor(version), DefinitionRevision = FixtureConstraints.Revision,
-            ScanFunction = scan, ScanArguments = [(long)version], SupportsTimeTravel = true,
+            Constraints = ConstraintsFor(version),
+            DefinitionRevision = FixtureConstraints.Revision,
+            ScanFunction = scan,
+            ScanArguments = [(long)version],
+            SupportsTimeTravel = true,
             ResolveAtClause = (unit, value) => Variant(VersionResolution.Resolve(unit, value, ConstraintsVersions)),
         };
         return Variant(3);
