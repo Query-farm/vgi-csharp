@@ -109,10 +109,10 @@ public class TimeTravelCatalogTests
     [Fact]
     public async Task CatalogTableGet_AtClause_AppliesResolveAtClause_ReturningAVariantWithDifferentColumns()
     {
-        var v1Schema = new Schema([new Field("id", Int64Type.Default, nullable: false)], metadata: null);
+        var v1Schema = new Schema([new Field("id", Int64Type.Default, nullable: true)], metadata: null);
         var v2Schema = new Schema(
             [
-                new Field("id", Int64Type.Default, nullable: false),
+                new Field("id", Int64Type.Default, nullable: true),
                 new Field("score", DoubleType.Default, nullable: true),
             ],
             metadata: null);

@@ -176,7 +176,7 @@ public class VgiServiceImplCatalogTests
     [Fact]
     public async Task CatalogDiscoveryAndLookup_PreserveArbitrarilyNestedSchemaPaths()
     {
-        var columns = new Schema([new Field("id", Int64Type.Default, nullable: false)], metadata: null);
+        var columns = new Schema([new Field("id", Int64Type.Default, nullable: true)], metadata: null);
         var registry = new CatalogRegistry();
         registry.RegisterCatalogTable(new CatalogTable
         {
@@ -591,7 +591,7 @@ public class TableColumnMetadataAndDatabaseInfoTests
             SchemaName = "data",
             Columns = new Schema(
                 [
-                    new Field("id", Int64Type.Default, nullable: false),
+                    new Field("id", Int64Type.Default, nullable: true),
                     new Field("name", StringType.Default, nullable: true),
                 ],
                 metadata: null),

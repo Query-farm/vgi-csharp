@@ -8,10 +8,14 @@ namespace QueryFarm.Vgi.Tests.Fixtures;
 public class ExampleConstraintDiscoveryTests
 {
     [Fact]
-    public void ReadNegotiationRequiresTheOfferedReadPrerequisite()
+    public async Task ReadNegotiationRequiresTheOfferedReadPrerequisite()
     {
         const string read = "vgi.constraint.records.read.v1";
         const string scalar = "vgi.expression.duckdb.scalar.v1";
+        // The fixture writes no negotiation of its own: serving tables with records is enough.
+        var registry = new CatalogRegistry();
+        registry.RegisterCatalogTable(DataSchemaTables.Departments);
+        var service = new VgiServiceImpl(registry);
         foreach (var profiles in new List<string>[] { [], [scalar], [read], [read, scalar] })
         {
             var request = new CatalogAttachRequest
@@ -22,13 +26,14 @@ public class ExampleConstraintDiscoveryTests
                     Catalog = EmbeddedIpc.Encode(new CatalogCapabilities { Read = profiles, Write = ["vgi.constraint.enforce.v1"] }),
                 }),
             };
-            var selected = EmbeddedIpc.Decode<CatalogCapabilities>(FixtureConstraints.Attach(request)!.SelectedCapabilities!);
+            var result = await service.CatalogAttachAsync(request);
+            Assert.Equal([read, scalar], EmbeddedIpc.Decode<CatalogCapabilities>(result.CatalogCapabilities!).Read);
+            var selected = EmbeddedIpc.Decode<CatalogCapabilities>(result.SelectedCapabilities!);
             Assert.Equal(profiles.Contains(read) ? profiles : [], selected.Read);
             Assert.Empty(selected.Write);
             Assert.Empty(selected.Ddl);
             Assert.Empty(selected.Transaction);
         }
-        Assert.Null(FixtureConstraints.Attach(new CatalogAttachRequest { Name = "other" }));
     }
 
     [Fact]

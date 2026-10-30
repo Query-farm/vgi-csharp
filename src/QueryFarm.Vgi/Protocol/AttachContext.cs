@@ -10,10 +10,17 @@ namespace QueryFarm.Vgi.Protocol;
 /// </summary>
 public sealed class AttachContext
 {
-    /// <summary>Provider-owned profile advertisement, independent of client selection.</summary>
+    /// <summary>Extra provider-owned profile advertisement (encoded <see cref="Protocol.CatalogCapabilities"/>),
+    /// merged with what the SDK advertises itself. Not needed for canonical constraint records: when a
+    /// served <see cref="Catalog.CatalogTable"/> carries <see cref="Catalog.CatalogTable.Constraints"/>,
+    /// <c>catalog_attach</c> advertises <see cref="Catalog.ConstraintProfiles.RecordsRead"/> (and the
+    /// scalar-expression profile) on its own.</summary>
     public byte[]? CatalogCapabilities { get; init; }
 
-    /// <summary>Provider-selected intersection with this attachment's client offer.</summary>
+    /// <summary>Selected ddl/write/transaction profiles (encoded <see cref="Protocol.CatalogCapabilities"/>).
+    /// Read profiles are always selected by the SDK from the request's client offer against the
+    /// merged advertisement (see <see cref="Catalog.ConstraintRecord.SelectReadProfiles"/>); the
+    /// <c>Read</c> list set here is ignored.</summary>
     public byte[]? SelectedCapabilities { get; init; }
 
     /// <summary>Overrides the <c>CatalogRegistry</c> routing identity used by every subsequent RPC

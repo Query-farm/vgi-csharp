@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using QueryFarm.Vgi.Catalog;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Protocol;
 
@@ -7,24 +8,6 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// <summary>Explicit read-only fixture facts checked against their complete fixed rows.</summary>
 internal static class FixtureConstraints
 {
-    internal static AttachContext? Attach(CatalogAttachRequest request)
-    {
-        if (request.Name != "example") return null;
-        List<string> read = ["vgi.constraint.records.read.v1", "vgi.expression.duckdb.scalar.v1"];
-        var client = request.ClientCapabilities is { } encoded ? EmbeddedIpc.Decode<ClientCapabilities>(encoded) : null;
-        var offered = client?.Catalog is { } bytes
-            ? EmbeddedIpc.Decode<CatalogCapabilities>(bytes) : new CatalogCapabilities();
-        return new AttachContext
-        {
-            CatalogCapabilities = EmbeddedIpc.Encode(new CatalogCapabilities { Read = read }),
-            SelectedCapabilities = EmbeddedIpc.Encode(new CatalogCapabilities
-            {
-                Read = read.Where(offered.Read.Contains)
-                    .Where(profile => profile == read[0] || offered.Read.Contains(read[0])).Order(StringComparer.Ordinal).ToList(),
-            }),
-        };
-    }
-
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<Dictionary<string, object?>>> Rows = new();
     internal static readonly object VersionLock = new();
 
@@ -46,67 +29,59 @@ internal static class FixtureConstraints
 
     internal static byte[] Revision => "fixture.constraints.v1"u8.ToArray();
 
-    private static byte[] Ref(string kind, string key, string? table) => EmbeddedIpc.Encode(new CatalogObjectRef
-    {
-        Kind = kind,
-        SchemaPath = ["data"],
-        Name = key,
-        OwnerTable = table,
-    });
+    private static readonly string[] Schema = ["data"];
 
     internal static byte[] Of(string table, string key, ConstraintKind kind, params string[] columns) =>
-        Record(table, key, new ConstraintDefinition
+        Record(new ConstraintRecordSpec
         {
+            SchemaPath = Schema,
+            Table = table,
+            Id = key,
             Kind = kind,
-            ColumnPaths = columns.Select(column => new List<string> { column }).ToList(),
-        });
-
-    internal static byte[] Check(string table, string key, string sql) => Record(table, key, new ConstraintDefinition
-    {
-        Kind = ConstraintKind.Check,
-        CheckExpression = EmbeddedIpc.Encode(new SqlExpression
-        {
-            Sql = sql,
-            Profile = "vgi.expression.duckdb.scalar.v1",
-            SchemaPath = ["data"],
-            EvaluationContext = new QueryEvaluationContext
-            {
-                Timezone = "UTC",
-                Collation = "binary",
-                DefaultOrder = "asc",
-                DefaultNullOrder = "nulls_last",
-                PreserveInsertionOrder = true,
-            },
-        }),
-    });
-
-    internal static byte[] DepartmentForeignKey(string table) => Record(table, "department_fk", new ConstraintDefinition
-    {
-        Kind = ConstraintKind.ForeignKey,
-        ColumnPaths = [["department_id"]],
-        ForeignKey = EmbeddedIpc.Encode(new ForeignKeyDefinition
-        {
-            ReferencedTable = Ref("table", "departments", null),
-            ReferencedColumnPaths = [["id"]],
-            Match = ForeignKeyMatch.Simple,
-            OnUpdate = ReferentialAction.NoAction,
-            OnDelete = ReferentialAction.NoAction,
-        }),
-    }, Ref("constraint", "primary", "departments"));
-
-    private static byte[] Record(string table, string key, ConstraintDefinition definition, byte[]? target = null)
-    {
-        if (!Rows.TryGetValue(table, out var rows))
-            throw new InvalidOperationException($"No immutable row proof for {table}");
-        Validate(rows, definition, Rows.GetValueOrDefault("departments") ?? []);
-        return EmbeddedIpc.Encode(new ConstraintInfo
-        {
-            Ref = Ref("constraint", key, table),
-            Definition = EmbeddedIpc.Encode(definition),
+            Columns = columns.Select(column => (IReadOnlyList<string>)[column]).ToList(),
             Enforcement = ConstraintEnforcement.Enforced,
             Validation = ConstraintValidation.AllRows,
-            ReferencedConstraint = target,
         });
+
+    internal static byte[] Check(string table, string key, string sql) => Record(new ConstraintRecordSpec
+    {
+        SchemaPath = Schema,
+        Table = table,
+        Id = key,
+        Kind = ConstraintKind.Check,
+        CheckSql = sql,
+        Enforcement = ConstraintEnforcement.Enforced,
+        Validation = ConstraintValidation.AllRows,
+    });
+
+    internal static byte[] DepartmentForeignKey(string table) => Record(new ConstraintRecordSpec
+    {
+        SchemaPath = Schema,
+        Table = table,
+        Id = "department_fk",
+        Kind = ConstraintKind.ForeignKey,
+        Columns = [["department_id"]],
+        References = new ConstraintReference
+        {
+            SchemaPath = Schema,
+            Table = "departments",
+            Columns = [["id"]],
+            ConstraintId = "primary",
+        },
+        Enforcement = ConstraintEnforcement.Enforced,
+        Validation = ConstraintValidation.AllRows,
+    });
+
+    /// <summary>Encodes the record only after proving it against the table's complete fixed rows:
+    /// the fixture attests ENFORCED + ALL_ROWS, so the attestation has to be true.</summary>
+    private static byte[] Record(ConstraintRecordSpec spec)
+    {
+        if (!Rows.TryGetValue(spec.Table, out var rows))
+            throw new InvalidOperationException($"No immutable row proof for {spec.Table}");
+        var record = ConstraintRecord.Build(spec);
+        var definition = EmbeddedIpc.Decode<ConstraintDefinition>(EmbeddedIpc.Decode<ConstraintInfo>(record).Definition);
+        Validate(rows, definition, Rows.GetValueOrDefault("departments") ?? []);
+        return record;
     }
 
     internal static void Validate(IReadOnlyList<Dictionary<string, object?>> rows,

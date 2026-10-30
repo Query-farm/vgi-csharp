@@ -1187,6 +1187,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         // A DDL-capable in-memory catalog (Worker.RegisterInMemoryCatalog) gets a private catalog
         // per attach; its version moves with every DDL, so it is not frozen.
         var memory = catalog.InMemory.Attach(identity, attachOpaqueData, catalog.DefaultSchemaPath);
+        var capabilities = NegotiateCapabilities(request, attachContext, identity, memory is not null);
 
         return Task.FromResult(new CatalogAttachResult
         {
@@ -1208,9 +1209,45 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ResolvedDataVersion = attachContext?.ResolvedDataVersion,
             ResolvedImplementationVersion = attachContext?.ResolvedImplementationVersion,
             SupportsCatalogContents = attachContext?.SupportsCatalogContents ?? catalog.SupportsCatalogContents,
-            CatalogCapabilities = attachContext?.CatalogCapabilities,
-            SelectedCapabilities = attachContext?.SelectedCapabilities,
+            CatalogCapabilities = capabilities.Advertised,
+            SelectedCapabilities = capabilities.Selected,
         });
+    }
+
+    /// <summary>
+    /// Negotiates catalog capabilities from the request itself, so neither a worker's hand-written
+    /// intersection nor whichever <see cref="Worker.OnAttach"/> handler answers first decides it.
+    /// Advertised = the handler's explicit <see cref="AttachContext.CatalogCapabilities"/> plus, when
+    /// any table served under <paramref name="identity"/> carries canonical records,
+    /// <see cref="ConstraintProfiles.RecordsRead"/> and <see cref="ConstraintProfiles.ScalarExpression"/>.
+    /// Selected read profiles = advertised ∩ the client's offered <c>catalog.read</c> (scalar only
+    /// alongside records); the handler's selected ddl/write/transaction profiles pass through.
+    /// Both stay <see langword="null"/> when nothing is advertised and the handler set nothing.
+    /// </summary>
+    private (byte[]? Advertised, byte[]? Selected) NegotiateCapabilities(
+        CatalogAttachRequest request, AttachContext? attachContext, string identity, bool inMemory)
+    {
+        var explicitAdvertised = attachContext?.CatalogCapabilities is { Length: > 0 } advertisedBytes
+            ? EmbeddedIpc.Decode<CatalogCapabilities>(advertisedBytes) : null;
+        var explicitSelected = attachContext?.SelectedCapabilities is { Length: > 0 } selectedBytes
+            ? EmbeddedIpc.Decode<CatalogCapabilities>(selectedBytes) : null;
+        var servesRecords = !inMemory && catalog.CatalogTablesFor(identity).Any(table => table.Constraints.Count > 0);
+        if (explicitAdvertised is null && !servesRecords)
+        {
+            return (attachContext?.CatalogCapabilities, attachContext?.SelectedCapabilities);
+        }
+
+        var advertised = explicitAdvertised ?? new CatalogCapabilities();
+        if (servesRecords)
+        {
+            advertised.Read = advertised.Read
+                .Concat([ConstraintProfiles.RecordsRead, ConstraintProfiles.ScalarExpression])
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        }
+
+        var selected = explicitSelected ?? new CatalogCapabilities();
+        selected.Read = ConstraintRecord.SelectReadProfiles(advertised.Read, request.ClientCapabilities);
+        return (EmbeddedIpc.Encode(advertised), EmbeddedIpc.Encode(selected));
     }
 
     /// <summary>Mints a fresh per-transaction id (only ever called for a catalog identity whose
@@ -2390,7 +2427,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     {
         if (table.NotNullColumns.Count > 0 || table.UniqueColumns.Count > 0 || table.PrimaryKeyColumns.Count > 0
             || table.CheckConstraints.Count > 0 || table.ForeignKeys.Count > 0)
-            throw UnimplementedMethod.For("legacy constraint metadata requires explicit canonical records");
+            throw UnimplementedMethod.For(
+                $"Table '{table.Name}': legacy constraint metadata (NotNullColumns/UniqueColumns/PrimaryKeyColumns/"
+                + "CheckConstraints/ForeignKeys) is not translated; declare canonical records with "
+                + "QueryFarm.Vgi.Catalog.ConstraintRecord.Build() in CatalogTable.Constraints instead");
         var columns = table.ResolveColumns();
         ColumnMetadata.Validate(columns);
         if (table.RowIdColumn is { } rowIdColumn)
@@ -2404,6 +2444,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         ColumnExpressions.Validate(columns, table.EffectiveSchemaPath);
+        // The extension fails ATTACH for a non-ENFORCED/ALL_ROWS record or Arrow nullability that
+        // disagrees with the NOT_NULL/PRIMARY_KEY records (even for a table with none) — fail here,
+        // naming the table and column, so the worker's own tests catch it.
+        ConstraintRecord.ValidateTable(table.Name, columns, table.Constraints);
         return new TableInfo
         {
             Comment = table.Comment,

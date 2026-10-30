@@ -501,7 +501,9 @@ public sealed class Worker
     /// per-attach-differentiated catalogs — see that type's doc comment); return
     /// <see langword="null"/> to accept with today's default behavior unchanged. Leaving no
     /// handler registered at all is exactly the same as one that always returns
-    /// <see langword="null"/>.</summary>
+    /// <see langword="null"/>. Capability negotiation does not depend on the handler: canonical
+    /// constraint read profiles are advertised and selected from the request by the SDK, so a
+    /// handler that returns no capabilities (or <see langword="null"/>) never drops them.</summary>
     public Worker OnAttach(Func<Protocol.CatalogAttachRequest, Protocol.AttachContext?> handler)
     {
         _catalog.OnAttach = handler;
