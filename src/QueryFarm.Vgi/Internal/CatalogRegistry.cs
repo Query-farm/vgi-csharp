@@ -76,7 +76,13 @@ public sealed class CatalogRegistry
         set
         {
             if (value.Count > 1)
-                throw new ArgumentException("The default schema must be a single root identifier.", nameof(value));
+            {
+                throw new ArgumentException(
+                    $"Default schema path [{string.Join(", ", value)}] has {value.Count} components, but catalog_attach carries " +
+                    "a single root schema identifier (CatalogAttachResult.default_schema). Pass one component, e.g. " +
+                    $"Worker.DefaultSchema(\"{value[0]}\"), and register nested schemas with explicit SchemaPath values.",
+                    nameof(value));
+            }
             DefaultSchema = value.Count == 0 ? null : value[0];
         }
     }
@@ -269,6 +275,23 @@ public sealed class CatalogRegistry
 
     internal Func<CatalogContentsRequest, Task<CatalogContentsResult>>? CatalogContentsHandlerFor(string identity) =>
         _contentsHandlers.GetValueOrDefault(identity);
+
+    private readonly ConcurrentDictionary<string, bool> _constraintRecordIdentities = new(StringComparer.Ordinal);
+
+    /// <summary>Declares that <paramref name="identity"/> may serve canonical constraint records the
+    /// registry cannot see at attach time — from a <c>catalog_contents</c> handler's raw
+    /// <see cref="Protocol.TableInfo"/>, or only from a <see cref="Catalog.CatalogTable.ResolveAtClause"/>
+    /// version — so <c>catalog_attach</c> advertises the read profiles for it (see
+    /// <see cref="Worker.AdvertiseConstraintRecords"/>).</summary>
+    public void AdvertiseConstraintRecords(string identity = DefaultIdentity) => _constraintRecordIdentities[identity] = true;
+
+    /// <summary>Whether an attach of <paramref name="identity"/> may serve canonical constraint
+    /// records: an explicit <see cref="AdvertiseConstraintRecords"/>, or a declarative table carrying
+    /// records.</summary>
+    internal bool MayServeConstraintRecords(string identity) =>
+        _constraintRecordIdentities.ContainsKey(identity)
+        || (FallsBackToDefault(identity) && _constraintRecordIdentities.ContainsKey(DefaultIdentity))
+        || CatalogTablesFor(identity).Any(table => table.Constraints.Count > 0);
 
     public void RegisterScalar(IScalarFunction function, string identity = DefaultIdentity) =>
         Add(_scalarFunctions, identity, function.SchemaPath, function.Name, function);
@@ -790,8 +813,22 @@ public sealed class CatalogRegistry
         return byKey.Values;
     }
 
+    /// <summary>Registers a catalog macro. Its definition is checked now — a nonempty SQL body (or a
+    /// complete <see cref="CatalogMacro.Overloads"/> family), known and unique parameters, defaults
+    /// only on trailing parameters — so a malformed macro fails at startup, not at its first
+    /// listing.</summary>
     public void RegisterMacro(CatalogMacro macro, string identity = DefaultIdentity)
     {
+        ArgumentNullException.ThrowIfNull(macro);
+        try
+        {
+            MacroFamilies.FromDescriptor(macro);
+        }
+        catch (ArgumentException error)
+        {
+            throw new ArgumentException($"Macro '{string.Join('.', macro.EffectiveSchemaPath)}.{macro.Name}': {error.Message}", nameof(macro), error);
+        }
+
         _macros[(identity, PathKey(macro.EffectiveSchemaPath), macro.Name)] = macro;
         ContentsChanged();
     }

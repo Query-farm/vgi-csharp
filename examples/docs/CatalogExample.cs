@@ -14,21 +14,10 @@ public static class CatalogExample
             Comment = "The integers zero through four",
             ScanFunction = numbers,
             ScanArguments = [5L],
-            // `n` is a non-nullable Arrow field, so the table states the matching fact. The worker
-            // attests it: every row it can return has a value, hence ENFORCED + ALL_ROWS.
-            Constraints =
-            [
-                ConstraintRecord.Build(new ConstraintRecordSpec
-                {
-                    SchemaPath = ["catalog"],
-                    Table = "first_five",
-                    Id = "n_not_null",
-                    Kind = ConstraintKind.NotNull,
-                    Columns = [["n"]],
-                    Enforcement = ConstraintEnforcement.Enforced,
-                    Validation = ConstraintValidation.AllRows,
-                }),
-            ],
+            // The worker attests `n` is never NULL in any row it can return (ENFORCED + ALL_ROWS),
+            // so it states that fact; the SDK then serves `n` non-nullable. Fields no NOT NULL /
+            // PRIMARY KEY record names are served nullable, whatever their Arrow flag says.
+            Constraints = ConstraintRecord.For(["catalog"], "first_five").NotNull("n").Build(),
         });
 
         worker.RegisterView(new CatalogView

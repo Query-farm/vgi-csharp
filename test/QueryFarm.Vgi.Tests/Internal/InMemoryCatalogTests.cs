@@ -144,18 +144,12 @@ public class InMemoryCatalogTests
         foreach (var conflict in new[] { OnConflict.Error, OnConflict.Ignore, OnConflict.Replace })
         {
             var request = CreateTable(attach, "t", conflict);
-            request.ConstraintDefinitions = [new byte[] { 1 }];
-            await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogTableCreateAsync(request));
-        }
-        foreach (var field in new[]
-        {
-            new Field("required", Int32Type.Default, nullable: false),
-            new Field("nested", new StructType([new Field("required", Int32Type.Default, nullable: false)]), nullable: true),
-        })
-        {
-            var request = CreateTable(attach, "t", OnConflict.Replace);
-            request.Columns = SchemaIpc.WriteSchemaOnly(new Schema([field], metadata: null));
-            await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogTableCreateAsync(request));
+            foreach (var kind in new[] { ConstraintKind.PrimaryKey, ConstraintKind.Unique })
+            {
+                request.ConstraintDefinitions = [EmbeddedIpc.Encode(new ConstraintDefinition { Kind = kind, ColumnPaths = [["a"]] })];
+                var error = await Assert.ThrowsAsync<MethodNotImplementedError>(() => service.CatalogTableCreateAsync(request));
+                Assert.Contains("enforce only NOT NULL", error.Message);
+            }
         }
         Assert.Equal(before, (await service.CatalogVersionAsync(attach, null)).Version);
         Assert.Equal(["t"], await TableNames(service, attach));

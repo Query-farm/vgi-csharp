@@ -8,11 +8,24 @@ using System.Text;
 
 namespace QueryFarm.Vgi.Internal;
 
-/// <summary>Canonical VIRTUAL expression carriers; validation never evaluates SQL.</summary>
+/// <summary>
+/// Canonical VIRTUAL generated-column carriers, checked the way the DuckDB extension reads them
+/// (<c>ReadNativeColumnGenerated</c>/<c>ValidateNativeGeneratedColumns</c> in
+/// <c>vgi_column_expression.cpp</c>). Validation parses but never evaluates SQL.
+/// <para>A generated column is VIRTUAL: DuckDB computes it from the physical columns, so it must be
+/// nullable, of a BOOLEAN, signed integer (TINYINT..BIGINT) or VARCHAR type, and its expression is
+/// limited to literals of those types, unqualified column references, non-TRY casts to those types,
+/// comparisons, AND/OR/NOT, IS [NOT] NULL, COALESCE, and the functions <c>+ - * % || abs lower
+/// upper</c>. The table's scan emits only the physical (non-generated) columns.</para>
+/// </summary>
 public static class ColumnExpressions
 {
     public const string GeneratedKey = "vgi.column.generated.v1";
     public const string GenerationKey = "vgi.column.generation.v1";
+
+    /// <summary>The pre-v3 metadata key whose value was the raw SQL expression. Translated to
+    /// <see cref="GeneratedKey"/>/<see cref="GenerationKey"/> by <see cref="TranslateLegacy"/>.</summary>
+    public const string LegacyGeneratedKey = "generated_expression";
     private const string Profile = "vgi.expression.duckdb.scalar.v1";
     private const int Maximum = 8 * 1024 * 1024;
     private static readonly UTF8Encoding Utf8 = new(false, true);
@@ -119,8 +132,10 @@ public static class ColumnExpressions
                     if ((key.StartsWith("vgi.column.generated.", StringComparison.Ordinal) && key != GeneratedKey) ||
                         (key.StartsWith("vgi.column.generation.", StringComparison.Ordinal) && key != GenerationKey))
                         throw new ArgumentException("Unknown generated metadata version.");
-                if (metadata.ContainsKey("generated_expression"))
-                    throw new ArgumentException("Legacy generated expression requires explicit canonical translation.");
+                if (metadata.ContainsKey(LegacyGeneratedKey))
+                    throw new ArgumentException(
+                        $"Column '{field.Name}': legacy '{LegacyGeneratedKey}' metadata is only translated on top-level columns " +
+                        "without other expression metadata; use CatalogTable.GeneratedColumns or ColumnExpressions.GeneratedMetadata.");
                 bool generated = metadata.TryGetValue(GeneratedKey, out var encoded),
                      category = metadata.TryGetValue(GenerationKey, out var generation);
                 if (generated != category)
@@ -140,6 +155,127 @@ public static class ColumnExpressions
         }
         foreach (var field in schema.FieldsList)
             Field(field);
+        ValidateGenerated(schema);
+    }
+
+    /// <summary>The extension's per-column rules for top-level generated columns: nullable, a
+    /// generated primitive type, the generated scalar grammar, and references only to existing
+    /// columns of generated primitive types; a table with generated columns keeps at least one
+    /// physical column.</summary>
+    private static void ValidateGenerated(Schema schema)
+    {
+        var generated = schema.FieldsList.Where(field => field.Metadata?.ContainsKey(GeneratedKey) == true).ToList();
+        if (generated.Count == 0)
+            return;
+        if (generated.Count == schema.FieldsList.Count)
+            throw new ArgumentException("A table with generated columns requires at least one physical column.");
+        foreach (var field in generated)
+        {
+            if (!field.IsNullable)
+                throw new ArgumentException($"Generated column '{field.Name}' must be nullable (DuckDB computes VIRTUAL columns).");
+            if (field.Metadata!.ContainsKey("ARROW:extension:name") || !GeneratedType(field.DataType))
+                throw new ArgumentException(
+                    $"Generated column '{field.Name}' has type {field.DataType.Name}; generated columns must be BOOLEAN, " +
+                    "TINYINT, SMALLINT, INTEGER, BIGINT or VARCHAR.");
+            var sql = EmbeddedIpc.Decode<SqlExpression>(Convert.FromBase64String(field.Metadata[GeneratedKey])).Sql;
+            ScalarSqlGrammar.Node root;
+            try
+            {
+                root = ScalarSqlGrammar.Parse(sql);
+            }
+            catch (FormatException error)
+            {
+                throw new ArgumentException($"Generated column '{field.Name}' ({sql}) is outside the supported grammar: {error.Message}");
+            }
+
+            var nodes = 0;
+            void Walk(ScalarSqlGrammar.Node node, int depth)
+            {
+                if (depth > 64 || ++nodes > 4096)
+                    throw new ArgumentException($"Generated column '{field.Name}' ({sql}) is too complex.");
+                var problem = GeneratedNodeProblem(node, schema);
+                if (problem is not null)
+                    throw new ArgumentException($"Generated column '{field.Name}' ({sql}): {problem}.");
+                foreach (var child in ScalarSqlGrammar.Children(node))
+                    Walk(child, depth + 1);
+            }
+            Walk(root, 0);
+        }
+    }
+
+    private static readonly HashSet<string> GeneratedFunctions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "+", "-", "*", "%", "abs", "lower", "upper", "||",
+    };
+
+    private static string? GeneratedNodeProblem(ScalarSqlGrammar.Node node, Schema schema) => node switch
+    {
+        ScalarSqlGrammar.Constant constant => constant.Type is ScalarSqlGrammar.ConstantType.HugeInt or
+            ScalarSqlGrammar.ConstantType.Decimal or ScalarSqlGrammar.ConstantType.Double
+            ? "literals must be BOOLEAN, integer (up to BIGINT), VARCHAR or NULL" : null,
+        ScalarSqlGrammar.ColumnRef column when column.Names.Count != 1 => "column references must be unqualified",
+        ScalarSqlGrammar.ColumnRef column => schema.FieldsList.Where(f =>
+                string.Equals(f.Name, column.Names[0], StringComparison.OrdinalIgnoreCase)).ToList() switch
+        {
+            [] => $"references unknown column {column.Names[0]}",
+            [var target] when target.Metadata?.ContainsKey("ARROW:extension:name") == true || !GeneratedType(target.DataType) =>
+                $"operand {target.Name} must be a BOOLEAN, signed integer or VARCHAR column",
+            [_] => null,
+            _ => $"column reference {column.Names[0]} is ambiguous",
+        },
+        ScalarSqlGrammar.Cast cast when cast.Try => "TRY_CAST is unsupported",
+        ScalarSqlGrammar.Cast cast => ScalarSqlGrammar.PrimitiveTypeName(cast.TypeName) is "BOOLEAN" or "TINYINT" or "SMALLINT"
+            or "INTEGER" or "BIGINT" or "VARCHAR" ? null : $"CAST to {string.Join('.', cast.TypeName)} is unsupported",
+        ScalarSqlGrammar.Comparison or ScalarSqlGrammar.Conjunction or ScalarSqlGrammar.Operator => null,
+        ScalarSqlGrammar.Function function => function.Name.Count == 1 && GeneratedFunctions.Contains(function.Name[0])
+            ? null : $"function {string.Join('.', function.Name)} is unsupported (allowed: + - * % || abs lower upper)",
+        _ => "expression is outside the supported deterministic scalar grammar",
+    };
+
+    private static bool GeneratedType(IArrowType type) =>
+        type.TypeId is ArrowTypeId.Boolean or ArrowTypeId.Int8 or ArrowTypeId.Int16 or ArrowTypeId.Int32
+            or ArrowTypeId.Int64 or ArrowTypeId.String;
+
+    /// <summary>
+    /// Translates top-level legacy <see cref="LegacyGeneratedKey"/> metadata to the canonical
+    /// carrier when that is unambiguous: the field carries no canonical generated metadata and no
+    /// default. A legacy value that already is canonical base64 SqlExpression IPC (written through
+    /// the 0.22 value of <c>VgiWireMetadata.GeneratedExpressionKey</c>) moves as is; any other
+    /// value is raw SQL, encoded with <see cref="GeneratedMetadata"/>. Returns
+    /// <paramref name="schema"/> itself when nothing needs translating.
+    /// </summary>
+    public static Schema TranslateLegacy(Schema schema, IReadOnlyList<string> owner)
+    {
+        if (!schema.FieldsList.Any(field => field.Metadata?.ContainsKey(LegacyGeneratedKey) == true))
+            return schema;
+        var fields = schema.FieldsList.Select(field =>
+        {
+            if (field.Metadata is not { } metadata || !metadata.TryGetValue(LegacyGeneratedKey, out var legacy))
+                return field;
+            if (metadata.ContainsKey(GeneratedKey) || metadata.ContainsKey(GenerationKey) || metadata.ContainsKey("default") ||
+                metadata.ContainsKey("vgi.column.default.v1"))
+                throw new ArgumentException(
+                    $"Column '{field.Name}' carries legacy '{LegacyGeneratedKey}' metadata together with canonical expression " +
+                    "or default metadata; keep only the canonical keys.");
+            string canonical;
+            try
+            {
+                Encoded(legacy, owner);
+                canonical = legacy;
+            }
+            catch (Exception)
+            {
+                // Not canonical IPC, so it is the legacy raw SQL.
+                canonical = GeneratedMetadata(legacy, owner);
+            }
+
+            var translated = metadata.Where(pair => pair.Key != LegacyGeneratedKey)
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            translated[GeneratedKey] = canonical;
+            translated[GenerationKey] = "virtual";
+            return new Field(field.Name, field.DataType, field.IsNullable, translated);
+        }).ToList();
+        return new Schema(fields, schema.Metadata);
     }
     public static void ValidateIpc(byte[] bytes, IReadOnlyList<string> owner,
                                    bool allowGenerated = true) => Validate(SchemaIpc.ReadSchemaOnly(bytes), owner,

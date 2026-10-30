@@ -349,8 +349,12 @@ public sealed class Worker
         return this;
     }
 
-    /// <summary>Selects one raw root schema identifier. An empty list means no implicit default;
-    /// nested default paths are not representable by the attach contract.</summary>
+    /// <summary>Selects one raw root schema identifier. An empty list means no implicit default.
+    /// A path with more than one component throws <see cref="ArgumentException"/> here, at
+    /// registration: VGI v3's <c>catalog_attach</c> carries a single root schema identifier, so a
+    /// nested default is not representable. Use <see cref="DefaultSchema(string?)"/>.</summary>
+    [Obsolete("catalog_attach carries one root schema identifier; use DefaultSchema(string?) (null for no default). " +
+              "A path with more than one component throws.")]
     public Worker DefaultSchema(IReadOnlyList<string> path)
     {
         _catalog.DefaultSchemaPath = path.ToList();
@@ -596,6 +600,22 @@ public sealed class Worker
     public Worker RegisterInMemoryCatalog(string name, Catalog.InMemoryCatalogOptions? options = null)
     {
         _catalog.RegisterInMemoryCatalog(name, options);
+        return this;
+    }
+
+    /// <summary>Advertises the canonical constraint read profiles
+    /// (<see cref="Catalog.ConstraintProfiles.RecordsRead"/>,
+    /// <see cref="Catalog.ConstraintProfiles.ScalarExpression"/>) on every attach of
+    /// <paramref name="identity"/>, for records the SDK cannot see at attach time: tables served
+    /// as raw <see cref="Protocol.TableInfo"/> by an
+    /// <see cref="OnCatalogContents(string, Func{Catalog.CatalogContentsRequest, Task{Catalog.CatalogContentsResult}})"/>
+    /// handler, or carried only by a <see cref="Catalog.CatalogTable.ResolveAtClause"/> version.
+    /// Not needed when a registered <see cref="Catalog.CatalogTable"/> carries records — those are
+    /// detected automatically. Per attach, <see cref="Protocol.AttachContext.ServesConstraintRecords"/>
+    /// does the same.</summary>
+    public Worker AdvertiseConstraintRecords(string identity = CatalogRegistry.DefaultIdentity)
+    {
+        _catalog.AdvertiseConstraintRecords(identity);
         return this;
     }
 

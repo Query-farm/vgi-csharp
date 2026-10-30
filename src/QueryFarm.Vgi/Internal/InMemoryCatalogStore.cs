@@ -195,14 +195,41 @@ internal sealed class InMemoryCatalogState
         }
     }
 
+    /// <summary>
+    /// <c>CREATE TABLE</c>. An in-memory table is a catalog entry only: it holds no rows and every
+    /// write path (INSERT/UPDATE/DELETE, ALTER) is refused, so a NOT NULL constraint is upheld by
+    /// construction — <c>CREATE TABLE ... NOT NULL</c> is accepted and served as a canonical
+    /// ENFORCED + ALL_ROWS NOT_NULL record with the column non-nullable. PRIMARY KEY, UNIQUE, CHECK
+    /// and FOREIGN KEY are refused: this catalog does not implement their enforcement, so it does
+    /// not claim them. Arrow nullability is derived from the records (an unnamed field is served
+    /// nullable).
+    /// </summary>
     public void CreateTable(TableCreateRequest request)
     {
-        if (request.ConstraintDefinitions.Count > 0)
-            throw UnimplementedMethod.For("catalog_table_create: canonical constraint enforcement");
-        SchemaIpc.RequireUnconstrainedColumns(request.Columns);
         if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
         {
             throw UnimplementedMethod.For("catalog_table_create metadata/options/layout");
+        }
+
+        var columns = SchemaIpc.ReadSchemaOnly(request.Columns);
+        var notNull = new SortedDictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var bytes in request.ConstraintDefinitions)
+        {
+            var definition = EmbeddedIpc.Decode<ConstraintDefinition>(bytes);
+            if (definition.Kind != ConstraintKind.NotNull)
+            {
+                throw UnimplementedMethod.For(
+                    $"catalog_table_create: in-memory catalogs enforce only NOT NULL; {definition.Kind} constraints " +
+                    "(PRIMARY KEY, UNIQUE, CHECK, FOREIGN KEY) are not supported");
+            }
+
+            if (definition.ColumnPaths is not [[var column]] || columns.GetFieldIndex(column) < 0)
+            {
+                throw new VgiInvalidArgumentException(
+                    $"catalog_table_create: NOT NULL must name one top-level column of '{request.Name}'.");
+            }
+
+            notNull.TryAdd(column, definition.DeclaredName);
         }
 
         lock (_lock)
@@ -213,12 +240,22 @@ internal sealed class InMemoryCatalogState
                 return;
             }
 
+            IReadOnlyList<byte[]> constraints = [];
+            if (notNull.Count > 0)
+            {
+                var records = ConstraintRecord.For(schema.Path, request.Name);
+                foreach (var (column, declaredName) in notNull)
+                    records.NotNull(column, declaredName: declaredName);
+                constraints = records.Build();
+            }
+
+            var served = TableServing.ServedColumnsIpc(schema.Path, request.Name, request.Columns, constraints, null);
             schema.Tables[request.Name] = EmbeddedIpc.Encode(new TableInfo
             {
                 Name = request.Name,
                 SchemaPath = [.. schema.Path],
-                Columns = request.Columns,
-                Constraints = [],
+                Columns = served,
+                Constraints = [.. constraints],
                 DefinitionRevision = null,
             });
             _version++;

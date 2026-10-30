@@ -221,7 +221,7 @@ public class ConstraintRecordTests
         registry.OnAttach = _ => new AttachContext
         {
             CatalogCapabilities = EmbeddedIpc.Encode(new CatalogCapabilities { Read = ["x.custom.v1"], Transaction = ["vgi.transaction.ddl.v1"] }),
-            SelectedCapabilities = EmbeddedIpc.Encode(new CatalogCapabilities { Read = ["ignored"], Transaction = ["vgi.transaction.ddl.v1"] }),
+            SelectedCapabilities = EmbeddedIpc.Encode(new CatalogCapabilities { Transaction = ["vgi.transaction.ddl.v1"] }),
         };
         var result = await new VgiServiceImpl(registry).CatalogAttachAsync(new CatalogAttachRequest
         {
@@ -251,51 +251,68 @@ public class ConstraintRecordTests
         });
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => Serve(Table("t", Columns(new Field("a", StringType.Default, true)), record)));
-        Assert.Contains("Table 't': constraint 't.a.unique' is ENFORCED/FUTURE_WRITES", error.Message);
+        Assert.Contains("Table 'main.t': constraint 't.a.unique': is ENFORCED/FUTURE_WRITES", error.Message);
         Assert.Contains("only ENFORCED + ALL_ROWS", error.Message);
     }
 
+    private static Schema ServedColumns(TableInfo info) => SchemaIpc.ReadSchemaOnly(info.Columns);
+
     [Fact]
-    public async Task ArrowNullabilityMustAgreeWithNotNullAndPrimaryKey()
+    public async Task NullabilityIsDerivedFromNotNullAndPrimaryKeyRecords()
     {
         var required = Columns(new Field("a", StringType.Default, false));
         var optional = Columns(new Field("a", StringType.Default, true));
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Serve(Table("t", required)));
-        Assert.Contains("Table 't': column a is non-nullable in Arrow but no NOT_NULL/PRIMARY_KEY record", error.Message);
-        error = await Assert.ThrowsAsync<InvalidOperationException>(() => Serve(Table("t", optional, NotNull("t", "a"))));
-        Assert.Contains("Table 't': column a is in a NOT_NULL/PRIMARY_KEY record but its Arrow field is nullable", error.Message);
 
-        Assert.Single(await Serve(Table("t", required, NotNull("t", "a"))));
-        Assert.Single(await Serve(Table("t", required, ConstraintRecord.Build(Spec("t", "t.pk", ConstraintKind.PrimaryKey, ["a"])))));
-        Assert.Single(await Serve(Table("t", optional)));
+        // An unnamed non-nullable field is served nullable: Arrow flags are not SQL facts.
+        Assert.True(ServedColumns(Assert.Single(await Serve(Table("t", required)))).GetFieldByName("a").IsNullable);
+        // A record-named nullable field is served non-nullable: the worker attested it.
+        Assert.False(ServedColumns(Assert.Single(await Serve(Table("t", optional, NotNull("t", "a"))))).GetFieldByName("a").IsNullable);
+        Assert.False(ServedColumns(Assert.Single(await Serve(Table("t", required,
+            ConstraintRecord.Build(Spec("t", "t.pk", ConstraintKind.PrimaryKey, ["a"])))))).GetFieldByName("a").IsNullable);
+        Assert.True(ServedColumns(Assert.Single(await Serve(Table("t", optional)))).GetFieldByName("a").IsNullable);
     }
 
     [Fact]
-    public async Task NullabilityRuleDescendsOrdinaryStructsOnly()
+    public async Task NullabilityDescendsOrdinaryStructsOnly()
     {
-        var nested = Columns(new Field("s", new StructType([new Field("x", StringType.Default, false)]), true));
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Serve(Table("t", nested)));
-        Assert.Contains("column s.x is non-nullable", error.Message);
-        Assert.Single(await Serve(Table("t", nested, NotNull("t", "s", "x"))));
+        var nested = Columns(new Field("s", new StructType([new Field("x", StringType.Default, false)]), false));
+        var relaxed = ServedColumns(Assert.Single(await Serve(Table("t", nested)))).GetFieldByName("s");
+        Assert.True(relaxed.IsNullable);
+        Assert.True(((StructType)relaxed.DataType).Fields[0].IsNullable);
+
+        var named = ServedColumns(Assert.Single(await Serve(Table("t", nested, NotNull("t", "s", "x"))))).GetFieldByName("s");
+        Assert.True(named.IsNullable);
+        Assert.False(((StructType)named.DataType).Fields[0].IsNullable);
 
         // A struct carrying extension metadata is a storage type, not an ordinary STRUCT: its
-        // members are not column paths, so the rule does not descend into it.
+        // members are not column paths, so serving leaves them alone.
         var extension = Columns(new Field("s", new StructType([new Field("x", StringType.Default, false)]), true,
             new Dictionary<string, string> { ["ARROW:extension:name"] = "example.ext" }));
-        Assert.Single(await Serve(Table("t", extension)));
+        var storage = ServedColumns(Assert.Single(await Serve(Table("t", extension)))).GetFieldByName("s");
+        Assert.False(((StructType)storage.DataType).Fields[0].IsNullable);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Serve(Table("t", extension, NotNull("t", "s", "x"))));
+        Assert.Contains("must traverse ordinary STRUCT fields", error.Message);
     }
 
     [Fact]
-    public void RowIdColumnIsExempt()
+    public void RowIdColumnIsServedUnchanged()
     {
-        var columns = Columns(new Field("rowid", Int64Type.Default, false,
-            new Dictionary<string, string> { [VgiRowIdMetadata.Key] = VgiRowIdMetadata.Value }));
-        ConstraintRecord.ValidateTable("t", columns, []);
+        var columns = Columns(
+            new Field("rowid", Int64Type.Default, false,
+                new Dictionary<string, string> { [VgiRowIdMetadata.Key] = VgiRowIdMetadata.Value }),
+            new Field("v", Int64Type.Default, false));
+        var served = ConstraintRecord.ValidateTable(Main, "t", columns, []);
+        Assert.False(served.GetFieldByName("rowid").IsNullable);
+        Assert.True(served.GetFieldByName("v").IsNullable);
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ConstraintRecord.ValidateTable(Main, "t", columns, [NotNull("t", "rowid")]));
+        Assert.Contains("row-id column", error.Message);
     }
 
     [Fact]
     public async Task LegacyFieldsNameTheReplacement()
     {
+#pragma warning disable CS0618 // the legacy field under test
         var table = new CatalogTable
         {
             Name = "t",
@@ -303,7 +320,8 @@ public class ConstraintRecordTests
             Columns = Columns(new Field("id", Int64Type.Default, true)),
             PrimaryKeyColumns = ["id"],
         };
+#pragma warning restore CS0618
         var error = await Assert.ThrowsAnyAsync<Exception>(() => Serve(table));
-        Assert.Contains("ConstraintRecord.Build()", error.Message);
+        Assert.Contains("ConstraintRecord.For(table)", error.Message);
     }
 }

@@ -36,26 +36,4 @@ public static class SchemaIpc
         using var reader = new ArrowStreamReader(stream);
         return reader.Schema;
     }
-
-    /// <summary>Rejects column semantics an unconstrained mutable catalog cannot enforce.</summary>
-    internal static void RequireUnconstrainedColumns(byte[] bytes)
-    {
-        foreach (var field in ReadSchemaOnly(bytes).FieldsList)
-            RequireUnconstrainedField(field, topLevel: true);
-    }
-
-    private static void RequireUnconstrainedField(Field field, bool topLevel)
-    {
-        if (topLevel && field.Metadata is { } rowMetadata && rowMetadata.ContainsKey(VgiRowIdMetadata.Key))
-            return;
-        if (field.Metadata is { } metadata && metadata.Keys.Any(key =>
-                key.StartsWith("ARROW:extension:", StringComparison.Ordinal) ||
-                key.StartsWith("vgi.logical_type.", StringComparison.Ordinal)))
-            throw UnimplementedMethod.For("catalog_table_create: logical column semantics");
-        if (!field.IsNullable)
-            throw UnimplementedMethod.For("catalog_table_create: nonnullable columns require canonical constraints");
-        if (field.DataType is StructType structure)
-            foreach (var child in structure.Fields)
-                RequireUnconstrainedField(child, topLevel: false);
-    }
 }

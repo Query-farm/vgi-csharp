@@ -36,10 +36,24 @@ public static class VgiWireMetadata
     public const string PartitionColumnKey = "vgi.partition_column";
     public const string PartitionColumnTrueValue = "true";
 
-    /// <summary>Marks a <see cref="Catalog.CatalogTable.Columns"/> field as a GENERATED ALWAYS AS
-    /// column — the value is canonical base64 SqlExpression IPC.
-    /// <c>VGI_GENERATED_EXPRESSION_METADATA_KEY</c> in <c>vgi_protocol_constants.hpp</c>.</summary>
-    public const string GeneratedExpressionKey = ColumnExpressions.GeneratedKey;
+    /// <summary>The pre-v3 GENERATED ALWAYS AS key, whose value is the raw SQL expression (e.g.
+    /// <c>"n * 2"</c>). Still accepted: a top-level column carrying it (and no canonical expression
+    /// or default metadata) is translated to the canonical <see cref="GeneratedKey"/>/
+    /// <see cref="GenerationKey"/> pair when the table is served. QueryFarm.Vgi 0.22.0–0.22.2 gave
+    /// this constant the canonical key's value; it is <c>"generated_expression"</c> again.</summary>
+    [Obsolete("Declare generated columns with CatalogTable.GeneratedColumns, or set GeneratedKey (canonical base64 " +
+              "SqlExpression IPC from ColumnExpressions.GeneratedMetadata) plus GenerationKey = \"virtual\". " +
+              "Raw SQL under this legacy key is translated automatically.")]
+    public const string GeneratedExpressionKey = ColumnExpressions.LegacyGeneratedKey;
+
+    /// <summary>Marks a <see cref="Catalog.CatalogTable.Columns"/> field as a VIRTUAL generated
+    /// column — the value is canonical base64 SqlExpression IPC
+    /// (<see cref="ColumnExpressions.GeneratedMetadata"/>); <see cref="GenerationKey"/> must be
+    /// <c>"virtual"</c> alongside it.</summary>
+    public const string GeneratedKey = ColumnExpressions.GeneratedKey;
+
+    /// <summary>The generation category of a <see cref="GeneratedKey"/> column; only
+    /// <c>"virtual"</c> is supported.</summary>
     public const string GenerationKey = ColumnExpressions.GenerationKey;
 
     /// <summary>Per-argument constraint metadata (agent discovery), surfaced through

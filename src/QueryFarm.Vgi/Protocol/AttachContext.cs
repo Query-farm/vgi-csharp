@@ -17,11 +17,20 @@ public sealed class AttachContext
     /// scalar-expression profile) on its own.</summary>
     public byte[]? CatalogCapabilities { get; init; }
 
-    /// <summary>Selected ddl/write/transaction profiles (encoded <see cref="Protocol.CatalogCapabilities"/>).
-    /// Read profiles are always selected by the SDK from the request's client offer against the
-    /// merged advertisement (see <see cref="Catalog.ConstraintRecord.SelectReadProfiles"/>); the
-    /// <c>Read</c> list set here is ignored.</summary>
+    /// <summary>Selected ddl/write/transaction profiles (encoded <see cref="Protocol.CatalogCapabilities"/>,
+    /// e.g. from <see cref="Catalog.ConstraintRecord.EncodeCapabilities"/>). Read profiles are
+    /// always selected by the SDK from the request's client offer against the merged advertisement
+    /// (see <see cref="Catalog.ConstraintRecord.SelectProfiles"/>); a nonempty <c>Read</c> list here
+    /// fails the attach rather than being silently ignored — advertise extra read profiles in
+    /// <see cref="CatalogCapabilities"/> instead.</summary>
     public byte[]? SelectedCapabilities { get; init; }
+
+    /// <summary>When <see langword="true"/>, this attach advertises the canonical constraint read
+    /// profiles even though no registered <see cref="Catalog.CatalogTable"/> carries records — for
+    /// records served only as raw <see cref="Protocol.TableInfo"/> from a <c>catalog_contents</c>
+    /// handler or by a <see cref="Catalog.CatalogTable.ResolveAtClause"/> version. See
+    /// <see cref="Worker.AdvertiseConstraintRecords"/> for the per-identity equivalent.</summary>
+    public bool ServesConstraintRecords { get; init; }
 
     /// <summary>Overrides the <c>CatalogRegistry</c> routing identity used by every subsequent RPC
     /// for this attach (defaults to <see cref="CatalogAttachRequest.Name"/> when

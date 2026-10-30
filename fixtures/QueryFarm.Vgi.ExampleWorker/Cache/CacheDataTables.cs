@@ -92,10 +92,9 @@ public static class CacheDataTables
         Name = name,
         SchemaName = SchemaName,
         Comment = comment,
+        // Columns default to the scan's output; with no constraint records the SDK serves every
+        // field nullable (Arrow non-nullability is not a SQL fact).
         ScanFunction = scanFunction,
-        // This fixture advertises no canonical constraints; Arrow output flags are not SQL facts.
-        Columns = new Schema(scanFunction.OutputSchema.FieldsList.Select(field =>
-            new Field(field.Name, field.DataType, true, field.Metadata)).ToList(), scanFunction.OutputSchema.Metadata),
     };
 }
 

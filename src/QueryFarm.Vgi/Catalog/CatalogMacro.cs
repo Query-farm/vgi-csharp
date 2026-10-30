@@ -18,7 +18,9 @@ public sealed class CatalogMacro
 
     /// <summary>The macro body: a scalar expression for <see cref="Protocol.MacroType.Scalar"/>,
     /// or a <c>SELECT</c> query for <see cref="Protocol.MacroType.Table"/> — references
-    /// <see cref="Parameters"/> by name.</summary>
+    /// <see cref="Parameters"/> by name. Required unless <see cref="Overloads"/> is set:
+    /// <see cref="Worker.RegisterMacro"/> rejects a macro with neither (and checks that defaulted
+    /// parameters come last) at registration.</summary>
     public string Definition { get; init; } = "";
 
     /// <summary>Complete canonical overload family. When supplied, the simple-definition

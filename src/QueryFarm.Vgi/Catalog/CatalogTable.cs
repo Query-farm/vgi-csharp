@@ -22,7 +22,11 @@ namespace QueryFarm.Vgi.Catalog;
 /// </summary>
 public sealed class CatalogTable
 {
-    /// <summary>Canonical ConstraintInfo IPC with identities supplied by the provider.</summary>
+    /// <summary>Canonical ConstraintInfo records (IPC), e.g.
+    /// <c>ConstraintRecord.For(["data"], "t").PrimaryKey("id").Build()</c>. The worker attests every
+    /// record (ENFORCED + ALL_ROWS). Serving derives Arrow nullability from them: fields a NOT_NULL
+    /// or PRIMARY KEY record names are served non-nullable, all others nullable — see
+    /// <see cref="ConstraintRecord.ValidateTable(IReadOnlyList{string}, string, Schema, IReadOnlyList{byte[]}, Func{IReadOnlyList{string}, string, IReadOnlyList{byte[]}?}?)"/>.</summary>
     public IReadOnlyList<byte[]> Constraints { get; init; } = [];
     public byte[]? DefinitionRevision { get; init; }
     public required string Name { get; init; }
@@ -44,17 +48,32 @@ public sealed class CatalogTable
     /// pattern) — set explicitly only for a table with no backing scan function.</summary>
     public Schema? Columns { get; init; }
 
-    /// <summary>Legacy declarations. Nonempty legacy constraints reject at the canonical wire boundary.</summary>
+    private const string LegacyConstraintMessage =
+        "Legacy constraint fields are refused when the table is served (VGI v3 reads only canonical records). Declare Constraints = ConstraintRecord.For(table).NotNull(...)/PrimaryKey(...)/Unique(...)/Check(...)/ForeignKey(...).Build() instead.";
+
+    /// <summary>Legacy pre-v3 declaration; serving a table that sets it fails. Use
+    /// <see cref="ConstraintRecord.For(CatalogTable)"/>'s <see cref="TableConstraints.NotNull(string, string?, string?)"/>.</summary>
+    [Obsolete(LegacyConstraintMessage)]
     public IReadOnlyList<string> NotNullColumns { get; init; } = [];
 
+    /// <summary>Legacy pre-v3 declaration; serving a table that sets it fails. Use
+    /// <see cref="TableConstraints.Unique(string[])"/>.</summary>
+    [Obsolete(LegacyConstraintMessage)]
     public IReadOnlyList<IReadOnlyList<string>> UniqueColumns { get; init; } = [];
 
+    /// <summary>Legacy pre-v3 declaration; serving a table that sets it fails. Use
+    /// <see cref="TableConstraints.PrimaryKey(string[])"/>.</summary>
+    [Obsolete(LegacyConstraintMessage)]
     public IReadOnlyList<string> PrimaryKeyColumns { get; init; } = [];
 
-    /// <summary>Raw SQL boolean expressions, e.g. <c>"(budget >= 0)"</c> — surfaced verbatim as
-    /// <c>duckdb_constraints().constraint_text</c>'s <c>CHECK(...)</c> wrapper.</summary>
+    /// <summary>Legacy pre-v3 declaration; serving a table that sets it fails. Use
+    /// <see cref="TableConstraints.Check(string, string, string?)"/>.</summary>
+    [Obsolete(LegacyConstraintMessage)]
     public IReadOnlyList<string> CheckConstraints { get; init; } = [];
 
+    /// <summary>Legacy pre-v3 declaration; serving a table that sets it fails. Use
+    /// <see cref="TableConstraints.ForeignKey"/>.</summary>
+    [Obsolete(LegacyConstraintMessage)]
     public IReadOnlyList<CatalogForeignKey> ForeignKeys { get; init; } = [];
 
     /// <summary>The row-identity column for UPDATE/DELETE (<see cref="Internal.VgiRowIdMetadata"/>).
@@ -106,7 +125,14 @@ public sealed class CatalogTable
     /// (<c>VGI_GENERATED_EXPRESSION_METADATA_KEY</c>), surfaced via <c>duckdb_columns().column_default</c>
     /// as DuckDB's own <c>CAST((&lt;expr&gt;) AS &lt;column_type&gt;)</c> rendering. Mutually exclusive
     /// per-column with <see cref="ColumnDefaults"/> (a column is either stored-with-a-default or
-    /// computed, never both). Empty (the default) means no generated columns.</summary>
+    /// computed, never both). Empty (the default) means no generated columns.
+    /// <para>Generated columns are VIRTUAL: DuckDB computes them, so declare the full width in
+    /// <see cref="Columns"/> but have <see cref="ScanFunction"/> emit only the physical columns —
+    /// serving a table whose scan function's <see cref="ITableFunction.OutputSchema"/> also declares
+    /// a generated column fails with an error naming it. Each generated column must be nullable,
+    /// BOOLEAN/TINYINT/SMALLINT/INTEGER/BIGINT/VARCHAR, and use the bounded expression grammar
+    /// DuckDB reads (literals, column references, CAST, comparisons, AND/OR/NOT, IS [NOT] NULL,
+    /// COALESCE, <c>+ - * % || abs lower upper</c>) — see <see cref="Internal.ColumnExpressions"/>.</para></summary>
     public IReadOnlyDictionary<string, string> GeneratedColumns { get; init; } = new Dictionary<string, string>();
 
     /// <summary>Per-column statistics, keyed by column NAME — served via the
@@ -182,7 +208,11 @@ public sealed class CatalogTable
     /// the right choice for a table whose SCAN FUNCTION (not its catalog schema) resolves the
     /// version itself, either by reading <see cref="Table.TableBindParams.AtUnit"/>/
     /// <see cref="Table.TableBindParams.AtValue"/> directly (<c>tt_pushdown_fn</c>) or via
-    /// <see cref="ResolveScanArguments"/> (<c>tt_pushdown_cols</c>, <c>cache_versioned</c>).</summary>
+    /// <see cref="ResolveScanArguments"/> (<c>tt_pushdown_cols</c>, <c>cache_versioned</c>).
+    /// A returned version is served exactly like a registered table (records checked, nullability
+    /// derived). If only versions carry <see cref="Constraints"/> (the registered table carries
+    /// none), call <see cref="Worker.AdvertiseConstraintRecords"/> so <c>catalog_attach</c>
+    /// negotiates the read profile — it cannot call this resolver to find out.</summary>
     public Func<string, string, CatalogTable>? ResolveAtClause { get; init; }
 
     /// <summary>Resolves this table's SCAN CALL ARGUMENTS (overriding <see cref="ScanArguments"/>/
@@ -210,6 +240,7 @@ public sealed class CatalogTable
 /// <summary>One <see cref="CatalogTable.ForeignKeys"/> entry — column-NAME form (resolved against
 /// <see cref="CatalogTable.Columns"/> at registration time, mirroring <see cref="Protocol.ForeignKeyInfo"/>
 /// which travels column names directly, not indices).</summary>
+[Obsolete("Legacy pre-v3 foreign key declaration; use ConstraintRecord.For(table).ForeignKey(...).")]
 public sealed class CatalogForeignKey
 {
     public required IReadOnlyList<string> Columns { get; init; }

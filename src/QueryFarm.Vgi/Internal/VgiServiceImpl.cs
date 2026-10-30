@@ -1218,11 +1218,15 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// Negotiates catalog capabilities from the request itself, so neither a worker's hand-written
     /// intersection nor whichever <see cref="Worker.OnAttach"/> handler answers first decides it.
     /// Advertised = the handler's explicit <see cref="AttachContext.CatalogCapabilities"/> plus, when
-    /// any table served under <paramref name="identity"/> carries canonical records,
-    /// <see cref="ConstraintProfiles.RecordsRead"/> and <see cref="ConstraintProfiles.ScalarExpression"/>.
-    /// Selected read profiles = advertised ∩ the client's offered <c>catalog.read</c> (scalar only
-    /// alongside records); the handler's selected ddl/write/transaction profiles pass through.
-    /// Both stay <see langword="null"/> when nothing is advertised and the handler set nothing.
+    /// the attach may serve canonical records (a registered table carries some,
+    /// <see cref="Worker.AdvertiseConstraintRecords"/>, <see cref="AttachContext.ServesConstraintRecords"/>,
+    /// or an in-memory catalog), <see cref="ConstraintProfiles.RecordsRead"/> and
+    /// <see cref="ConstraintProfiles.ScalarExpression"/>; an in-memory catalog also advertises
+    /// <see cref="ConstraintProfiles.Create"/> and <see cref="ConstraintProfiles.Enforce"/> (it
+    /// accepts <c>CREATE TABLE ... NOT NULL</c>). Selected = advertised ∩ the client's offer
+    /// (<see cref="ConstraintRecord.SelectProfiles"/>) for read, and for the in-memory profiles;
+    /// the handler's selected ddl/write/transaction profiles pass through. Both stay
+    /// <see langword="null"/> when nothing is advertised and the handler set nothing.
     /// </summary>
     private (byte[]? Advertised, byte[]? Selected) NegotiateCapabilities(
         CatalogAttachRequest request, AttachContext? attachContext, string identity, bool inMemory)
@@ -1231,22 +1235,43 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ? EmbeddedIpc.Decode<CatalogCapabilities>(advertisedBytes) : null;
         var explicitSelected = attachContext?.SelectedCapabilities is { Length: > 0 } selectedBytes
             ? EmbeddedIpc.Decode<CatalogCapabilities>(selectedBytes) : null;
-        var servesRecords = !inMemory && catalog.CatalogTablesFor(identity).Any(table => table.Constraints.Count > 0);
+        if (explicitSelected is { Read.Count: > 0 })
+        {
+            throw new InvalidOperationException(
+                $"AttachContext.SelectedCapabilities.Read must be empty (got {string.Join(", ", explicitSelected.Read)}): the SDK " +
+                "selects read profiles from the client's offer against the advertisement. Advertise extra read profiles in " +
+                "AttachContext.CatalogCapabilities.");
+        }
+
+        var servesRecords = inMemory || attachContext?.ServesConstraintRecords == true || catalog.MayServeConstraintRecords(identity);
         if (explicitAdvertised is null && !servesRecords)
         {
             return (attachContext?.CatalogCapabilities, attachContext?.SelectedCapabilities);
         }
 
         var advertised = explicitAdvertised ?? new CatalogCapabilities();
+        static List<string> Merge(IEnumerable<string> left, params string[] right) =>
+            left.Concat(right).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
         if (servesRecords)
         {
-            advertised.Read = advertised.Read
-                .Concat([ConstraintProfiles.RecordsRead, ConstraintProfiles.ScalarExpression])
-                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            advertised.Read = Merge(advertised.Read, ConstraintProfiles.RecordsRead, ConstraintProfiles.ScalarExpression);
         }
 
+        if (inMemory)
+        {
+            advertised.Ddl = Merge(advertised.Ddl, ConstraintProfiles.Create);
+            advertised.Write = Merge(advertised.Write, ConstraintProfiles.Enforce);
+        }
+
+        var negotiated = ConstraintRecord.SelectProfiles(advertised, request.ClientCapabilities);
         var selected = explicitSelected ?? new CatalogCapabilities();
-        selected.Read = ConstraintRecord.SelectReadProfiles(advertised.Read, request.ClientCapabilities);
+        selected.Read = negotiated.Read;
+        if (inMemory)
+        {
+            selected.Ddl = Merge(selected.Ddl, [.. negotiated.Ddl.Where(profile => profile == ConstraintProfiles.Create)]);
+            selected.Write = Merge(selected.Write, [.. negotiated.Write.Where(profile => profile == ConstraintProfiles.Enforce)]);
+        }
+
         return (EmbeddedIpc.Encode(advertised), EmbeddedIpc.Encode(selected));
     }
 
@@ -1348,14 +1373,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     public Task CatalogTableCreateAsync(TableCreateRequest request, ICallContext? ctx = null)
     {
-        if (request.ConstraintDefinitions.Count > 0)
-            throw UnimplementedMethod.For("catalog_table_create: canonical constraint enforcement");
+        var memory = MemoryOrReadOnly(request.AttachOpaqueData, "catalog_table_create");
         ColumnMetadata.ValidateIpc(request.Columns);
         ColumnExpressions.ValidateIpc(request.Columns, request.SchemaPath, false);
-        SchemaIpc.RequireUnconstrainedColumns(request.Columns);
-        if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
-            throw UnimplementedMethod.For("catalog_table_create");
-        MemoryOrReadOnly(request.AttachOpaqueData, "catalog_table_create").CreateTable(request);
+        memory.CreateTable(request);
         return Task.CompletedTask;
     }
 
@@ -1642,7 +1663,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             }
         }
 
-        return Task.FromResult(new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildTableInfo(table))] });
+        return Task.FromResult(new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildTableInfo(table, ConstraintsOf(identity)))] });
     }
 
     /// <summary>Resolves a table's scan branches — see <see cref="IVgiService.CatalogTableScanBranchesGetAsync"/>'s
@@ -1760,7 +1781,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var identity = DecodeIdentity(attachOpaqueData);
         var items = catalog.CatalogTablesFor(identity)
             .Where(table => CatalogRegistry.PathsEqual(table.EffectiveSchemaPath, path))
-            .Select(BuildTableInfo)
+            .Select(table => BuildTableInfo(table, ConstraintsOf(identity)))
             .Select(EmbeddedIpc.Encode)
             .ToList();
 
@@ -2423,14 +2444,21 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return SchemaIpc.WriteSchemaOnly(columns);
     }
 
-    private static TableInfo BuildTableInfo(CatalogTable table)
+    /// <summary>A lookup of the constraint records another declarative table of
+    /// <paramref name="identity"/> serves, for FOREIGN KEY target checks.</summary>
+    private TableServing.ConstraintLookup ConstraintsOf(string identity) =>
+        (path, name) => catalog.FindCatalogTable(identity, path, name)?.Constraints;
+
+    private static TableInfo BuildTableInfo(CatalogTable table, TableServing.ConstraintLookup? lookup)
     {
+#pragma warning disable CS0618 // the legacy fields are read only to refuse them
         if (table.NotNullColumns.Count > 0 || table.UniqueColumns.Count > 0 || table.PrimaryKeyColumns.Count > 0
             || table.CheckConstraints.Count > 0 || table.ForeignKeys.Count > 0)
+#pragma warning restore CS0618
             throw UnimplementedMethod.For(
                 $"Table '{table.Name}': legacy constraint metadata (NotNullColumns/UniqueColumns/PrimaryKeyColumns/"
                 + "CheckConstraints/ForeignKeys) is not translated; declare canonical records with "
-                + "QueryFarm.Vgi.Catalog.ConstraintRecord.Build() in CatalogTable.Constraints instead");
+                + "QueryFarm.Vgi.Catalog.ConstraintRecord.For(table) (or ConstraintRecord.Build()) in CatalogTable.Constraints instead");
         var columns = table.ResolveColumns();
         ColumnMetadata.Validate(columns);
         if (table.RowIdColumn is { } rowIdColumn)
@@ -2443,11 +2471,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             columns = WithColumnMetadata(columns, table.ColumnComments, table.ColumnDefaults, table.GeneratedColumns, table.Name, table.EffectiveSchemaPath);
         }
 
-        ColumnExpressions.Validate(columns, table.EffectiveSchemaPath);
-        // The extension fails ATTACH for a non-ENFORCED/ALL_ROWS record or Arrow nullability that
-        // disagrees with the NOT_NULL/PRIMARY_KEY records (even for a table with none) — fail here,
-        // naming the table and column, so the worker's own tests catch it.
-        ConstraintRecord.ValidateTable(table.Name, columns, table.Constraints);
+        // What the extension checks at ATTACH, checked here (naming table, constraint and column),
+        // and the nullability it requires derived from the records rather than demanded of the
+        // worker: unnamed non-nullable fields are served nullable, NOT_NULL/PRIMARY_KEY fields
+        // non-nullable.
+        columns = TableServing.ServedColumns(table.EffectiveSchemaPath, table.Name, columns, table.Constraints, lookup);
+        RequirePhysicalScan(table, columns);
         return new TableInfo
         {
             Comment = table.Comment,
@@ -2471,6 +2500,26 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             BindResult = null,
             RequiredFilters = table.RequiredFilters.Select(group => group.Select(path => path.ToList()).ToList()).ToList(),
         };
+    }
+
+    /// <summary>Generated columns are VIRTUAL: DuckDB computes them, and the table's scan supplies
+    /// only the physical columns. A scan function whose static output still declares a generated
+    /// column (the full declared width) would hand DuckDB a column it never asked for, so refuse it
+    /// here with the fix.</summary>
+    private static void RequirePhysicalScan(CatalogTable table, Schema columns)
+    {
+        if (table.ScanFunction is not { } scan) return;
+        var generated = columns.FieldsList
+            .Where(field => field.Metadata?.ContainsKey(ColumnExpressions.GeneratedKey) == true)
+            .Select(field => field.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (generated.Count == 0) return;
+        var emitted = scan.OutputSchema.FieldsList.Select(field => field.Name).Where(generated.Contains).ToList();
+        if (emitted.Count == 0) return;
+        var physical = columns.FieldsList.Select(field => field.Name).Where(name => !generated.Contains(name));
+        throw new InvalidOperationException(
+            $"Table '{string.Join('.', table.EffectiveSchemaPath)}.{table.Name}': generated column(s) {string.Join(", ", emitted)} " +
+            $"are VIRTUAL (DuckDB computes them), but scan function '{scan.Name}' also outputs them. Its OutputSchema must " +
+            $"declare only the physical columns ({string.Join(", ", physical)}); declare the full width in CatalogTable.Columns.");
     }
 
     /// <summary>A function-backed table's read/write delegate functions usually take NO extra

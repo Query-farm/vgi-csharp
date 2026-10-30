@@ -71,7 +71,8 @@ public static class CatalogContentsResponder
 
     }
 
-    /// <summary>Checks the snapshot's paths and returns it parents first. A list that is already a
+    /// <summary>Checks the snapshot's paths, normalizes its tables (<see cref="TableServing"/>) and
+    /// returns it parents first. A list that is already a
     /// <see cref="ValidatedSchemas"/> (a cached snapshot) is returned as is.</summary>
     internal static ValidatedSchemas Validate(IReadOnlyList<SchemaContents> schemas)
     {
@@ -110,7 +111,9 @@ public static class CatalogContentsResponder
             }
         }
 
-        return new ValidatedSchemas(schemas.OrderBy(entry => entry.Path.Count).ToList());
+        // Every table, however the snapshot was assembled (declarative or a handler's raw
+        // TableInfo), is served as the DuckDB extension accepts it — see TableServing.
+        return new ValidatedSchemas(TableServing.Normalize(schemas).OrderBy(entry => entry.Path.Count).ToList());
     }
 }
 
