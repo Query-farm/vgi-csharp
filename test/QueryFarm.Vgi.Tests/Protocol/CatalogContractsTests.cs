@@ -13,6 +13,32 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 
 public class CatalogContractsTests
 {
+    [Fact]
+    public void Protocol31PartitionDistributionDecodesPythonGoldenPlan()
+    {
+        Assert.Equal(["customer", "region"],
+            RoundTrip<FieldPath>("partition_field_path").Components);
+        var parameterized = RoundTrip<TransformSpec>("partition_parameterized_transform");
+        Assert.Equal("example.bucket/2", parameterized.Id);
+        Assert.NotNull(parameterized.Parameters);
+        Assert.Equal(2, RoundTrip<KeyGrouping>("partition_key_grouping").Keys.Count);
+        var ranges = RoundTrip<RangePartitioning>("partition_range_partitioning");
+        Assert.Equal(2, ranges.Keys.Count);
+        Assert.NotEmpty(ranges.SplitPoints);
+
+        var split = RoundTrip<ScanSplitWire>("partition_scan_split");
+        Assert.Equal(2, split.RangeIndex);
+        Assert.Equal([0L, 1L], split.LocationIds);
+        Assert.NotNull(split.KeyValue);
+
+        var plan = RoundTrip<TableFunctionPlanResult>("partition_plan_response");
+        Assert.Equal(3, plan.MaxWorkers);
+        Assert.Equal(["worker-a", "worker-b"], plan.Locations);
+        Assert.Equal(Fixture("partition_key_grouping"), plan.KeyGrouping);
+        Assert.Equal(Fixture("partition_range_partitioning"), plan.RangePartitioning);
+        Assert.Equal(Fixture("partition_scan_split"), Assert.Single(plan.Splits));
+    }
+
     [Theory]
     [InlineData("none", null)]
     [InlineData("main", "main")]

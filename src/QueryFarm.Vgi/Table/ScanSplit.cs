@@ -32,11 +32,30 @@ public sealed class ScanSplit
     /// <see langword="null"/> degrades it to round-robin by count.</summary>
     public long? EstimatedBytes { get; init; }
 
+    /// <summary>One-row Arrow batch aligned with <see cref="PlanResult.KeyGrouping"/>. Every row
+    /// emitted by this split must evaluate to this exact transformed tuple under null-safe
+    /// equality.</summary>
+    public byte[]? KeyValue { get; init; }
+
+    /// <summary>Zero-based range owned by this split when
+    /// <see cref="PlanResult.RangePartitioning"/> is present.</summary>
+    public long? RangeIndex { get; init; }
+
+    /// <summary>2-row (min, max) Arrow batch used for containment and pruning. This is not an
+    /// exact grouping key or a range assignment.</summary>
+    public byte[]? ColumnBounds { get; init; }
+
     /// <summary>2-row (min, max) batch in the <c>vgi_partition_values</c> encoding, one column
-    /// per partition column — see <see cref="Internal.PartitionValuesCodec"/>.</summary>
+    /// per partition column — see <see cref="Internal.PartitionValuesCodec"/>. Deprecated
+    /// protocol-2 compatibility spelling; new producers should set <see cref="ColumnBounds"/>.</summary>
+    [Obsolete("Use ColumnBounds; PartitionBounds is the protocol-2 compatibility spelling.")]
     public byte[]? PartitionBounds { get; init; }
 
     public byte[]? ColumnStatistics { get; init; }
+
+    /// <summary>Indices into <see cref="PlanResult.Locations"/> naming hosts where this split is
+    /// cheap to read.</summary>
+    public IReadOnlyList<long>? LocationIds { get; init; }
 
     public byte[]? StartPosition { get; init; }
 

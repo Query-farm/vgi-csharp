@@ -153,6 +153,66 @@ public class VgiServiceImplCatalogTests
     }
 
     [Fact]
+    public async Task TableFunctionPlan_MapsProtocol31DistributionMetadata()
+    {
+        var grouping = new KeyGrouping
+        {
+            Keys = [EmbeddedIpc.Encode(new TransformSpec { Id = "vgi.identity/1" })],
+        };
+        var ranges = new RangePartitioning
+        {
+            Keys = [EmbeddedIpc.Encode(new RangeKey
+            {
+                Transform = grouping.Keys[0],
+                Direction = VgiOrderByDirection.Asc,
+                NullOrder = VgiNullOrder.NullsFirst,
+            })],
+            SplitPoints = [4, 5, 6],
+        };
+        var plan = new PlanResult
+        {
+            Locations = ["worker-a", "worker-b"],
+            KeyGrouping = grouping,
+            RangePartitioning = ranges,
+            Splits =
+            [
+                new ScanSplit
+                {
+                    Payload = [1],
+                    KeyValue = [2],
+                    RangeIndex = 1,
+                    ColumnBounds = [3],
+                    LocationIds = [0, 1],
+                },
+            ],
+        };
+        var registry = new CatalogRegistry();
+        registry.RegisterTable(new StubTableFunction("distributed", planResult: plan));
+        var service = new VgiServiceImpl(registry);
+        var bind = new BindRequest
+        {
+            FunctionName = "distributed",
+            FunctionType = FunctionType.Table,
+            SchemaPath = ["main"],
+        };
+
+        var response = await service.TableFunctionPlanAsync(new TableFunctionPlanRequest
+        {
+            BindCall = EmbeddedIpc.Encode(bind),
+        });
+
+        Assert.Equal(["worker-a", "worker-b"], response.Locations);
+        Assert.Equal("vgi.identity/1", EmbeddedIpc.Decode<TransformSpec>(
+            Assert.Single(EmbeddedIpc.Decode<KeyGrouping>(response.KeyGrouping!).Keys)).Id);
+        Assert.Equal([4, 5, 6], EmbeddedIpc.Decode<RangePartitioning>(response.RangePartitioning!).SplitPoints);
+        var wireSplit = EmbeddedIpc.Decode<ScanSplitWire>(Assert.Single(response.Splits));
+        Assert.Equal([2], wireSplit.KeyValue);
+        Assert.Equal(1, wireSplit.RangeIndex);
+        Assert.Equal([3], wireSplit.ColumnBounds);
+        Assert.Equal([0L, 1L], wireSplit.LocationIds);
+    }
+
+    [Fact]
     public async Task CatalogAttach_TwoAttachesOfTheSameName_StillRouteToTheSameRegisteredSchemas()
     {
         // The per-attach random suffix EncodeIdentity mints must not break DecodeIdentity's ability
@@ -234,7 +294,8 @@ file sealed class StubTableFunction(
     string schemaName = "main",
     IReadOnlyList<FilterFunctionCapability>? additionalFilterFunctions = null,
     IReadOnlyList<RuntimeFilterAlgorithmCapability>? runtimeFilterAlgorithms = null,
-    IReadOnlyList<string>? filterSemanticProfiles = null) : ITableFunction
+    IReadOnlyList<string>? filterSemanticProfiles = null,
+    PlanResult? planResult = null) : ITableFunction
 {
     public string Name => name;
 
@@ -249,6 +310,10 @@ file sealed class StubTableFunction(
     public IReadOnlyList<RuntimeFilterAlgorithmCapability> RuntimeFilterAlgorithms => runtimeFilterAlgorithms ?? [];
 
     public IReadOnlyList<string> FilterSemanticProfiles => filterSemanticProfiles ?? [];
+
+    public bool SupportsSplits => planResult is not null;
+
+    public PlanResult Plan(TableBindParams bindParams, PlanRequest request) => planResult ?? PlanResult.Empty;
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams) =>
         throw new NotSupportedException("Not exercised by these tests.");

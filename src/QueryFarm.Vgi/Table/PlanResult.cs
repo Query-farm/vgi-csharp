@@ -1,3 +1,5 @@
+using QueryFarm.Vgi.Protocol;
+
 namespace QueryFarm.Vgi.Table;
 
 /// <summary>
@@ -33,6 +35,18 @@ public sealed class PlanResult
 
     /// <summary>Normative cap on redemption concurrency, or <see langword="null"/> for none.</summary>
     public long? MaxWorkers { get; init; }
+
+    /// <summary>Hoisted host list. Individual splits refer to entries by
+    /// <see cref="ScanSplit.LocationIds"/>.</summary>
+    public IReadOnlyList<string>? Locations { get; init; }
+
+    /// <summary>Transforms whose exact result tuple is constant within every split. When set,
+    /// each split must carry a matching one-row <see cref="ScanSplit.KeyValue"/> batch.</summary>
+    public KeyGrouping? KeyGrouping { get; init; }
+
+    /// <summary>Exact half-open range distribution shared by every split. When set, each split
+    /// must carry a valid <see cref="ScanSplit.RangeIndex"/>.</summary>
+    public RangePartitioning? RangePartitioning { get; init; }
 
     /// <summary>An empty plan: no splits, no continuation.</summary>
     public static readonly PlanResult Empty = new();

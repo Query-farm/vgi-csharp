@@ -212,6 +212,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             EstimatedTotalSplits = planResult.EstimatedTotalSplits,
             EstimatedTotalRows = planResult.EstimatedTotalRows,
             CatalogVersion = catalogVersion,
+            Locations = planResult.Locations?.ToList(),
+            KeyGrouping = planResult.KeyGrouping is null ? null : EmbeddedIpc.Encode(planResult.KeyGrouping),
+            RangePartitioning = planResult.RangePartitioning is null ? null : EmbeddedIpc.Encode(planResult.RangePartitioning),
         };
 
         if (planResult.Splits.Count == 0)
@@ -234,8 +237,14 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 EstimatedRows = split.EstimatedRows,
                 RowsExact = split.RowsExact,
                 EstimatedBytes = split.EstimatedBytes,
+                KeyValue = split.KeyValue,
+                RangeIndex = split.RangeIndex,
+                ColumnBounds = split.ColumnBounds,
+#pragma warning disable CS0618 // protocol-2 compatibility input remains serializable during migration
                 PartitionBounds = split.PartitionBounds,
+#pragma warning restore CS0618
                 ColumnStatistics = split.ColumnStatistics,
+                LocationIds = split.LocationIds?.ToList(),
                 StartPosition = split.StartPosition,
                 EndPosition = split.EndPosition,
             }));

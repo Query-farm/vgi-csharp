@@ -55,7 +55,7 @@ public sealed class Worker
     /// the <c>catalog_contents</c> RPC and the <c>supports_catalog_contents</c> column on the
     /// <c>catalog_attach</c> result (see <see cref="CatalogContents"/>).</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "3.0.0";
+    public const string DefaultProtocolVersion = "3.1.0";
 
     private readonly CatalogRegistry _catalog = new();
     public Worker CatalogSnapshot(Catalog.Snapshots.CatalogSnapshotPolicy policy) { _catalog.SnapshotPolicy = policy; return this; }
