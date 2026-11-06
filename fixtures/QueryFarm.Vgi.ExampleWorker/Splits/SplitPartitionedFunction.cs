@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using QueryFarm.Vgi.Internal;
+using QueryFarm.Vgi.Protocol;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -27,15 +29,24 @@ public sealed class SplitPartitionedFunction : ITableFunction
 
     public bool SupportsSplits => true;
 
+    public VgiPartitionKind PartitionKind => VgiPartitionKind.SingleValuePartitions;
+
     public int? MaxWorkers => 8;
 
     public Schema ArgumentsSchema { get; } = new(
-        [TableArgFields.Named("rows_per_country", Int64Type.Default)],
+        [
+            TableArgFields.Named("rows_per_country", Int64Type.Default),
+            TableArgFields.Named("key_mode", StringType.Default),
+        ],
         metadata: null);
 
     public Schema OutputSchema { get; } = new(
         [
-            new Field("country", StringType.Default, nullable: true),
+            new Field("country", StringType.Default, nullable: true,
+                new Dictionary<string, string>
+                {
+                    [VgiWireMetadata.PartitionColumnKey] = VgiWireMetadata.PartitionColumnTrueValue,
+                }),
             new Field("sales", Int64Type.Default, nullable: true),
         ],
         metadata: null);
@@ -43,10 +54,45 @@ public sealed class SplitPartitionedFunction : ITableFunction
     public PlanResult Plan(TableBindParams bindParams, PlanRequest request)
     {
         var rowsPerCountry = bindParams.Arguments.Int64Named("rows_per_country", 0);
+        var keyMode = bindParams.Arguments.StringNamed("key_mode", "valid");
         var scanSplits = Enumerable.Range(0, Countries.Length)
-            .Select(i => ScanSplit.Of(Encode(i, rowsPerCountry)))
+            .Select(i => new ScanSplit
+            {
+                Payload = Encode(i, rowsPerCountry),
+                KeyValue = KeyValue(Countries[i], keyMode),
+            })
             .ToList();
-        return PlanResult.Of(scanSplits);
+        var path = EmbeddedIpc.Encode(new FieldPath { Components = ["country"] });
+        var transform = EmbeddedIpc.Encode(new TransformSpec
+        {
+            Id = "vgi.identity/1",
+            Inputs = [path],
+        });
+        return new PlanResult
+        {
+            Splits = scanSplits,
+            EstimatedTotalSplits = scanSplits.Count,
+            KeyGrouping = new KeyGrouping { Keys = [transform] },
+        };
+    }
+
+    private static byte[]? KeyValue(string country, string mode)
+    {
+        if (mode == "missing") return null;
+        using var batch = mode switch
+        {
+            "valid" => new RecordBatch(
+                new Schema([new Field("country", StringType.Default, nullable: true)], null),
+                [new StringArray.Builder().Append(country).Build()], 1),
+            "two_rows" => new RecordBatch(
+                new Schema([new Field("country", StringType.Default, nullable: true)], null),
+                [new StringArray.Builder().Append(country).Append(country).Build()], 2),
+            "wrong_type" => new RecordBatch(
+                new Schema([new Field("country", Int64Type.Default, nullable: true)], null),
+                [new Int64Array.Builder().Append(1).Build()], 1),
+            _ => throw new ArgumentException($"unknown split_partitioned key_mode: {mode}"),
+        };
+        return RecordBatchIpc.Write(batch);
     }
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams)
@@ -90,7 +136,8 @@ public sealed class SplitPartitionedFunction : ITableFunction
                 salesBuilder.Append(offset + i);
             }
 
-            output.Emit(new RecordBatch(outputSchema, [countryBuilder.Build(), salesBuilder.Build()], rows));
+            var batch = new RecordBatch(outputSchema, [countryBuilder.Build(), salesBuilder.Build()], rows);
+            output.Emit(batch, PartitionValuesCodec.PartitionValues(outputSchema, batch));
             output.Finish();
         }
     }
