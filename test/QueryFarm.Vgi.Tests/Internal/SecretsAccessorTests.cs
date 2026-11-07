@@ -4,15 +4,16 @@ using Xunit;
 namespace QueryFarm.Vgi.Tests.Internal;
 
 /// <summary>
-/// Exercises <see cref="SecretsAccessor"/>'s two-phase dynamic-secret-lookup protocol: the FIRST bind
-/// attempt (<c>isRetry: false</c>) always registers a pending lookup and returns <c>null</c> from
-/// <see cref="SecretsAccessor.Get"/>, regardless of what (if anything) is already resolved; a RETRY
-/// (<c>isRetry: true</c>) never registers a new pending lookup, and reads whatever was resolved.
+/// Exercises <see cref="SecretsAccessor"/>'s two-phase dynamic-secret-lookup protocol: on the FIRST
+/// bind attempt (<c>isRetry: false</c>) a lookup the delivered secrets cannot answer registers a
+/// pending lookup and returns <c>null</c> from <see cref="SecretsAccessor.Get"/> (a by-type or by-name
+/// lookup that IS already answered is returned at once — see <see cref="SecretLookupContractTests"/>);
+/// a RETRY (<c>isRetry: true</c>) never registers a new pending lookup, and reads whatever was resolved.
 /// </summary>
 public class SecretsAccessorTests
 {
     [Fact]
-    public void FirstAttempt_Get_AlwaysRegistersPendingAndReturnsNull()
+    public void FirstAttempt_Get_UnresolvedRegistersPendingAndReturnsNull()
     {
         var accessor = new SecretsAccessor(secretsBytes: null, isRetry: false);
 

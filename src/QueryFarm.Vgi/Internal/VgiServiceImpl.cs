@@ -2110,7 +2110,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             function.ArgumentMonotonicity, function.ArgumentsSchema),
         Description = function.Description,
         RequiredSettings = function.RequiredSettings.ToList(),
-        RequiredSecrets = function.RequiredSecrets.ToList(),
+        RequiredSecrets = RequiredSecretDeclarations.Validate(function.Name, function.RequiredSecrets),
     };
 
     private static List<string>? ValidateArgumentMonotonicity(
@@ -2172,7 +2172,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         SplitTokenTtlSeconds = function.SplitTokenTtlSeconds,
         PartitionKind = function.PartitionKind,
         RequiredSettings = function.RequiredSettings.ToList(),
-        RequiredSecrets = function.RequiredSecrets.ToList(),
+        RequiredSecrets = RequiredSecretDeclarations.Validate(function.Name, function.RequiredSecrets),
     };
 
     /// <summary>A streaming table-in-out function advertises <c>function_type='table'</c> — same as
@@ -2200,7 +2200,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         InputFromArgs = function.InputFromArgs,
         InputRowsPerCall = function.InputRowsPerCall,
         RequiredSettings = function.RequiredSettings.ToList(),
-        RequiredSecrets = function.RequiredSecrets.ToList(),
+        RequiredSecrets = RequiredSecretDeclarations.Validate(function.Name, function.RequiredSecrets),
     };
 
     /// <summary>A table-buffering function advertises <c>function_type='table_buffering'</c> — this
@@ -2232,7 +2232,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         SinkOrderDependent = function.SinkOrderDependent,
         RequiresInputBatchIndex = function.RequiresInputBatchIndex,
         RequiredSettings = function.RequiredSettings.ToList(),
-        RequiredSecrets = function.RequiredSecrets.ToList(),
+        RequiredSecrets = RequiredSecretDeclarations.Validate(function.Name, function.RequiredSecrets),
     };
 
     private static List<T> RejectUnsupportedFilterCapabilities<T>(IReadOnlyList<T> capabilities, string kind)
@@ -2292,7 +2292,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         OrderDependent = function.OrderDependent,
         DistinctDependent = function.DistinctDependent,
         RequiredSettings = function.RequiredSettings.ToList(),
-        RequiredSecrets = function.RequiredSecrets.ToList(),
+        RequiredSecrets = RequiredSecretDeclarations.Validate(function.Name, function.RequiredSecrets),
     };
 
     private static byte[]? EncodeParameterDefaults(RecordBatch? defaults, Schema argumentsSchema)

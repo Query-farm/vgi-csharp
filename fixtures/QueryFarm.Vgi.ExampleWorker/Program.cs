@@ -138,6 +138,12 @@ var worker = new Worker()
     .RegisterTable(new ScopedSecretDemoFunction())
     .RegisterTable(new MultiSecretDemoFunction())
     .RegisterTableInOut(new SecretInOutFunction())
+    // Secret-lookup conformance fixtures (secret/secret_lookup_*.test; vgi docs/secret_lookup_fixtures.md).
+    .RegisterTable(new SecretValueByTypeFunction())
+    .RegisterTable(new SecretValueByNameFunction())
+    .RegisterTable(new SecretValueForScopeFunction())
+    .RegisterTable(new SecretValueRequiredFunction())
+    .RegisterTable(new SecretTypesSeenFunction())
     // Overload fixtures (test/sql/integration/overload/*.test) — several registrations sharing
     // one name, disambiguated at bind time by CatalogRegistry/OverloadResolver.
     .RegisterScalar(new FormatNumberDefaultFunction())

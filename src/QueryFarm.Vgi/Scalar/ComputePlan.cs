@@ -78,7 +78,7 @@ internal sealed class ComputePlan
 
     private enum Kind { Param, ConstParam, Setting, Secret, OutputLength, Output }
 
-    private sealed record Slot(Kind Kind, Type ClrType, string? Name, int ConstIndex);
+    private sealed record Slot(Kind Kind, Type ClrType, string? Name, int ConstIndex, Attributes.SecretAttribute? Secret = null);
 
     private readonly MethodInfo _method;
     private readonly IReadOnlyList<Slot> _slots;
@@ -240,8 +240,19 @@ internal sealed class ComputePlan
                         $"'{type}.Compute' parameter '{p.Name}': [Secret] must be declared as 'Secret?' or 'IReadOnlyDictionary<string, IArrowArray>?'.");
                 }
 
-                requiredSecrets.Add(new Protocol.RequiredSecret { SecretType = secret.SecretType, Scope = secret.Scope, SecretName = secret.Name });
-                slots.Add(new Slot(Kind.Secret, p.ParameterType, secret.SecretType, -1));
+                if (string.IsNullOrWhiteSpace(secret.SecretType))
+                {
+                    throw new InvalidOperationException(
+                        $"'{type}.Compute' parameter '{p.Name}': [Secret] needs a non-empty SecretType.");
+                }
+
+                // Dedupe on the whole (type, name, scope) request — never on type alone, which would drop
+                // a second same-type parameter asking for a different scope or name.
+                if (!requiredSecrets.Any(r => r.SecretType == secret.SecretType && r.Scope == secret.Scope && r.SecretName == secret.Name))
+                {
+                    requiredSecrets.Add(new Protocol.RequiredSecret { SecretType = secret.SecretType, Scope = secret.Scope, SecretName = secret.Name });
+                }
+                slots.Add(new Slot(Kind.Secret, p.ParameterType, secret.SecretType, -1, secret));
                 continue;
             }
 
@@ -396,9 +407,11 @@ internal sealed class ComputePlan
                     ScalarArgCodec.ReadScalar(constValues.GetValueOrDefault(slot.ConstIndex)), slot.ClrType),
                 Kind.Setting => ScalarArgCodec.ConvertTo(
                     ScalarArgCodec.ReadScalar(settingValues.GetValueOrDefault(slot.Name!)), slot.ClrType),
-                Kind.Secret => SecretArgCodec.FindByType(secretValues, slot.Name!) is { } secretFields && slot.ClrType == typeof(Arguments.Secret)
-                    ? new Arguments.Secret(SecretArgCodec.FieldString(secretFields, "name") ?? slot.Name!, secretFields)
-                    : SecretArgCodec.FindByType(secretValues, slot.Name!),
+                Kind.Secret => SecretArgCodec.Lookup(secretValues, slot.Name!, slot.Secret!.Name, slot.Secret.Scope) is { } secretFields
+                    ? slot.ClrType == typeof(Arguments.Secret)
+                        ? new Arguments.Secret(SecretArgCodec.FieldString(secretFields, "name") ?? slot.Name!, secretFields)
+                        : secretFields
+                    : null,
                 Kind.OutputLength => rows,
                 Kind.Output => outputBuilder = Activator.CreateInstance(_outputBuilderType),
                 _ => throw new InvalidOperationException("Unreachable."),

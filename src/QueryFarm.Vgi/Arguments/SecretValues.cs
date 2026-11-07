@@ -117,9 +117,22 @@ public sealed class SecretValues
         return fields is null ? null : Wrap(fields);
     }
 
-    /// <summary>The first resolved secret whose <c>type</c> is <paramref name="secretType"/>, without
-    /// registering a lookup. Use this for secrets the function declared statically
-    /// (<c>RequiredSecrets</c>).</summary>
+    /// <summary>Like <see cref="Get"/>, but a secret that is genuinely absent throws
+    /// <see cref="VgiInvalidArgumentException"/> naming <paramref name="secretType"/> (never a secret
+    /// value), which fails the bind. At bind time the first attempt of a lookup the delivered secrets
+    /// cannot answer yet still registers it and returns <see langword="null"/> — return from
+    /// <c>Bind</c> and the retry either has the secret or throws.</summary>
+    public Secret? Require(string secretType, string? scope = null, string? name = null)
+    {
+        var fields = _accessor.Require(secretType, scope, name);
+        return fields is null ? null : Wrap(fields);
+    }
+
+    /// <summary>The resolved secret whose <c>type</c> field is <paramref name="secretType"/> — one
+    /// with an empty scope if there is one, else the first — without registering a lookup. Matches
+    /// on the secret's <c>type</c>, not its name, so an unnamed <c>__default_&lt;type&gt;</c> secret
+    /// and one named unlike its type are both found. Use this for secrets the function declared
+    /// statically (<c>RequiredSecrets</c>).</summary>
     public Secret? FindByType(string secretType) =>
         SecretArgCodec.FindByType(_accessor.Resolved, secretType) is { } f ? Wrap(f) : null;
 

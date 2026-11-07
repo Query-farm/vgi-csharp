@@ -14,14 +14,12 @@ namespace QueryFarm.Vgi.Internal;
 /// resends the bind with <c>resolved_secrets_provided=true</c>, at which point THIS SAME accessor (a
 /// fresh instance, <paramref name="isRetry"/>=true) has the answer in <see cref="Resolved"/>.
 ///
-/// Mirrors vgi-python's <c>SecretsAccessor</c>/<c>bind()</c>'s "auto-retry on pending lookups" framework
-/// hook, simplified: unlike Python, a "simple" (no scope/no name) <see cref="Get"/> call is NOT
-/// special-cased to check <see cref="Resolved"/> first on the FIRST attempt — a truly dynamic
-/// (non-statically-declared) lookup can never already be resolved on attempt #1 (the outer wire column
-/// is keyed by the secret's DB NAME, not its TYPE, so a same-attempt match would require the caller to
-/// already know the secret's name — at which point it should pass <c>name:</c> instead), so this always
-/// registers pending + returns <see langword="null"/> on a non-retry call, matching what every VGI
-/// worker's fixtures actually observe in practice.
+/// Mirrors vgi-python's <c>SecretsAccessor.get</c>: a lookup by <c>name</c> or by type alone that is
+/// already satisfied by what was delivered (a statically-declared requirement) is answered at once,
+/// matching the secret's own <c>type</c> field — never the outer column name, which is the secret's
+/// DuckDB NAME (<c>__default_&lt;type&gt;</c> for an unnamed secret). A <c>scope</c> lookup always
+/// goes to the client on the first attempt, because only the client knows whether a secret with a
+/// longer matching scope exists.
 /// </summary>
 public sealed class SecretsAccessor
 {
@@ -50,26 +48,43 @@ public sealed class SecretsAccessor
 
     /// <summary>Requests a secret by type, optionally narrowed by a dynamic <paramref name="scope"/>
     /// (a path DuckDB's SecretManager longest-prefix-matches against every registered secret of this
-    /// type) and/or an exact <paramref name="name"/>. On the FIRST bind attempt this always registers
-    /// a pending lookup and returns <see langword="null"/> (the framework retries); on a RETRY it
-    /// looks the resolved answer up directly — by <paramref name="name"/> if given, else by
-    /// <paramref name="scope"/> (longest-prefix match), else the first resolved secret of this type.</summary>
+    /// type) and/or an exact <paramref name="name"/> (which takes precedence over the scope, as on the
+    /// client). Selection follows <see cref="SecretArgCodec.Lookup"/>. On the FIRST bind attempt a
+    /// lookup the delivered secrets cannot answer yet (always the case for a scoped one) registers a
+    /// pending lookup and returns <see langword="null"/> (the framework retries); on a RETRY the
+    /// answer, or <see langword="null"/> when the secret genuinely does not exist.</summary>
     public IReadOnlyDictionary<string, IArrowArray>? Get(string secretType, string? scope = null, string? name = null)
     {
-        if (!_isRetry)
+        ArgumentException.ThrowIfNullOrEmpty(secretType);
+        if (_isRetry || string.IsNullOrEmpty(scope) || !string.IsNullOrEmpty(name))
         {
-            _pending.Add(new RequiredSecret { SecretType = secretType, Scope = scope, SecretName = name });
-            return null;
+            var found = SecretArgCodec.Lookup(_resolved, secretType, name, scope);
+            if (found is not null || _isRetry)
+            {
+                return found;
+            }
         }
 
-        if (name is not null)
+        _pending.Add(new RequiredSecret { SecretType = secretType, Scope = scope, SecretName = name });
+        return null;
+    }
+
+    /// <summary>Like <see cref="Get"/>, but a secret that is genuinely absent (on a retry, or in a
+    /// read-only view) throws <see cref="VgiInvalidArgumentException"/> naming the type (and name or
+    /// scope, if given) and no secret value. On the first bind attempt of a lookup that is not yet
+    /// answerable this registers the lookup and returns <see langword="null"/> exactly like
+    /// <see cref="Get"/>, so the framework can ask the client before deciding the secret is missing.</summary>
+    public IReadOnlyDictionary<string, IArrowArray>? Require(string secretType, string? scope = null, string? name = null)
+    {
+        var found = Get(secretType, scope, name);
+        if (found is not null || !_isRetry)
         {
-            return _resolved.GetValueOrDefault(name);
+            return found;
         }
 
-        return scope is not null
-            ? SecretArgCodec.ForScopeOfType(_resolved, scope, secretType)
-            : SecretArgCodec.FindByType(_resolved, secretType);
+        var detail = !string.IsNullOrEmpty(name) ? $" named '{name}'" : !string.IsNullOrEmpty(scope) ? $" for scope '{scope}'" : "";
+        throw new VgiInvalidArgumentException(
+            $"Required secret of type '{secretType}'{detail} was not found. Create one with CREATE SECRET (TYPE {secretType}, ...).");
     }
 }
 

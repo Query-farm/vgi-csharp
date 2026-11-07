@@ -167,6 +167,10 @@ fi
 export VGI_SIMPLE_WRITABLE_WORKER="$SIMPLE_WRITABLE"
 export VGI_BAD_PROTOCOL_WORKER="$BAD_PROTOCOL"
 
+# The example worker implements the five secret-lookup fixtures (Table/SecretLookupFixtures.cs,
+# per vgi docs/secret_lookup_fixtures.md), so opt in to secret/secret_lookup_*.test.
+export VGI_SECRET_LOOKUP_FIXTURES=1
+
 cd "$STAGE"
 
 if [ "$RUNNER_LINKS_EXTENSIONS" != "1" ]; then

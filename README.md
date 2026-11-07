@@ -153,7 +153,7 @@ Everything a function reads from a call is exposed through public types in
 |---|---|---|
 | Table / table-in-out / buffering / aggregate params | `Arguments` | `TableArguments` — `Get<long>(0)`, `Get<string>("format")`, `GetOrDefault("limit", 100L)` |
 | `ScalarBindParams`, `ScalarProcessParams` | `Constants` | `ConstantArguments` — `[ConstParam]` values by position or name: `Get<long>("precision")` |
-| `TableBindParams`, `TableInOutBindParams` | `SecretValues` | `SecretValues` — `Get(type, scope:, name:)` (drives the two-phase lookup), `FindByType`, `ForScope`; each `Secret` has `GetString(field)` |
+| `TableBindParams`, `TableInOutBindParams` | `SecretValues` | `SecretValues` — `Get(type, scope:, name:)` (drives the two-phase lookup), `Require` (the same, but a missing secret fails the bind), `FindByType`, `AllOfType`, `ForScope`; each `Secret` has `GetString(field)` |
 | init/process/scalar/aggregate params | `SecretValues` | the same, read-only |
 | `TableInitParams`, `TableBufferingFinalizeParams` | `Filters` | `FilterSet?` — `Matches(batch, row)`, `Matches(rowDictionary)`, `Predicates` |
 
@@ -166,6 +166,14 @@ public void Bind(TableBindParams p)
     var keyId = secret.GetRequiredString("key_id");
 }
 ```
+
+Secrets arrive keyed by their DuckDB **name** (an unnamed `CREATE SECRET (TYPE s3, ...)` is
+`__default_s3`), never by type, so select them with the selectors above rather than
+`Resolved["s3"]`: `FindByType`/`Get(type)` match each secret's `type` field (preferring an unscoped
+one), `Get(type, name:)` also checks the type, and `ForScope(path, type)` takes the longest scope
+prefix of `path`, then an unscoped secret, then none. Secrets a function always needs are declared
+statically with `RequiredSecrets => [new RequiredSecret { SecretType = "s3" }]` (one entry per
+type/scope/name; an entry without a `SecretType` fails discovery rather than being skipped).
 
 Argument constraints are declared once and both advertised (`vgi_function_arguments()`) and
 enforced at bind, with an error naming the argument: `[ConstParam(Ge = 0, Le = 10)]`,

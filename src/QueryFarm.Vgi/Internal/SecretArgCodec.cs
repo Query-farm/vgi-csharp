@@ -70,21 +70,53 @@ public static class SecretArgCodec
         return result;
     }
 
-    /// <summary>The first resolved secret whose own <c>type</c> field matches <paramref name="secretType"/>
-    /// — falls back to a direct column-name lookup (the rare case a secret's DuckDB name literally
-    /// equals its type) when no field-based match exists.</summary>
+    /// <summary>The resolved secret of type <paramref name="secretType"/>: one with an empty scope if
+    /// there is one, else the first of that type. The match is on each secret's own <c>type</c> field,
+    /// never on the outer column name — that column is the secret's DuckDB NAME, so an unnamed
+    /// <c>CREATE SECRET (TYPE t, ...)</c> arrives as <c>__default_t</c> and a named one under its
+    /// name. Only when no secret has the type does this fall back to a column literally named
+    /// <paramref name="secretType"/> (clients that key the batch by type and send bare key/value
+    /// structs without a <c>type</c> field).</summary>
     public static IReadOnlyDictionary<string, IArrowArray>? FindByType(
-        IReadOnlyDictionary<string, IReadOnlyDictionary<string, IArrowArray>> resolved, string secretType)
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, IArrowArray>> resolved, string secretType) =>
+        Lookup(resolved, secretType);
+
+    /// <summary>The resolved secret a <c>(secretType, name, scope)</c> request refers to — the same
+    /// rule the client uses to resolve that request, so a worker finds what it asked for among
+    /// everything that was delivered (vgi-python <c>ResolvedSecrets.lookup</c>):
+    /// <list type="bullet">
+    /// <item><paramref name="name"/> — the secret with that name, and only if its <c>type</c> is
+    /// <paramref name="secretType"/> (or it carries no <c>type</c> field). <paramref name="scope"/>
+    /// is ignored, as on the client.</item>
+    /// <item><paramref name="scope"/> — the secret of that type whose scope is the longest prefix
+    /// of <paramref name="scope"/>, else one of that type with an empty scope.</item>
+    /// <item>neither — a secret of that type with an empty scope, else the first of that type.</item>
+    /// </list>
+    /// When no secret has the requested type (and no <paramref name="name"/> was given), a secret
+    /// whose column is named <paramref name="secretType"/> is returned.</summary>
+    public static IReadOnlyDictionary<string, IArrowArray>? Lookup(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, IArrowArray>> resolved,
+        string secretType,
+        string? name = null,
+        string? scope = null)
     {
-        foreach (var fields in resolved.Values)
+        ArgumentNullException.ThrowIfNull(resolved);
+        ArgumentNullException.ThrowIfNull(secretType);
+        if (!string.IsNullOrEmpty(name))
         {
-            if (string.Equals(FieldString(fields, "type"), secretType, StringComparison.Ordinal))
+            if (!resolved.TryGetValue(name, out var named))
             {
-                return fields;
+                return null;
             }
+
+            var namedType = FieldString(named, "type");
+            return string.IsNullOrEmpty(namedType) || string.Equals(namedType, secretType, StringComparison.Ordinal) ? named : null;
         }
 
-        return resolved.GetValueOrDefault(secretType);
+        var found = !string.IsNullOrEmpty(scope)
+            ? ForScopeOfType(resolved, scope, secretType)
+            : ForScopeOfType(resolved, "", secretType) ?? AllOfType(resolved, secretType).FirstOrDefault();
+        return found ?? resolved.GetValueOrDefault(secretType);
     }
 
     /// <summary>Every resolved secret whose own <c>type</c> field matches <paramref name="secretType"/>.</summary>
@@ -93,12 +125,14 @@ public static class SecretArgCodec
         resolved.Values.Where(fields => string.Equals(FieldString(fields, "type"), secretType, StringComparison.Ordinal)).ToList();
 
     /// <summary>The secret (optionally narrowed to <paramref name="secretType"/>) whose <c>scope</c>
-    /// field (newline-joined prefix list) is the longest prefix of <paramref name="path"/> — a secret
-    /// with no/empty scope matches as a last-resort fallback. <see langword="null"/> only when there
-    /// are no candidate secrets at all.</summary>
+    /// field (newline-joined prefix list) is the longest prefix of <paramref name="path"/> — failing
+    /// that, the first secret with no/empty scope; failing that, <see langword="null"/> (a scoped
+    /// secret whose prefixes do not match <paramref name="path"/> is never returned).</summary>
     public static IReadOnlyDictionary<string, IArrowArray>? ForScopeOfType(
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, IArrowArray>> resolved, string path, string? secretType)
     {
+        ArgumentNullException.ThrowIfNull(resolved);
+        ArgumentNullException.ThrowIfNull(path);
         IReadOnlyDictionary<string, IArrowArray>? best = null;
         var bestLength = -1;
         IReadOnlyDictionary<string, IArrowArray>? fallback = null;

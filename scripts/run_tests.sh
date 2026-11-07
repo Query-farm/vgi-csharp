@@ -127,7 +127,7 @@ else
   ENV_ARGS+=(VGI_REQUIRE_LAUNCHER_TRANSPORT=1)
 fi
 
-ENV_ARGS+=(VGI_TEST_WORKER="$TEST_WORKER" VGI_SIMPLE_WRITABLE_WORKER="$WRITABLE_WORKER")
+ENV_ARGS+=(VGI_TEST_WORKER="$TEST_WORKER" VGI_SIMPLE_WRITABLE_WORKER="$WRITABLE_WORKER" VGI_SECRET_LOOKUP_FIXTURES=1)
 # attach_options / attach_options_required are additional catalogs on the SAME example-worker
 # binary (see fixtures/QueryFarm.Vgi.ExampleWorker/AttachOptions/) — same $TEST_WORKER value,
 # just a different ATTACH catalog name per test file. versioned / versioned_tables are their own

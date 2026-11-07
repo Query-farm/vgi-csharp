@@ -145,7 +145,7 @@ test_integration_gated: build
 	    VGI_ATTACH_OPTIONS_WORKER="launch:$(CSHARP_EXAMPLE_BIN)" \
 	    VGI_ATTACH_OPTIONS_REQUIRED_WORKER="launch:$(CSHARP_EXAMPLE_BIN)" \
 	    VGI_BAD_ENUM_WORKER="$(CSHARP_BAD_ENUM_BIN)" \
-	    VGI_REQUIRE_LAUNCHER_TRANSPORT=1 \
+	    VGI_REQUIRE_LAUNCHER_TRANSPORT=1 VGI_SECRET_LOOKUP_FIXTURES=1 \
 	    python3 scripts/run_tests.py -j 6 $(CSHARP_COVERAGE_GATE) \
 	        --test-config "$(abspath $(VGI_DIR))/test/configs/no_error_skip.json" \
 	        "test/sql/integration/*" "~test/sql/integration/writable/*"
