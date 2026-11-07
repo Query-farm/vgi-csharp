@@ -47,6 +47,26 @@ This branch uses VGI wire 3.1.0 under `vgi.v3` and requires a native VGI client 
 (ML.NET, ONNX Runtime, etc.), expose an external database/API/filesystem as a queryable catalog, or
 ship domain-specific functions to your team as one binary.
 
+## Start a new worker
+
+The fastest way to a new C# worker is the
+[**vgi-starter-csharp**](https://github.com/Query-farm/vgi-starter-csharp) template: a complete,
+tested worker with a scalar, a table function and a paginated REST API example, recipes for
+common data-engineering tasks, SQL and unit tests, metadata that scores 100 on
+[vgi-lint](https://github.com/Query-farm/vgi-lint-check), CI, Docker, signed release workflows,
+and an `AGENTS.md` for coding agents.
+
+```bash
+gh repo create my-worker --template Query-farm/vgi-starter-csharp --private --clone
+cd my-worker
+make init NAME=my_worker   # rename the catalog, package and binary
+make check                 # everything CI runs
+```
+
+Or click **Use this template** on GitHub. See
+[starter templates](https://query.farm/vgi/docs/concepts/starter-templates/) for details. The
+rest of this README covers the SDK itself.
+
 ## Your first worker
 
 **1. Add the package:**
