@@ -54,6 +54,11 @@ public interface ITableBufferingFunction
 
     IReadOnlyList<string> Categories => [];
 
+    /// <summary>Optional usage examples surfaced through the catalog
+    /// (<see cref="Protocol.FunctionInfo.Examples"/>) for agent and human discovery — e.g.
+    /// <c>new FunctionExample { Sql = "SELECT ...", Description = "..." }</c>. Empty by default.</summary>
+    IReadOnlyList<FunctionExample> Examples => [];
+
     /// <summary>Same shape as <see cref="ITableInOutFunction.ArgumentsSchema"/> — the non-table
     /// positional/named arguments plus exactly one <see cref="Table.TableArgFields.Table"/>-marked
     /// field for the TABLE input.</summary>

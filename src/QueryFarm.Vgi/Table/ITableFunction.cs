@@ -36,6 +36,11 @@ public interface ITableFunction
 
     IReadOnlyList<string> Categories => [];
 
+    /// <summary>Optional usage examples surfaced through the catalog
+    /// (<see cref="Protocol.FunctionInfo.Examples"/>) for agent and human discovery — e.g.
+    /// <c>new FunctionExample { Sql = "SELECT ...", Description = "..." }</c>. Empty by default.</summary>
+    IReadOnlyList<FunctionExample> Examples => [];
+
     /// <summary>Describes the function's positional AND named (keyword) arguments. Named
     /// arguments carry <c>vgi_arg=named</c> metadata (see <see cref="Internal.VgiWireMetadata"/>) —
     /// field ORDER still matters (it's the order <see cref="Internal.TableArgCodec"/>'s

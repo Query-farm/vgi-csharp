@@ -15,7 +15,7 @@ public sealed class TableBindParams
     /// <summary>The decoded view of <see cref="ArgumentsBytes"/> — every positional/named SQL
     /// argument this call was made with (all bind-time constants; a table function has no per-row
     /// input).</summary>
-    public required TableArguments Arguments { get; init; }
+    public required QueryFarm.Vgi.Arguments.TableArguments Arguments { get; init; }
 
     /// <summary>Opaque, not-yet-decoded serialized settings bytes (one row, columns named by
     /// DuckDB setting key) — <see langword="null"/> when this function declared no
@@ -28,6 +28,15 @@ public sealed class TableBindParams
     /// <see cref="ITableFunction.Bind"/>, which triggers the C++ extension's two-phase bind retry when
     /// unresolved. See <see cref="Internal.SecretsAccessor"/>'s doc comment.</summary>
     public required Internal.SecretsAccessor Secrets { get; init; }
+
+    private QueryFarm.Vgi.Arguments.SecretValues? _secretValues;
+
+    /// <summary>Typed view of <see cref="Secrets"/> (same object, same two-phase semantics):
+    /// <see cref="QueryFarm.Vgi.Arguments.SecretValues.Get"/> returns <see langword="null"/> on the
+    /// first attempt for a dynamically scoped lookup and the framework retries the bind with the
+    /// secret resolved.</summary>
+    public QueryFarm.Vgi.Arguments.SecretValues SecretValues =>
+        _secretValues ??= new QueryFarm.Vgi.Arguments.SecretValues(Secrets);
 
     /// <summary>The concrete per-call argument schema DuckDB resolved (decoded from
     /// <see cref="Protocol.BindRequest.InputSchema"/>), field-for-field matching

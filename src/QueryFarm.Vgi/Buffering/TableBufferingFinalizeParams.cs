@@ -20,7 +20,7 @@ public sealed class TableBufferingFinalizeParams
     /// output stream this producer drains.</summary>
     public required byte[] FinalizeStateId { get; init; }
 
-    public required TableArguments Arguments { get; init; }
+    public required QueryFarm.Vgi.Arguments.TableArguments Arguments { get; init; }
 
     public byte[]? Settings { get; init; }
 
@@ -39,14 +39,36 @@ public sealed class TableBufferingFinalizeParams
 
     /// <summary>Raw embedded-IPC pushdown-filter bytes (<c>InitRequest.PushdownFilters</c>) —
     /// <see langword="null"/> when DuckDB pushed no filters down. Only meaningful when this
-    /// function advertised <see cref="ITableBufferingFunction.FilterPushdown"/>. Decode with
-    /// <see cref="Internal.PushdownFilterCodec"/>. Protocol 2.0 accepts only
+    /// function advertised <see cref="ITableBufferingFunction.FilterPushdown"/>. Use <see cref="Filters"/> for the decoded form. Protocol 2.0 accepts only
     /// <c>vgi.filters.v2</c>. Mirrors <see cref="Table.TableInitParams.PushdownFilters"/>.</summary>
     public byte[]? PushdownFilters { get; init; }
 
     /// <summary>One embedded-IPC single-column batch per IN-filter/join-key column
     /// (<c>InitRequest.JoinKeys</c>) — mirrors <see cref="Table.TableInitParams.JoinKeys"/>.</summary>
     public IReadOnlyList<byte[]>? JoinKeys { get; init; }
+
+    private QueryFarm.Vgi.Arguments.FilterSet? _filters;
+    private bool _filtersDecoded;
+
+    /// <summary>The pushed-down filters, decoded on first access from <see cref="PushdownFilters"/>
+    /// and <see cref="JoinKeys"/> against <see cref="OutputSchema"/>; <see langword="null"/> when
+    /// DuckDB pushed nothing down. Only populated when the function advertised <see cref="ITableBufferingFunction.FilterPushdown"/>.</summary>
+    public QueryFarm.Vgi.Arguments.FilterSet? Filters
+    {
+        get
+        {
+            if (!_filtersDecoded)
+            {
+                _filters = QueryFarm.Vgi.Arguments.FilterSet.Decode(PushdownFilters, JoinKeys, OutputSchema, FilterFunctionCapabilities);
+                _filtersDecoded = true;
+            }
+
+            return _filters;
+        }
+    }
+
+    /// <summary>The function's advertised extension filter functions, passed to the decoder.</summary>
+    internal IReadOnlyList<Protocol.FilterFunctionCapability>? FilterFunctionCapabilities { get; init; }
 
     public required IFunctionStorage Storage { get; init; }
 

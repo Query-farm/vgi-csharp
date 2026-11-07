@@ -15,6 +15,16 @@ SELECT demo.upper_case('hello');
 ----
 HELLO
 
+query T
+SELECT demo.repeat_text('ab', 3);
+----
+ababab
+
+statement error
+SELECT demo.repeat_text('ab', 101);
+----
+too large
+
 query IIII
 SELECT count(*), min(n), max(n), sum(n) FROM demo.numbers(5);
 ----

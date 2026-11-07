@@ -65,6 +65,11 @@ public interface IAggregateFunction
 
     IReadOnlyList<string> Categories => [];
 
+    /// <summary>Optional usage examples surfaced through the catalog
+    /// (<see cref="Protocol.FunctionInfo.Examples"/>) for agent and human discovery — e.g.
+    /// <c>new FunctionExample { Sql = "SELECT ...", Description = "..." }</c>. Empty by default.</summary>
+    IReadOnlyList<FunctionExample> Examples => [];
+
     /// <summary>The aggregate's full SQL-visible positional argument list (const AND non-const, in
     /// declaration order) — a const ("ConstParam") field carries
     /// <c>{VgiWireMetadata.ConstKey: VgiWireMetadata.ConstTrueValue}</c> metadata so the C++ side

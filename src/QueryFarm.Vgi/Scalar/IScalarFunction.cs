@@ -33,6 +33,15 @@ public interface IScalarFunction
     /// (<see cref="Protocol.FunctionInfo.Tags"/>). Empty (the default) reports no tags.</summary>
     IReadOnlyDictionary<string, string> Tags => new Dictionary<string, string>();
 
+    /// <summary>Optional category labels surfaced via <see cref="Protocol.FunctionInfo.Categories"/>.
+    /// Empty by default.</summary>
+    IReadOnlyList<string> Categories => [];
+
+    /// <summary>Optional usage examples surfaced through the catalog
+    /// (<see cref="Protocol.FunctionInfo.Examples"/>) for agent and human discovery — e.g.
+    /// <c>new FunctionExample { Sql = "SELECT ...", Description = "..." }</c>. Empty by default.</summary>
+    IReadOnlyList<FunctionExample> Examples => [];
+
     /// <summary>Describes the function's arguments. Fixed argument fields retain their declared
     /// parameter names; <c>vgi_arg=named</c> marks table-function-style named-only options.</summary>
     Schema ArgumentsSchema { get; }

@@ -95,55 +95,60 @@ public static class TableArgCodec
         [], new Dictionary<string, IReadOnlyDictionary<string, string>?>(StringComparer.Ordinal));
 }
 
-/// <summary>Decoded view of a table function's bind-time arguments — see <see cref="TableArgCodec"/>.
-/// All accessors read row 0 (every value here is a single-row scalar).</summary>
-public sealed class TableArguments(
-    IReadOnlyList<IArrowArray?> positional,
-    IReadOnlyDictionary<string, IArrowArray> named,
-    IReadOnlyList<IReadOnlyDictionary<string, string>?>? positionalMetadata = null,
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>?>? namedMetadata = null)
+/// <summary>Legacy name for <see cref="Arguments.TableArguments"/>, kept so code written against
+/// QueryFarm.Vgi 0.23 and earlier keeps compiling: it converts implicitly to and from
+/// <see cref="Arguments.TableArguments"/> (namespace <c>QueryFarm.Vgi.Arguments</c>), which is what
+/// every <c>*Params.Arguments</c> property is typed as now. New code should use that type.</summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public sealed class TableArguments
 {
-    public int PositionalCount => positional.Count;
+    private readonly Arguments.TableArguments _inner;
 
-    public IReadOnlyDictionary<string, IArrowArray> NamedArrays => named;
+    public TableArguments(
+        IReadOnlyList<IArrowArray?> positional,
+        IReadOnlyDictionary<string, IArrowArray> named,
+        IReadOnlyList<IReadOnlyDictionary<string, string>?>? positionalMetadata = null,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>?>? namedMetadata = null)
+        : this(new Arguments.TableArguments(positional, named, positionalMetadata, namedMetadata))
+    {
+    }
 
-    public IArrowArray? PositionalArray(int index) => index >= 0 && index < positional.Count ? positional[index] : null;
+    private TableArguments(Arguments.TableArguments inner) => _inner = inner;
 
-    public IArrowArray? NamedArray(string name) => named.GetValueOrDefault(name);
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(arguments))]
+    public static implicit operator Arguments.TableArguments?(TableArguments? arguments) => arguments?._inner;
 
-    /// <summary>The wire struct field's own Arrow metadata for positional argument
-    /// <paramref name="index"/> — e.g. an <c>ARROW:extension:name</c> annotation DuckDB attaches
-    /// to an exotic constant (HUGEINT, UUID, ...) under <c>arrow_lossless_conversion</c>. A
-    /// dynamic-output ANY-typed function (e.g. <c>constant_columns</c>) must copy this onto its
-    /// own output field for such a value to round-trip as its original type rather than raw bytes.
-    /// <see langword="null"/> when this argument carried no metadata or doesn't exist.</summary>
-    public IReadOnlyDictionary<string, string>? PositionalMetadata(int index) =>
-        positionalMetadata is not null && index >= 0 && index < positionalMetadata.Count ? positionalMetadata[index] : null;
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(arguments))]
+    public static implicit operator TableArguments?(Arguments.TableArguments? arguments) =>
+        arguments is null ? null : new TableArguments(arguments);
 
-    public IReadOnlyDictionary<string, string>? NamedMetadata(string name) =>
-        namedMetadata?.GetValueOrDefault(name);
+    public int PositionalCount => _inner.PositionalCount;
 
-    public object? Positional(int index) => ScalarArgCodec.ReadScalar(PositionalArray(index));
+    public IReadOnlyDictionary<string, IArrowArray> NamedArrays => _inner.NamedArrays;
 
-    public object? Named(string name) => ScalarArgCodec.ReadScalar(NamedArray(name));
+    public IArrowArray? PositionalArray(int index) => _inner.PositionalArray(index);
 
-    public long Int64(int index) =>
-        Convert.ToInt64(Positional(index) ?? throw new VgiInvalidArgumentException($"Missing required positional argument {index}."));
+    public IArrowArray? NamedArray(string name) => _inner.NamedArray(name);
 
-    public long? Int64OrNull(int index) => Positional(index) is { } v ? Convert.ToInt64(v) : null;
+    public IReadOnlyDictionary<string, string>? PositionalMetadata(int index) => _inner.PositionalMetadata(index);
 
-    public long Int64Named(string name, long defaultValue) =>
-        Named(name) is { } v ? Convert.ToInt64(v) : defaultValue;
+    public IReadOnlyDictionary<string, string>? NamedMetadata(string name) => _inner.NamedMetadata(name);
 
-    public double DoubleNamed(string name, double defaultValue) =>
-        Named(name) is { } v ? Convert.ToDouble(v) : defaultValue;
+    public object? Positional(int index) => _inner.Positional(index);
 
-    public string StringPositional(int index) =>
-        (string?)Positional(index) ?? throw new VgiInvalidArgumentException($"Missing required positional argument {index}.");
+    public object? Named(string name) => _inner.Named(name);
 
-    public string StringNamed(string name, string defaultValue) =>
-        Named(name) is string s ? s : defaultValue;
+    public long Int64(int index) => _inner.Int64(index);
 
-    public bool BoolNamed(string name, bool defaultValue) =>
-        Named(name) is bool b ? b : defaultValue;
+    public long? Int64OrNull(int index) => _inner.Int64OrNull(index);
+
+    public long Int64Named(string name, long defaultValue) => _inner.Int64Named(name, defaultValue);
+
+    public double DoubleNamed(string name, double defaultValue) => _inner.DoubleNamed(name, defaultValue);
+
+    public string StringPositional(int index) => _inner.StringPositional(index);
+
+    public string StringNamed(string name, string defaultValue) => _inner.StringNamed(name, defaultValue);
+
+    public bool BoolNamed(string name, bool defaultValue) => _inner.BoolNamed(name, defaultValue);
 }

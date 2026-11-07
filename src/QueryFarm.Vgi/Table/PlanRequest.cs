@@ -10,7 +10,7 @@ public sealed class PlanRequest
     /// <summary>Raw embedded-IPC pushdown-filter bytes — STATIC filters only (join-key values
     /// aren't known at plan time; they arrive later, per split init, via
     /// <see cref="TableInitParams.JoinKeys"/>). On a continuation call this already includes
-    /// <c>refined_filters</c>' narrowing merged in. Decode with <see cref="Internal.PushdownFilterCodec.Decode"/>.
+    /// <c>refined_filters</c>' narrowing merged in. Decode with <see cref="QueryFarm.Vgi.Arguments.FilterSet.Decode"/>.
     /// <see langword="null"/> when DuckDB pushed no filters down.</summary>
     public byte[]? PushdownFilters { get; init; }
 

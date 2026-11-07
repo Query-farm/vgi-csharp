@@ -65,6 +65,47 @@ public static class ScalarArgCodec
         return result;
     }
 
+    /// <summary>Like <see cref="DecodeConstStruct"/>, but also returns <c>named_&lt;key&gt;</c>
+    /// fields (keyed by bare key) for functions that declare named options.</summary>
+    public static (IReadOnlyDictionary<int, IArrowArray> Positional, IReadOnlyDictionary<string, IArrowArray> Named)
+        DecodeArgumentStruct(byte[] arguments)
+    {
+        var positional = new Dictionary<int, IArrowArray>();
+        var named = new Dictionary<string, IArrowArray>(StringComparer.Ordinal);
+        RecordBatch? batch;
+        try
+        {
+            batch = ReadFirstBatch(arguments);
+        }
+        catch (ArgumentNullException)
+        {
+            // Zero-child struct<> guard — see DecodeConstStruct.
+            return (positional, named);
+        }
+
+        if (batch is null || batch.Schema.FieldsList.Count == 0 || batch.Column(0) is not StructArray args)
+        {
+            return (positional, named);
+        }
+
+        var structType = (Apache.Arrow.Types.StructType)args.Data.DataType;
+        for (var i = 0; i < structType.Fields.Count; i++)
+        {
+            var name = structType.Fields[i].Name;
+            if (name.StartsWith(TableArgCodec.PositionalPrefix, StringComparison.Ordinal) &&
+                int.TryParse(name.AsSpan(TableArgCodec.PositionalPrefix.Length), out var index))
+            {
+                positional[index] = args.Fields[i];
+            }
+            else if (name.StartsWith(TableArgCodec.NamedPrefix, StringComparison.Ordinal))
+            {
+                named[name[TableArgCodec.NamedPrefix.Length..]] = args.Fields[i];
+            }
+        }
+
+        return (positional, named);
+    }
+
     /// <summary>Decodes <c>Settings</c> into setting-key → single-row value column. Returns an
     /// empty dictionary when <paramref name="settings"/> is <c>null</c>/empty (no settings were
     /// resolved — nothing was declared in <c>RequiredSettings</c>, or none matched).</summary>

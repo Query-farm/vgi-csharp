@@ -6,10 +6,10 @@ namespace QueryFarm.Vgi.Examples.MinimalScalarWorker;
 
 /// <summary>
 /// <c>upper_case(value: VARCHAR) -> VARCHAR</c> — the function
-/// <c>test/sql/integration/scalar/upper_case.test</c> exercises. Implements
-/// <see cref="IScalarFunction"/> directly rather than via <see cref="ScalarFn"/>: M1's stated
-/// fallback, since <see cref="ScalarFn"/>'s attribute-driven reflection dispatch is still a plain
-/// pass-through pending M2.
+/// <c>test/sql/integration/scalar/upper_case.test</c> exercises. Implements the raw
+/// <see cref="IScalarFunction"/> contract directly to show what it involves; the README's
+/// "Your first worker" writes the same function with the attribute-driven <see cref="ScalarFn"/>
+/// base class, which is the shorter route for most functions.
 /// </summary>
 public sealed class UpperCaseFunction : IScalarFunction
 {

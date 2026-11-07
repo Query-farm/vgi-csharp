@@ -16,17 +16,60 @@ public static class TableArgFields
     public static Field Positional(string name, IArrowType type, bool nullable = true) =>
         new(name, type, nullable);
 
-    /// <summary>A positional field declaring a numeric range constraint (agent discovery via
-    /// <c>vgi_function_arguments()</c>'s <c>arg_range</c> column) — each bound is
+    /// <summary>A positional field with a numeric range constraint — each bound is
     /// <see cref="double.NaN"/> when unset (see <see cref="Attributes.ConstParamAttribute"/>'s
-    /// identically-shaped bounds). Surfacing the constraint is purely declarative; a caller that
-    /// also wants BIND-TIME enforcement (e.g. rejecting a negative count) still checks it itself.</summary>
+    /// identically-shaped bounds). The range is surfaced through <c>vgi_function_arguments()</c>'s
+    /// <c>arg_range</c> column AND enforced at bind: an out-of-range constant fails the bind with
+    /// an error naming the argument, before <see cref="ITableFunction.Bind"/> runs.</summary>
     public static Field PositionalWithRange(
         string name, IArrowType type, double ge = double.NaN, double gt = double.NaN,
-        double le = double.NaN, double lt = double.NaN, bool nullable = true)
+        double le = double.NaN, double lt = double.NaN, bool nullable = true) =>
+        Constrained(Positional(name, type, nullable), ge, gt, le, lt);
+
+    /// <summary>Returns <paramref name="field"/> with constraint metadata added — a numeric range
+    /// (<paramref name="ge"/>/<paramref name="gt"/>/<paramref name="le"/>/<paramref name="lt"/>,
+    /// <see cref="double.NaN"/> when unset), a closed set of <paramref name="choices"/>, and/or a
+    /// regex <paramref name="pattern"/> (unanchored search; write <c>^...$</c> for a full match).
+    /// Works for positional and named fields alike, e.g.
+    /// <c>TableArgFields.Constrained(TableArgFields.Named("format", StringType.Default), choices: ["csv", "json"])</c>.
+    /// Every constraint is surfaced through <c>vgi_function_arguments()</c> (<c>arg_range</c>/
+    /// <c>arg_choices</c>/<c>arg_pattern</c>) and enforced at bind for table, table-in-out,
+    /// table-buffering and aggregate functions; a SQL NULL value skips the checks.</summary>
+    public static Field Constrained(
+        Field field, double ge = double.NaN, double gt = double.NaN, double le = double.NaN, double lt = double.NaN,
+        IEnumerable<object?>? choices = null, string? pattern = null)
     {
-        var range = VgiWireMetadata.BuildRange(ge, gt, le, lt);
-        return new Field(name, type, nullable, range is null ? null : new Dictionary<string, string> { [VgiWireMetadata.RangeKey] = range });
+        ArgumentNullException.ThrowIfNull(field);
+        if (!double.IsNaN(ge) && !double.IsNaN(gt))
+        {
+            throw new ArgumentException($"Argument '{field.Name}': set at most one of ge/gt.");
+        }
+
+        if (!double.IsNaN(le) && !double.IsNaN(lt))
+        {
+            throw new ArgumentException($"Argument '{field.Name}': set at most one of le/lt.");
+        }
+
+        var metadata = field.Metadata is null
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : new Dictionary<string, string>(field.Metadata, StringComparer.Ordinal);
+        if (VgiWireMetadata.BuildRange(ge, gt, le, lt) is { } range)
+        {
+            metadata[VgiWireMetadata.RangeKey] = range;
+        }
+
+        if (choices is not null)
+        {
+            metadata[VgiWireMetadata.ChoicesKey] = ArgumentConstraints.EncodeChoices(choices);
+        }
+
+        if (!string.IsNullOrEmpty(pattern))
+        {
+            ArgumentConstraints.CompilePattern(field.Name, pattern);
+            metadata[VgiWireMetadata.PatternKey] = pattern;
+        }
+
+        return new Field(field.Name, field.DataType, field.IsNullable, metadata.Count == 0 ? null : metadata);
     }
 
     public static Field Named(string name, IArrowType type, bool nullable = true) =>

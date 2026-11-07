@@ -1,6 +1,5 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Table;
 using QueryFarm.VgiRpc.Streaming;
 
@@ -21,7 +20,7 @@ public sealed class NumbersFunction : ITableFunction
         metadata: null);
 
     public ITableFunctionProducer CreateProducer(TableInitParams initParams) =>
-        new Producer(initParams.Arguments.Int64(0), initParams.ProjectedSchema);
+        new Producer(initParams.Arguments.Get<long>(0), initParams.ProjectedSchema);
 
     private sealed class Producer(long count, Schema outputSchema) : ITableFunctionProducer
     {

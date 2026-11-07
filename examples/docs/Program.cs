@@ -8,6 +8,7 @@ var worker = new Worker()
     .RegisterSchema("main", "Functions from the C# documentation")
     .RegisterSchema("catalog", "Catalog examples")
     .RegisterScalar(new UpperCaseFunction())
+    .RegisterScalar(new RepeatFunction())
     .RegisterTableInOut(new EchoFunction())
     .RegisterAggregate(new SumFunction())
     .RegisterTableBuffering(new CollectFunction());

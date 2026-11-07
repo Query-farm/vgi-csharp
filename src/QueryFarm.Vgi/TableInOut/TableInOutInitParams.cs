@@ -11,13 +11,21 @@ public sealed class TableInOutInitParams
 {
     public required string FunctionName { get; init; }
 
-    public required TableArguments Arguments { get; init; }
+    public required QueryFarm.Vgi.Arguments.TableArguments Arguments { get; init; }
 
     public byte[]? Settings { get; init; }
 
     /// <summary>Fully-RESOLVED secrets from the bind call that opened this processor — see
     /// <see cref="Table.TableInitParams.Secrets"/>'s doc comment.</summary>
     public byte[]? Secrets { get; init; }
+
+    private QueryFarm.Vgi.Arguments.SecretValues? _secretValues;
+
+    /// <summary>Typed, read-only view of <see cref="Secrets"/> — look secrets up with
+    /// <see cref="QueryFarm.Vgi.Arguments.SecretValues.FindByType"/>/<see cref="QueryFarm.Vgi.Arguments.SecretValues.Get"/>
+    /// and read fields with <see cref="QueryFarm.Vgi.Arguments.Secret.GetString"/>.</summary>
+    public QueryFarm.Vgi.Arguments.SecretValues SecretValues =>
+        _secretValues ??= QueryFarm.Vgi.Arguments.SecretValues.FromResolved(Secrets);
 
     public required Schema InputSchema { get; init; }
 

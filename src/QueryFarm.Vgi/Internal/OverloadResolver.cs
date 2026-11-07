@@ -61,7 +61,7 @@ public static class OverloadResolver
     /// <summary>Resolves one candidate TABLE function out of several sharing a name — every
     /// argument is a bind-time constant, so candidate types are compared directly against the
     /// ACTUAL decoded argument values' Arrow types.</summary>
-    public static T SelectTable<T>(IReadOnlyList<T> candidates, Func<T, Schema> argumentsSchema, TableArguments arguments, string name)
+    public static T SelectTable<T>(IReadOnlyList<T> candidates, Func<T, Schema> argumentsSchema, Arguments.TableArguments arguments, string name)
     {
         if (candidates.Count == 1)
         {

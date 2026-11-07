@@ -20,16 +20,23 @@ public sealed class TableInitParams
     /// <summary>Same decoded arguments as the bind call that opened this producer (re-decoded
     /// rather than reused from <see cref="TableBindParams"/> — nothing about one call may be cached
     /// on the shared <see cref="ITableFunction"/> singleton).</summary>
-    public required TableArguments Arguments { get; init; }
+    public required QueryFarm.Vgi.Arguments.TableArguments Arguments { get; init; }
 
     public byte[]? Settings { get; init; }
 
     /// <summary>Fully-RESOLVED secrets from the bind call that opened this producer — by the time
     /// <c>init</c> runs, any two-phase secret-scope retry (see <see cref="Internal.SecretsAccessor"/>)
-    /// has already completed, so this is plain already-resolved data: decode with
-    /// <see cref="Internal.SecretArgCodec.Decode"/> then <see cref="Internal.SecretArgCodec.FindByType"/>/
-    /// <see cref="Internal.SecretArgCodec.ForScopeOfType"/>. <c>null</c> when no secrets were resolved.</summary>
+    /// has already completed, so this is plain already-resolved data — read it through
+    /// <see cref="SecretValues"/>. <c>null</c> when no secrets were resolved.</summary>
     public byte[]? Secrets { get; init; }
+
+    private QueryFarm.Vgi.Arguments.SecretValues? _secretValues;
+
+    /// <summary>Typed, read-only view of <see cref="Secrets"/> — look secrets up with
+    /// <see cref="QueryFarm.Vgi.Arguments.SecretValues.FindByType"/>/<see cref="QueryFarm.Vgi.Arguments.SecretValues.Get"/>
+    /// and read fields with <see cref="QueryFarm.Vgi.Arguments.Secret.GetString"/>.</summary>
+    public QueryFarm.Vgi.Arguments.SecretValues SecretValues =>
+        _secretValues ??= QueryFarm.Vgi.Arguments.SecretValues.FromResolved(Secrets);
 
     /// <summary>The resolved per-call output schema (from <see cref="ITableFunction.ResolveOutputSchema"/>).
     /// Every batch the returned <see cref="ITableFunctionProducer"/> emits must use this schema —
@@ -54,15 +61,37 @@ public sealed class TableInitParams
 
     /// <summary>Raw embedded-IPC pushdown-filter bytes (<c>InitRequest.PushdownFilters</c>) —
     /// <see langword="null"/> when DuckDB pushed no filters down. Only meaningful when this
-    /// function advertised <see cref="ITableFunction.FilterPushdown"/>. Decode with
-    /// <see cref="Internal.PushdownFilterCodec.Decode"/>, passing this unprojected
-    /// <see cref="OutputSchema"/> for index/name validation. Protocol 2.0 accepts only the strict
+    /// function advertised <see cref="ITableFunction.FilterPushdown"/>. Use <see cref="Filters"/> for the decoded form
+    /// (or <see cref="QueryFarm.Vgi.Arguments.FilterSet.Decode"/> with this unprojected <see cref="OutputSchema"/>). Protocol 2.0 accepts only the strict
     /// <c>vgi.filters.v2</c> snapshot form.</summary>
     public byte[]? PushdownFilters { get; init; }
 
     /// <summary>Embedded-IPC batches referenced by v2 external IN sets using authoritative
     /// <c>batch_index</c>/<c>column_index</c> coordinates and a validating <c>column_name</c>.</summary>
     public IReadOnlyList<byte[]>? JoinKeys { get; init; }
+
+    private QueryFarm.Vgi.Arguments.FilterSet? _filters;
+    private bool _filtersDecoded;
+
+    /// <summary>The pushed-down filters, decoded on first access from <see cref="PushdownFilters"/>
+    /// and <see cref="JoinKeys"/> against <see cref="OutputSchema"/>; <see langword="null"/> when
+    /// DuckDB pushed nothing down. Only populated when the function advertised <see cref="ITableFunction.FilterPushdown"/>.</summary>
+    public QueryFarm.Vgi.Arguments.FilterSet? Filters
+    {
+        get
+        {
+            if (!_filtersDecoded)
+            {
+                _filters = QueryFarm.Vgi.Arguments.FilterSet.Decode(PushdownFilters, JoinKeys, OutputSchema, FilterFunctionCapabilities);
+                _filtersDecoded = true;
+            }
+
+            return _filters;
+        }
+    }
+
+    /// <summary>The function's advertised extension filter functions, passed to the decoder.</summary>
+    internal IReadOnlyList<Protocol.FilterFunctionCapability>? FilterFunctionCapabilities { get; init; }
 
     public long? RowLimit { get; init; }
 

@@ -87,7 +87,10 @@ public sealed class UpperCaseFunction : ScalarFn
 ```
 
 `ScalarFn` reflects `Compute`'s parameters once per subclass and dispatches per batch — no manual
-Arrow-schema bookkeeping needed for the common case.
+Arrow-schema bookkeeping needed for the common case. `Compute` may be an instance or `static`
+method of any accessibility, and may be inherited from an intermediate base class; mark one method
+`[Compute]` to choose among overloads or to use another name. `ScalarFn` also has virtual
+`Comment`, `Tags`, `Categories` and `Examples` to override for catalog metadata.
 
 Scalar functions can override `ArgumentMonotonicity` with an
 `IReadOnlyList<ArgumentMonotonicity>`. The optional list is in
@@ -121,6 +124,40 @@ SELECT example.upper_case('hello'); -- => 'HELLO'
 - **Runtime / type errors** — exceptions thrown from `Bind`/`Compute` (and bind-time type-bound
   checks) surface directly in DuckDB's error message.
 
+## Arguments, constants, secrets and filters
+
+Everything a function reads from a call is exposed through public types in
+`QueryFarm.Vgi.Arguments` — no `QueryFarm.Vgi.Internal` import is needed:
+
+| Where | Property | Type |
+|---|---|---|
+| Table / table-in-out / buffering / aggregate params | `Arguments` | `TableArguments` — `Get<long>(0)`, `Get<string>("format")`, `GetOrDefault("limit", 100L)` |
+| `ScalarBindParams`, `ScalarProcessParams` | `Constants` | `ConstantArguments` — `[ConstParam]` values by position or name: `Get<long>("precision")` |
+| `TableBindParams`, `TableInOutBindParams` | `SecretValues` | `SecretValues` — `Get(type, scope:, name:)` (drives the two-phase lookup), `FindByType`, `ForScope`; each `Secret` has `GetString(field)` |
+| init/process/scalar/aggregate params | `SecretValues` | the same, read-only |
+| `TableInitParams`, `TableBufferingFinalizeParams` | `Filters` | `FilterSet?` — `Matches(batch, row)`, `Matches(rowDictionary)`, `Predicates` |
+
+```csharp
+public void Bind(TableBindParams p)
+{
+    var bucket = p.Arguments.Get<string>(0);
+    var secret = p.SecretValues.Get("s3", scope: bucket);   // null on the first attempt: DuckDB
+    if (secret is null) return;                              // resolves it and the bind is retried
+    var keyId = secret.GetRequiredString("key_id");
+}
+```
+
+Argument constraints are declared once and both advertised (`vgi_function_arguments()`) and
+enforced at bind, with an error naming the argument: `[ConstParam(Ge = 0, Le = 10)]`,
+`[ConstParam(Choices = new object[] { "csv", "json" })]`, `[ConstParam(Pattern = "^[a-z]+$")]` for
+scalar constants, and `TableArgFields.PositionalWithRange(...)` /
+`TableArgFields.Constrained(field, ge:, gt:, le:, lt:, choices:, pattern:)` for table-function
+positional and named arguments. Patterns are unanchored searches (`Regex.IsMatch`); anchor with
+`^...$` for a full match. A SQL NULL value skips the checks.
+
+Every function interface also has an `Examples` member (`FunctionExample` with `Sql`,
+`Description`, `ExpectedOutput`) surfaced through the catalog.
+
 ## Function shapes
 
 | Shape | Interface | Base class | Use case |
@@ -129,7 +166,7 @@ SELECT example.upper_case('hello'); -- => 'HELLO'
 | Table (producer) | `ITableFunction` | — | row generator, no streamed input |
 | Table-in-out | `ITableInOutFunction` | — | stream input rows → output rows, one turn at a time |
 | Table-buffering | `ITableBufferingFunction` | — | sort/aggregate/join-style: see every input row before producing any output |
-| Aggregate | `IAggregateFunction<TState>` | — | cumulative state + final emit |
+| Aggregate | `IAggregateFunction` | — | cumulative state + final emit |
 
 Each raw interface is a small, direct implementation surface (see any fixture under
 `fixtures/QueryFarm.Vgi.ExampleWorker/` for real examples); `ScalarFn` is the one convenience base
@@ -152,10 +189,10 @@ Filter-capable table functions advertise `FilterSemanticProfiles` (the default i
 runtime-filter, and evaluation-context capabilities. Protocol 2.0 filter payloads use only the
 strict `vgi.filters.v2` snapshot/delta encoding: literals remain typed Arrow payload fields,
 `field_ref` can nest to any depth, and IN sets can be inline Arrow lists or externally indexed
-join-key batches. `PushdownFilterCodec` requires the unprojected bind output schema and rejects
-index/name mismatches, malformed payloads, or legacy encodings atomically;
-`PushdownFilterEvaluator` applies required predicates exactly and may ignore a complete advisory
-predicate it cannot evaluate.
+join-key batches. `TableInitParams.Filters` (a `FilterSet`, decoded against the unprojected bind
+output schema) rejects index/name mismatches, malformed payloads, or legacy encodings atomically;
+`FilterSet.Matches` applies required predicates exactly and may ignore a complete advisory
+predicate it cannot evaluate. `FilterSet.Decode` decodes a dynamic filter payload the same way.
 
 ## Beyond functions: full catalogs
 
@@ -371,13 +408,14 @@ happy path.
 
 ```
 src/QueryFarm.Vgi/                    the published package
-  Attributes/                         [Param]/[ConstParam]/[Setting]/[OutputLength]
+  Attributes/                         [Param]/[ConstParam]/[Setting]/[OutputLength]/[Compute]
+  Arguments/                          TableArguments, ConstantArguments, SecretValues, FilterSet
   Scalar/ Table/ TableInOut/          per-function-kind interfaces + ScalarFn
   Buffering/ Aggregate/
   Catalog/                            CatalogTable/CatalogView/CatalogMacro
   Protocol/                           IVgiService + wire DTOs (Generated/, from vgi-python)
-  Internal/                           VgiServiceImpl (the IVgiService dispatcher), pushdown
-                                       filter codec/evaluator, argument codecs, storage
+  Internal/                           implementation detail (not public API): VgiServiceImpl,
+                                       codecs, evaluators, storage
 fixtures/QueryFarm.Vgi.ExampleWorker/ the ~170-function conformance-driving fixture worker
 fixtures/QueryFarm.Vgi.SimpleWritableWorker/  writable-catalog write-path fixture
 fixtures/QueryFarm.Vgi.BadProtocolWorker/     malformed-protocol negative-test fixture

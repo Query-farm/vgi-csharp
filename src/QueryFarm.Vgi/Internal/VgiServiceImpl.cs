@@ -531,6 +531,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Secrets = request.Secrets,
         };
 
+        ArgumentConstraints.Enforce(function.ArgumentsSchema, ArgumentConstraints.Positions.ConstOnly, arguments);
         function.Bind(bindParams);
         var outputSchema = function.ResolveOutputSchema(bindParams);
 
@@ -693,6 +694,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     {
         var inputSchema = DecodeInputSchema(request.InputSchema);
         var function = ResolveScalar(identity, schemaPath, request.FunctionName, request.Arguments, inputSchema);
+        ArgumentConstraints.EnforceConstants(function.ArgumentsSchema, request.Arguments);
 
         function.Bind(new ScalarBindParams
         {
@@ -702,6 +704,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Secrets = request.Secrets,
             InputSchema = inputSchema,
             ArgumentNames = request.ArgumentNames,
+            DeclaredArgumentsSchema = function.ArgumentsSchema,
         });
 
         return function.ResolveOutputSchema(inputSchema);
@@ -722,6 +725,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         {
             RequireTableInOutInputSchema(tableInOut.Name, request.InputSchema);
             var bindParams = DecodeTableInOutBindParams(request);
+            ArgumentConstraints.Enforce(tableInOut.ArgumentsSchema,
+                tableInOut.InputFromArgs ? ArgumentConstraints.Positions.NamedOnly : ArgumentConstraints.Positions.AllPositional,
+                bindParams.Arguments);
             tableInOut.Bind(bindParams);
             ThrowIfSecretsPending(bindParams.Secrets);
             return tableInOut.ResolveOutputSchema(bindParams);
@@ -730,6 +736,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         if (catalog.FindTableBuffering(identity, schemaPath, name) is { } buffering)
         {
             var bindParams = DecodeTableInOutBindParams(request);
+            ArgumentConstraints.Enforce(buffering.ArgumentsSchema, ArgumentConstraints.Positions.AllPositional, bindParams.Arguments);
             buffering.Bind(bindParams);
             ThrowIfSecretsPending(bindParams.Secrets);
             return buffering.ResolveOutputSchema(bindParams);
@@ -762,6 +769,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             AtValue = request.AtValue,
         };
 
+        ArgumentConstraints.Enforce(function.ArgumentsSchema, ArgumentConstraints.Positions.AllPositional, arguments);
         function.Bind(bindParams);
         ThrowIfSecretsPending(bindParams.Secrets);
         var schema = function.ResolveOutputSchema(bindParams);
@@ -960,6 +968,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ProjectionIds = request.ProjectionIds,
             PushdownFilters = request.PushdownFilters,
             JoinKeys = request.JoinKeys,
+            FilterFunctionCapabilities = function.AdditionalFilterFunctions,
             RowLimit = request.RowLimit,
             OrderByColumnName = request.OrderByColumnName,
             OrderByDirection = request.OrderByDirection,
@@ -1126,6 +1135,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 ProjectionIds = request.ProjectionIds,
                 PushdownFilters = request.PushdownFilters,
                 JoinKeys = request.JoinKeys,
+                FilterFunctionCapabilities = function.AdditionalFilterFunctions,
                 Storage = storage,
                 AttachOpaqueData = bindRequest.AttachOpaqueData,
             };
@@ -2072,7 +2082,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// <summary>Recovers a table-buffering execution's bind-time arguments/settings from durable
     /// storage — see <see cref="TableBufferingProcessParams"/>'s doc comment for why the standalone
     /// process/combine unary RPCs can't just decode them off their own wire request.</summary>
-    private static (TableArguments Arguments, byte[]? Settings, byte[]? Secrets, CopyToContext? CopyTo, Apache.Arrow.Schema? InputSchema) ReadBindContext(FunctionStorage storage)
+    private static (Arguments.TableArguments Arguments, byte[]? Settings, byte[]? Secrets, CopyToContext? CopyTo, Apache.Arrow.Schema? InputSchema) ReadBindContext(FunctionStorage storage)
     {
         var bytes = storage.ReadSingle(BindContextNamespace, BindContextKey)
             ?? throw new InvalidOperationException(
@@ -2089,6 +2099,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         Name = function.Name,
         SchemaPath = function.SchemaPath.ToList(),
         FunctionType = FunctionType.Scalar,
+        Categories = function.Categories.ToList(),
+        Examples = function.Examples.ToList(),
         Arguments = SchemaIpc.WriteSchemaOnly(function.ArgumentsSchema),
         OutputSchema = SchemaIpc.WriteSchemaOnly(function.OutputSchema),
         ParameterDefaultValues = EncodeParameterDefaults(function.ParameterDefaultValues, function.ArgumentsSchema),
@@ -2142,6 +2154,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         NullHandling = null,
         Description = function.Description,
         Categories = function.Categories.ToList(),
+        Examples = function.Examples.ToList(),
         ProjectionPushdown = function.ProjectionPushdown,
         FilterPushdown = function.FilterPushdown,
         SamplingPushdown = function.SamplingPushdown,
@@ -2180,6 +2193,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         NullHandling = null,
         Description = function.Description,
         Categories = function.Categories.ToList(),
+        Examples = function.Examples.ToList(),
         ProjectionPushdown = function.ProjectionPushdown,
         MaxWorkers = function.MaxWorkers,
         HasFinalize = function.HasFinalize,
@@ -2206,6 +2220,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         NullHandling = null,
         Description = function.Description,
         Categories = function.Categories.ToList(),
+        Examples = function.Examples.ToList(),
         ProjectionPushdown = function.ProjectionPushdown,
         FilterPushdown = function.FilterPushdown,
         FilterSemanticProfiles = ValidateFilterSemanticProfiles(function.FilterSemanticProfiles),
@@ -2273,6 +2288,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         NullHandling = null,
         Description = function.Description,
         Categories = function.Categories.ToList(),
+        Examples = function.Examples.ToList(),
         OrderDependent = function.OrderDependent,
         DistinctDependent = function.DistinctDependent,
         RequiredSettings = function.RequiredSettings.ToList(),

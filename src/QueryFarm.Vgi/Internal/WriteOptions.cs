@@ -21,7 +21,7 @@ public sealed class WriteOptions
     /// <see cref="Table.TableArguments"/> — returns the "count, THROW on conflict" default
     /// when the argument is absent (shouldn't normally happen for a real write call, but keeps a
     /// unit test or a hand-rolled direct call from needing to fabricate one).</summary>
-    public static WriteOptions Decode(TableArguments arguments)
+    public static WriteOptions Decode(Arguments.TableArguments arguments)
     {
         if (arguments.Named("write_options") is not byte[] bytes || bytes.Length == 0)
         {

@@ -13,7 +13,7 @@ public sealed class AggregateBindParams
     /// <summary>Bind-time constant (<c>ConstParam</c>) values, keyed by their own sequential index
     /// among JUST the const positions — see <see cref="Protocol.AggregateBindRequest.Arguments"/>'s
     /// doc comment.</summary>
-    public required TableArguments Arguments { get; init; }
+    public required QueryFarm.Vgi.Arguments.TableArguments Arguments { get; init; }
 
     /// <summary>Schema of the NON-const ("Param") input columns — <see langword="null"/> only for a
     /// truly nullary aggregate with zero declared Param columns (e.g. <c>vgi_count()</c>).</summary>
@@ -24,4 +24,12 @@ public sealed class AggregateBindParams
     public byte[]? Settings { get; init; }
 
     public byte[]? Secrets { get; init; }
+
+    private QueryFarm.Vgi.Arguments.SecretValues? _secretValues;
+
+    /// <summary>Typed, read-only view of <see cref="Secrets"/> — look secrets up with
+    /// <see cref="QueryFarm.Vgi.Arguments.SecretValues.FindByType"/>/<see cref="QueryFarm.Vgi.Arguments.SecretValues.Get"/>
+    /// and read fields with <see cref="QueryFarm.Vgi.Arguments.Secret.GetString"/>.</summary>
+    public QueryFarm.Vgi.Arguments.SecretValues SecretValues =>
+        _secretValues ??= QueryFarm.Vgi.Arguments.SecretValues.FromResolved(Secrets);
 }

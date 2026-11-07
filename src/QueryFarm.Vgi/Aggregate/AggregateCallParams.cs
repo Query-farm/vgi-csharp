@@ -18,7 +18,7 @@ public sealed class AggregateCallParams
     /// <summary>The SAME bind-time const-argument values <see cref="AggregateBindParams.Arguments"/>
     /// carried — reloaded from storage, since update/combine/finalize don't ride the original bind
     /// request.</summary>
-    public required TableArguments Arguments { get; init; }
+    public required QueryFarm.Vgi.Arguments.TableArguments Arguments { get; init; }
 
     /// <summary>In-band log sink (surfaces as a <c>duckdb_logs()</c> row with <c>type='VGI'</c>) —
     /// <see langword="null"/> only in a unit test that constructs this params object directly.</summary>

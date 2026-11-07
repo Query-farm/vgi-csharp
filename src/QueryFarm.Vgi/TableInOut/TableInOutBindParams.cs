@@ -18,13 +18,22 @@ public sealed class TableInOutBindParams
     /// this struct — see <see cref="Table.TableArgFields.Table"/>'s doc comment).</summary>
     public byte[] ArgumentsBytes { get; init; } = [];
 
-    public required TableArguments Arguments { get; init; }
+    public required QueryFarm.Vgi.Arguments.TableArguments Arguments { get; init; }
 
     public byte[]? Settings { get; init; }
 
     /// <summary>Secrets access for this bind attempt — see <see cref="Table.TableBindParams.Secrets"/>'s
     /// doc comment (same static-vs-dynamic split, same two-phase retry mechanism).</summary>
     public required Internal.SecretsAccessor Secrets { get; init; }
+
+    private QueryFarm.Vgi.Arguments.SecretValues? _secretValues;
+
+    /// <summary>Typed view of <see cref="Secrets"/> (same object, same two-phase semantics):
+    /// <see cref="QueryFarm.Vgi.Arguments.SecretValues.Get"/> returns <see langword="null"/> on the
+    /// first attempt for a dynamically scoped lookup and the framework retries the bind with the
+    /// secret resolved.</summary>
+    public QueryFarm.Vgi.Arguments.SecretValues SecretValues =>
+        _secretValues ??= new QueryFarm.Vgi.Arguments.SecretValues(Secrets);
 
     /// <summary>The TABLE argument's per-call column schema (its actual runtime column names/types
     /// — dynamic, since callers can pass any query as the TABLE argument).</summary>

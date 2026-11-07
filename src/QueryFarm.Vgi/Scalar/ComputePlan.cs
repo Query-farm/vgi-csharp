@@ -14,6 +14,10 @@ namespace QueryFarm.Vgi.Scalar;
 /// immutable-array-plus-builder model (a <c>Compute</c> method here looks like Java's: <c>void</c>-
 /// returning, writing into a builder parameter — not Python's return-an-array style).
 ///
+/// The dispatch method is the one <see cref="ComputeAttribute"/>-marked method in the class
+/// hierarchy, else the single method named <c>Compute</c> (instance or static, any accessibility)
+/// on the most-derived class declaring one — see <see cref="FindCompute"/>.
+///
 /// Supported per-parameter markers: <see cref="ParamAttribute"/> (a per-row input column, fixed
 /// concrete Arrow array type), <see cref="ConstParamAttribute"/> (a bind-time constant, resolved
 /// from <see cref="ScalarProcessParams.Arguments"/> by a separate const-only positional index),
@@ -119,10 +123,7 @@ internal sealed class ComputePlan
 
     private static ComputePlan Build(Type type)
     {
-        var method = type.GetMethod(
-            "Compute",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-            ?? throw new InvalidOperationException($"'{type}' derives from ScalarFn but declares no 'Compute' method.");
+        var method = FindCompute(type);
 
         if (method.ReturnType != typeof(void))
         {
@@ -200,9 +201,21 @@ internal sealed class ComputePlan
                     metadata[VgiWireMetadata.DocKey] = constParam.Doc;
                 }
 
+                ValidateBounds(type, p.Name, constParam);
                 if (VgiWireMetadata.BuildRange(constParam.Ge, constParam.Gt, constParam.Le, constParam.Lt) is { } range)
                 {
                     metadata[VgiWireMetadata.RangeKey] = range;
+                }
+
+                if (constParam.Choices is { } choices)
+                {
+                    metadata[VgiWireMetadata.ChoicesKey] = ArgumentConstraints.EncodeChoices(choices);
+                }
+
+                if (constParam.Pattern is { Length: > 0 } pattern)
+                {
+                    ArgumentConstraints.CompilePattern(wireName, pattern);
+                    metadata[VgiWireMetadata.PatternKey] = pattern;
                 }
 
                 argFields.Add(new Field(wireName, arrowType, nullable: true, metadata));
@@ -221,10 +234,10 @@ internal sealed class ComputePlan
 
             if (secret is not null)
             {
-                if (p.ParameterType != typeof(IReadOnlyDictionary<string, IArrowArray>))
+                if (p.ParameterType != typeof(IReadOnlyDictionary<string, IArrowArray>) && p.ParameterType != typeof(Arguments.Secret))
                 {
                     throw new InvalidOperationException(
-                        $"'{type}.Compute' parameter '{p.Name}': [Secret] must be declared as 'IReadOnlyDictionary<string, IArrowArray>?'.");
+                        $"'{type}.Compute' parameter '{p.Name}': [Secret] must be declared as 'Secret?' or 'IReadOnlyDictionary<string, IArrowArray>?'.");
                 }
 
                 requiredSecrets.Add(new Protocol.RequiredSecret { SecretType = secret.SecretType, Scope = secret.Scope, SecretName = secret.Name });
@@ -278,6 +291,76 @@ internal sealed class ComputePlan
         return new ComputePlan(method, slots, outputBuilderType, buildMethod, argumentsSchema, outputSchema, settingNames, requiredSecrets);
     }
 
+    /// <summary>Locates the dispatch method: the one <see cref="ComputeAttribute"/>-marked method in
+    /// the hierarchy if any, else the single method named <c>Compute</c> (instance or static, any
+    /// accessibility) on the most-derived class that declares one.</summary>
+    internal static MethodInfo FindCompute(Type type)
+    {
+        const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public |
+                                   BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+
+        var marked = new List<MethodInfo>();
+        for (var t = type; t is not null && t != typeof(ScalarFn) && t != typeof(object); t = t.BaseType)
+        {
+            marked.AddRange(t.GetMethods(Flags).Where(m => m.IsDefined(typeof(ComputeAttribute), inherit: false)));
+        }
+
+        // An override that repeats [Compute] is the same dispatch slot as the base it overrides.
+        marked = marked.GroupBy(m => m.IsStatic ? m : m.GetBaseDefinition()).Select(g => g.First()).ToList();
+        if (marked.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"'{type}' marks more than one method with [Compute] ({Describe(marked)}); exactly one method may carry it.");
+        }
+
+        if (marked.Count == 1)
+        {
+            return RequireNonGeneric(type, marked[0]);
+        }
+
+        for (var t = type; t is not null && t != typeof(ScalarFn) && t != typeof(object); t = t.BaseType)
+        {
+            var candidates = t.GetMethods(Flags).Where(m => m.Name == "Compute").ToList();
+            if (candidates.Count > 1)
+            {
+                throw new InvalidOperationException(
+                    $"'{t}' declares {candidates.Count} 'Compute' overloads ({Describe(candidates)}); mark the one " +
+                    "ScalarFn should dispatch to with [Compute].");
+            }
+
+            if (candidates.Count == 1)
+            {
+                return RequireNonGeneric(type, candidates[0]);
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"'{type}' derives from ScalarFn but declares no 'Compute' method (instance or static, on it or an " +
+            "intermediate base class) and no [Compute]-marked method.");
+    }
+
+    private static MethodInfo RequireNonGeneric(Type type, MethodInfo method) =>
+        method.IsGenericMethodDefinition
+            ? throw new InvalidOperationException($"'{type}': the Compute method '{method.Name}' must not be generic.")
+            : method;
+
+    private static string Describe(IEnumerable<MethodInfo> methods) =>
+        string.Join("; ", methods.Select(m =>
+            $"{m.DeclaringType?.Name}.{m.Name}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})"));
+
+    private static void ValidateBounds(Type type, string? parameterName, ConstParamAttribute constParam)
+    {
+        if (!double.IsNaN(constParam.Ge) && !double.IsNaN(constParam.Gt))
+        {
+            throw new InvalidOperationException($"'{type}.Compute' parameter '{parameterName}': set at most one of Ge/Gt.");
+        }
+
+        if (!double.IsNaN(constParam.Le) && !double.IsNaN(constParam.Lt))
+        {
+            throw new InvalidOperationException($"'{type}.Compute' parameter '{parameterName}': set at most one of Le/Lt.");
+        }
+    }
+
     public RecordBatch Invoke(IScalarFunction instance, ScalarProcessParams processParams)
     {
         var input = processParams.Input;
@@ -313,14 +396,16 @@ internal sealed class ComputePlan
                     ScalarArgCodec.ReadScalar(constValues.GetValueOrDefault(slot.ConstIndex)), slot.ClrType),
                 Kind.Setting => ScalarArgCodec.ConvertTo(
                     ScalarArgCodec.ReadScalar(settingValues.GetValueOrDefault(slot.Name!)), slot.ClrType),
-                Kind.Secret => SecretArgCodec.FindByType(secretValues, slot.Name!),
+                Kind.Secret => SecretArgCodec.FindByType(secretValues, slot.Name!) is { } secretFields && slot.ClrType == typeof(Arguments.Secret)
+                    ? new Arguments.Secret(SecretArgCodec.FieldString(secretFields, "name") ?? slot.Name!, secretFields)
+                    : SecretArgCodec.FindByType(secretValues, slot.Name!),
                 Kind.OutputLength => rows,
                 Kind.Output => outputBuilder = Activator.CreateInstance(_outputBuilderType),
                 _ => throw new InvalidOperationException("Unreachable."),
             };
         }
 
-        _method.Invoke(instance, args);
+        _method.Invoke(_method.IsStatic ? null : instance, args);
 
         var builtArray = (IArrowArray)_outputBuildMethod.Invoke(outputBuilder, BuildInvokeArgs(_outputBuildMethod))!;
         return new RecordBatch(processParams.OutputSchema, [builtArray], rows);

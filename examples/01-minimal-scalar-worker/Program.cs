@@ -1,4 +1,4 @@
-// M1's minimal deliverable: serves upper_case(value: VARCHAR) -> VARCHAR over stdio.
+// A minimal worker: serves upper_case(value: VARCHAR) -> VARCHAR over stdio.
 //
 // IMPORTANT: stdout is the wire channel — never Console.WriteLine here; use Console.Error for
 // diagnostics only.

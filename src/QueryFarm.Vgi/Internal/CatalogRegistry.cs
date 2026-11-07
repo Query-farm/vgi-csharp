@@ -424,10 +424,10 @@ public sealed class CatalogRegistry
     /// bind-time constant, so <paramref name="arguments"/> (the DECODED values, not a wire type
     /// schema — table calls carry no <c>InputSchema</c> at all) disambiguates a multi-overload
     /// name; see <see cref="OverloadResolver.SelectTable{T}"/>.</summary>
-    public ITableFunction? FindTable(string identity, string schemaName, string name, TableArguments? arguments = null)
+    public ITableFunction? FindTable(string identity, string schemaName, string name, Arguments.TableArguments? arguments = null)
         => FindTable(identity, [schemaName], name, arguments);
 
-    public ITableFunction? FindTable(string identity, IReadOnlyList<string> schemaPath, string name, TableArguments? arguments = null)
+    public ITableFunction? FindTable(string identity, IReadOnlyList<string> schemaPath, string name, Arguments.TableArguments? arguments = null)
     {
         var candidates = CandidatesFor(_tableFunctions, identity, schemaPath, name);
         return candidates is null ? null : OverloadResolver.SelectTable(candidates, f => f.ArgumentsSchema, arguments ?? TableArgCodec.Decode(null), name);

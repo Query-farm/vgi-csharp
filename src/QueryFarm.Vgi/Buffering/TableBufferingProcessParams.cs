@@ -16,16 +16,23 @@ public sealed class TableBufferingProcessParams
 
     public required byte[] ExecutionId { get; init; }
 
-    public required TableArguments Arguments { get; init; }
+    public required QueryFarm.Vgi.Arguments.TableArguments Arguments { get; init; }
 
     public byte[]? Settings { get; init; }
 
     /// <summary>Already-RESOLVED secrets (any two-phase dynamic-scope retry completed back at
-    /// <c>bind</c> time, before this Sink phase ever started) — decode with
-    /// <see cref="SecretArgCodec.Decode"/> then <see cref="SecretArgCodec.FindByType"/>/
-    /// <see cref="SecretArgCodec.ForScopeOfType"/>. <see langword="null"/> when none were resolved.
+    /// <c>bind</c> time, before this Sink phase ever started) — read them through
+    /// <see cref="SecretValues"/>. <see langword="null"/> when none were resolved.
     /// Recovered from the persisted bind context, like <see cref="Arguments"/>/<see cref="Settings"/>.</summary>
     public byte[]? Secrets { get; init; }
+
+    private QueryFarm.Vgi.Arguments.SecretValues? _secretValues;
+
+    /// <summary>Typed, read-only view of <see cref="Secrets"/> — look secrets up with
+    /// <see cref="QueryFarm.Vgi.Arguments.SecretValues.FindByType"/>/<see cref="QueryFarm.Vgi.Arguments.SecretValues.Get"/>
+    /// and read fields with <see cref="QueryFarm.Vgi.Arguments.Secret.GetString"/>.</summary>
+    public QueryFarm.Vgi.Arguments.SecretValues SecretValues =>
+        _secretValues ??= QueryFarm.Vgi.Arguments.SecretValues.FromResolved(Secrets);
 
     public byte[]? AttachOpaqueData { get; init; }
 

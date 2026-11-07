@@ -38,6 +38,18 @@ public abstract class ScalarFn : IScalarFunction
 
     public virtual string Description => "";
 
+    /// <summary>Free-text comment surfaced via <c>duckdb_functions().comment</c>; override to set one.</summary>
+    public virtual string? Comment => null;
+
+    /// <summary>Key/value tags surfaced via <c>duckdb_functions().tags</c>; override to set them.</summary>
+    public virtual IReadOnlyDictionary<string, string> Tags => new Dictionary<string, string>();
+
+    /// <summary>Category labels surfaced via <see cref="FunctionInfo.Categories"/>; override to set them.</summary>
+    public virtual IReadOnlyList<string> Categories => [];
+
+    /// <summary>Usage examples surfaced via <see cref="FunctionInfo.Examples"/>; override to set them.</summary>
+    public virtual IReadOnlyList<FunctionExample> Examples => [];
+
     public virtual Schema ArgumentsSchema => _plan.ArgumentsSchema;
 
     public virtual Schema OutputSchema => _plan.OutputSchema;

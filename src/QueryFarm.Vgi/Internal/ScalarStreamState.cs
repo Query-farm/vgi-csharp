@@ -38,6 +38,7 @@ public sealed class ScalarStreamState(
             Arguments = arguments,
             Settings = settings,
             Secrets = secrets,
+            DeclaredArgumentsSchema = function.ArgumentsSchema,
         });
         ContinuedOutput.RefuseOutsideExchange(function.Name, function.CacheControlMetadata);
         output.Emit(result, function.CacheControlMetadata);

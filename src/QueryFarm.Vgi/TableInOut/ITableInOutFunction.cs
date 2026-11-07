@@ -41,6 +41,11 @@ public interface ITableInOutFunction
 
     IReadOnlyList<string> Categories => [];
 
+    /// <summary>Optional usage examples surfaced through the catalog
+    /// (<see cref="Protocol.FunctionInfo.Examples"/>) for agent and human discovery — e.g.
+    /// <c>new FunctionExample { Sql = "SELECT ...", Description = "..." }</c>. Empty by default.</summary>
+    IReadOnlyList<FunctionExample> Examples => [];
+
     /// <summary>Describes the function's NON-table positional/named arguments PLUS exactly one
     /// <see cref="Table.TableArgFields.Table"/>-marked field for the TABLE input, in whatever
     /// position matches the desired SQL call shape (e.g. <c>f(data TABLE, threshold INT)</c> or
