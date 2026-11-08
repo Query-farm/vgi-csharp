@@ -1,4 +1,4 @@
-# Catalog metadata and publication (wire 3.1)
+# Catalog metadata and publication (wire 3.2)
 
 `catalog_contents` returns six nullable Arrow IPC streams: `schemas`, `tables`, `views`, `functions`, `macros`, and `indexes`. A stream can contain multiple rows and record batches spanning multiple schemas. Empty categories are null. Functions and macros retain their subtype fields. Per-schema listing RPCs keep their existing item shapes, except `SchemaInfo` no longer carries attachment bytes; real attach request/result and function state remain intact.
 
@@ -19,4 +19,4 @@ C#: call `Worker.CatalogSnapshot(policy)`. Use `policy.Manager.WarmAsync`, `Impo
 
 This implementation requires QueryFarm.VgiRpc 0.18.1 for binary dictionary schema derivation and value encoding/decoding.
 
-This preparation branch requires native clients and workers on wire 3.1.x; wire 2.x and 3.0.x are incompatible. The protocol route is `vgi.v3`. CI and release builds resolve RPC 0.18.3 from NuGet.
+This preparation branch requires native clients and workers on wire 3.2.x; wire 2.x, 3.0.x and 3.1.x are incompatible. The protocol route is `vgi.v3`. CI and release builds resolve RPC 0.18.3 from NuGet.

@@ -39,6 +39,60 @@ public class CatalogContractsTests
         Assert.Equal(Fixture("partition_scan_split"), Assert.Single(plan.Splits));
     }
 
+    [Fact]
+    public void Protocol32ScanPlanningDecodesPythonGoldenRecords()
+    {
+        var branch = RoundTrip<ScanBranch>("scan_planning_branch");
+        Assert.Equal("read_parquet", branch.FunctionName);
+        Assert.Equal(1000, branch.RowCount);
+        var stats = ColumnStatisticsCodec.Decode(branch.ColumnStatistics);
+        Assert.Equal(["event_date", "n"], stats.Select(s => s.ColumnName));
+        Assert.Equal(new DateOnly(2026, 10, 3), stats[0].Stats.Min);
+        Assert.Equal(new DateOnly(2026, 10, 3), stats[0].Stats.Max);
+        Assert.False(stats[0].Stats.HasNull);
+        Assert.True(stats[0].Stats.HasNotNull);
+        Assert.Equal(0L, stats[1].Stats.Min);
+        Assert.Equal(999L, stats[1].Stats.Max);
+        Assert.True(stats[1].Stats.HasNull);
+        // The column_statistics payload survives a C# re-encode of the branch byte for byte.
+        Assert.Equal(EmbeddedIpc.Decode<ScanBranch>(Fixture("scan_planning_branch")).ColumnStatistics, branch.ColumnStatistics);
+
+        var result = RoundTrip<ScanBranchesResult>("scan_planning_branches_result");
+        Assert.Equal(["parquet"], result.RequiredExtensions);
+        var resultBranch = EmbeddedIpc.Decode<ScanBranch>(Assert.Single(result.Branches));
+        Assert.Equal(1000, resultBranch.RowCount);
+        Assert.Equal(branch.ColumnStatistics, resultBranch.ColumnStatistics);
+
+        var empty = RoundTrip<ScanBranchesResult>("scan_planning_empty_branches_result");
+        Assert.Empty(empty.Branches);
+        Assert.Empty(empty.RequiredExtensions);
+
+        var table = RoundTrip<TableInfo>("scan_planning_table_info");
+        Assert.Equal("events", table.Name);
+        Assert.Equal("filtered", table.ScanPlanning);
+        Assert.Null(table.ScanFunction);
+
+        var columns = SchemaIpc.ReadSchemaOnly(table.Columns);
+        var filters = new QueryFarm.Vgi.Catalog.ScanPlanningFilters(Fixture("scan_planning_pushdown_filters"), () => columns);
+        var decoded = filters.Decode()!;
+        Assert.Equal(["query:0", "query:1"], decoded.Predicates.Select(p => p.Id));
+        Assert.Equal(new DateOnly(2026, 10, 3), stats[0].Stats.Min);
+        Assert.True(filters.MayMatch(stats.ToDictionary(s => s.ColumnName, s => s.Stats)));
+        Assert.False(filters.MayMatch(new Dictionary<string, QueryFarm.Vgi.Catalog.ColumnStatisticsInput>
+        {
+            ["event_date"] = new() { Min = new DateOnly(2026, 10, 1), Max = new DateOnly(2026, 10, 2) },
+        }));
+    }
+
+    [Fact]
+    public void Protocol32BindTableInfoDefaultsScanPlanningToBind()
+    {
+        var table = RoundTrip<TableInfo>("scan_planning_table_info");
+        table.ScanPlanning = "bind";
+        Assert.Equal("bind", EmbeddedIpc.Decode<TableInfo>(EmbeddedIpc.Encode(table)).ScanPlanning);
+        Assert.Equal("bind", new TableInfo().ScanPlanning);
+    }
+
     [Theory]
     [InlineData("none", null)]
     [InlineData("main", "main")]

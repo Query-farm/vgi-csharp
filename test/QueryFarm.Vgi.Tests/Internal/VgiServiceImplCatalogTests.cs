@@ -726,3 +726,220 @@ public class TableColumnMetadataAndDatabaseInfoTests
         Assert.Equal("not_inlined_scan", branch.FunctionName);
     }
 }
+
+/// <summary>Protocol 3.2 filtered scan planning: <see cref="CatalogTable.PlanScanBranches"/> dispatch,
+/// <see cref="CatalogTable.ScanPlanning"/> validation/serialization, branch statistics, and
+/// <see cref="ScanPlanningFilters.MayMatch"/> (vgi-python <c>tests/test_scan_planning.py</c>).</summary>
+public class ScanPlanningTests
+{
+    private static readonly Schema DayColumns = new(
+        [new Field("event_date", Date32Type.Default, nullable: true), new Field("n", Int64Type.Default, nullable: true)],
+        metadata: null);
+
+    /// <summary><c>WHERE event_date &gt;= DATE '2026-10-03' AND n &lt; 100</c>, as the client sends it.</summary>
+    private static byte[] GoldenFilters => Protocol.CatalogContractsTests.Fixture("scan_planning_pushdown_filters");
+
+    private static ScanPlanningFilters Filters() => new(GoldenFilters, () => DayColumns);
+
+    private static Dictionary<string, ColumnStatisticsInput> Day(int day) => new()
+    {
+        ["event_date"] = new ColumnStatisticsInput { Min = new DateOnly(2026, 10, day), Max = new DateOnly(2026, 10, day), HasNull = false },
+    };
+
+    private static ScanBranchSpec DayBranch(int day) => new()
+    {
+        FunctionName = "read_parquet",
+        PositionalArguments = [$"/tmp/{day}.parquet"],
+        RowCount = 10,
+        ColumnStatistics = Day(day),
+    };
+
+    [Fact]
+    public void Filters_DecodeAgainstTheTablesDeclaredColumns_Lazily()
+    {
+        var calls = 0;
+        var filters = new ScanPlanningFilters(GoldenFilters, () => { calls++; return DayColumns; });
+        Assert.Equal(0, calls);
+        var decoded = filters.Decode();
+        Assert.NotNull(decoded);
+        Assert.Equal("snapshot", decoded!.Kind);
+        Assert.Equal(2, decoded.Predicates.Count);
+        Assert.All(decoded.Predicates, p => Assert.Equal("advisory", p.Mode));
+        Assert.Same(decoded, filters.Decode());
+        Assert.Equal(1, calls);
+        Assert.Equal(GoldenFilters, filters.Raw);
+    }
+
+    [Fact]
+    public void MayMatch_PrunesOnlyWhatThePredicatesProvablyExclude()
+    {
+        var filters = Filters();
+        Assert.False(filters.MayMatch(Day(1)));
+        Assert.False(filters.MayMatch(Day(2)));
+        Assert.True(filters.MayMatch(Day(3)));
+        Assert.True(filters.MayMatch(Day(5)));
+        // A range straddling the bound may match.
+        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput>
+        {
+            ["event_date"] = new() { Min = new DateOnly(2026, 9, 1), Max = new DateOnly(2026, 10, 3) },
+        }));
+        // n < 100 against n in [100, 200] cannot match; [99, 200] can.
+        Assert.False(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["n"] = new() { Min = 100L, Max = 200L } }));
+        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["n"] = new() { Min = 99L, Max = 200L } }));
+        // Only an upper bound known: n >= 100 is not proven.
+        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["n"] = new() { Max = 50L } }));
+        // An entirely-NULL column never satisfies a comparison.
+        Assert.False(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["n"] = new() { HasNull = true, HasNotNull = false } }));
+    }
+
+    [Fact]
+    public void MayMatch_KeepsWhatItCannotReasonAbout()
+    {
+        var filters = Filters();
+        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput>()));
+        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["other"] = new() { Min = 0L, Max = 0L } }));
+        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["event_date"] = new() }));
+        // A bound of an incomparable type (a long against a DATE literal) is not evidence.
+        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["event_date"] = new() { Min = 0L, Max = 1L } }));
+        // An empty payload carries no predicates.
+        Assert.True(new ScanPlanningFilters([], () => DayColumns).MayMatch(Day(1)));
+    }
+
+    [Fact]
+    public async Task PlanningHook_ReceivesTheDecodedFilters_AndItsBranchesAreServed()
+    {
+        ScanPlanningRequest? seen = null;
+        var registry = new CatalogRegistry();
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "events",
+            SchemaName = "data",
+            Columns = DayColumns,
+            ScanPlanning = ScanPlanningModes.Filtered,
+            RequiredExtensions = ["parquet"],
+            PlanScanBranches = request =>
+            {
+                seen = request;
+                return new ScanBranchesPlan
+                {
+                    Branches = [.. Enumerable.Range(1, 5).Where(d => request.Filters?.MayMatch(Day(d)) ?? true).Select(DayBranch)],
+                };
+            },
+        });
+        var service = new VgiServiceImpl(registry);
+
+        var result = await service.CatalogTableScanBranchesGetAsync([], ["data"], "events", null, null, null, GoldenFilters);
+
+        Assert.NotNull(seen);
+        Assert.Equal("events", seen!.TableName);
+        Assert.Equal(["data"], seen.SchemaPath);
+        Assert.Equal(GoldenFilters, seen.Filters!.Raw);
+        Assert.Equal(["parquet"], result.RequiredExtensions);
+        Assert.Equal(3, result.Branches.Count);
+        var branch = EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]);
+        Assert.Equal(10, branch.RowCount);
+        var (column, stats) = Assert.Single(ColumnStatisticsCodec.Decode(branch.ColumnStatistics));
+        Assert.Equal("event_date", column);
+        Assert.Equal(new DateOnly(2026, 10, 3), stats.Min);
+        Assert.Equal(new DateOnly(2026, 10, 3), stats.Max);
+        Assert.False(stats.HasNull);
+        Assert.True(stats.HasNotNull);
+
+        // No pushdown_filters (bind-time planning): the hook sees null and keeps every day.
+        var unfiltered = await service.CatalogTableScanBranchesGetAsync([], ["data"], "events", null, null, null);
+        Assert.Null(seen.Filters);
+        Assert.Equal(5, unfiltered.Branches.Count);
+    }
+
+    [Fact]
+    public async Task PlanningHook_MayReturnZeroBranches_OrFallBackToTheDeclaredScan()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "none",
+            SchemaName = "data",
+            Columns = DayColumns,
+            ScanPlanning = ScanPlanningModes.Filtered,
+            PlanScanBranches = _ => new ScanBranchesPlan { RequiredExtensions = ["parquet"] },
+        });
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "declared",
+            SchemaName = "data",
+            Columns = DayColumns,
+            ScanPlanning = ScanPlanningModes.Filtered,
+            RequiredExtensions = ["iceberg"],
+            Branches = [DayBranch(1), DayBranch(2)],
+            PlanScanBranches = _ => null,
+        });
+        var service = new VgiServiceImpl(registry);
+
+        var none = await service.CatalogTableScanBranchesGetAsync([], ["data"], "none", null, null, null, GoldenFilters);
+        Assert.Empty(none.Branches);
+        Assert.Equal(["parquet"], none.RequiredExtensions);
+        var roundTripped = EmbeddedIpc.Decode<ScanBranchesResult>(EmbeddedIpc.Encode(none));
+        Assert.Empty(roundTripped.Branches);
+
+        var declared = await service.CatalogTableScanBranchesGetAsync([], ["data"], "declared", null, null, null, GoldenFilters);
+        Assert.Equal(2, declared.Branches.Count);
+        Assert.Equal(["iceberg"], declared.RequiredExtensions);
+    }
+
+    [Fact]
+    public async Task TableInfo_CarriesScanPlanning_DefaultingToBind()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterCatalogTable(new CatalogTable { Name = "plain", SchemaName = "data", Columns = DayColumns, Branches = [] });
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "planned",
+            SchemaName = "data",
+            ScanPlanning = ScanPlanningModes.Filtered,
+            ScanFunction = new StubTableFunction("planned_scan"),
+            InlineScanFunction = false,
+        });
+        var service = new VgiServiceImpl(registry);
+
+        var plain = EmbeddedIpc.Decode<TableInfo>((await service.CatalogTableGetAsync([], ["data"], "plain", null, null, null)).Items[0]);
+        Assert.Equal("bind", plain.ScanPlanning);
+        var planned = EmbeddedIpc.Decode<TableInfo>((await service.CatalogTableGetAsync([], ["data"], "planned", null, null, null)).Items[0]);
+        Assert.Equal("filtered", planned.ScanPlanning);
+        Assert.Null(planned.ScanFunction);
+    }
+
+    [Fact]
+    public void Registration_RefusesUnknownModes_AndAFilteredTableThatInlinesItsScan()
+    {
+        var registry = new CatalogRegistry();
+        var unknown = Assert.Throws<InvalidOperationException>(() => registry.RegisterCatalogTable(
+            new CatalogTable { Name = "t", SchemaName = "data", Columns = DayColumns, ScanPlanning = "deferred" }));
+        Assert.Contains("deferred", unknown.Message);
+        var inlined = Assert.Throws<InvalidOperationException>(() => registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "t",
+            SchemaName = "data",
+            ScanPlanning = ScanPlanningModes.Filtered,
+            ScanFunction = new StubTableFunction("t_scan"),
+        }));
+        Assert.Contains("inlined ScanFunction", inlined.Message);
+    }
+
+    [Fact]
+    public void BranchRowCount_MustBeNonNegative()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ScanBranchSpec { FunctionName = "f", RowCount = -1 });
+        Assert.Equal(0, new ScanBranchSpec { FunctionName = "f", RowCount = 0 }.RowCount);
+    }
+
+    [Fact]
+    public void ScanArguments_EncodeAVarcharList()
+    {
+        var bytes = ScanArgsCodec.Encode([new List<string> { "a.parquet", "b.parquet" }]);
+        var batch = RecordBatchIpc.Read(bytes);
+        var list = Assert.IsType<ListArray>(batch.Column("arg_0"));
+        Assert.Equal(1, list.Length);
+        var values = (StringArray)list.Values;
+        Assert.Equal(["a.parquet", "b.parquet"], Enumerable.Range(0, values.Length).Select(i => values.GetString(i)));
+    }
+}

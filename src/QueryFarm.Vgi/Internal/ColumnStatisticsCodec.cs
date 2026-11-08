@@ -22,6 +22,7 @@ public static class ColumnStatisticsCodec
     private const byte StringTypeId = 2;
     private const byte BoolTypeId = 3;
     private const byte BinaryTypeId = 4;
+    private const byte Date32TypeId = 5;
 
     private static readonly UnionType ValueUnionType = new(
         [
@@ -30,8 +31,9 @@ public static class ColumnStatisticsCodec
             new Field("s", StringType.Default, nullable: true),
             new Field("b", BooleanType.Default, nullable: true),
             new Field("bin", BinaryType.Default, nullable: true),
+            new Field("d", Date32Type.Default, nullable: true),
         ],
-        [Int64TypeId, DoubleTypeId, StringTypeId, BoolTypeId, BinaryTypeId],
+        [Int64TypeId, DoubleTypeId, StringTypeId, BoolTypeId, BinaryTypeId, Date32TypeId],
         UnionMode.Sparse);
 
     private static readonly Schema BatchSchema = new(
@@ -132,6 +134,83 @@ public static class ColumnStatisticsCodec
         return stream.ToArray();
     }
 
+    /// <summary>
+    /// Decodes a column-statistics batch — the inverse of <see cref="Encode"/>, and also the layout
+    /// vgi-python's <c>serialize_column_statistics</c> emits (a sparse union with one member per
+    /// distinct value type, in any order). Returns rows in wire order; <c>Min</c>/<c>Max</c> are
+    /// boxed CLR scalars (<see cref="long"/>, <see cref="double"/>, <see cref="string"/>,
+    /// <see cref="bool"/>, <see cref="byte"/>[], <see cref="DateOnly"/>, ...), <see langword="null"/>
+    /// when unknown. Empty/null bytes decode to no rows.
+    /// </summary>
+    public static IReadOnlyList<(string ColumnName, Catalog.ColumnStatisticsInput Stats)> Decode(byte[]? bytes)
+    {
+        var rows = new List<(string, Catalog.ColumnStatisticsInput)>();
+        if (bytes is null || bytes.Length == 0)
+        {
+            return rows;
+        }
+
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(stream);
+        while (reader.ReadNextRecordBatch() is { } batch)
+        {
+            using (batch)
+            {
+                var names = (StringArray)Column(batch, "column_name")!;
+                var mins = Column(batch, "min");
+                var maxs = Column(batch, "max");
+                var hasNull = (BooleanArray)Column(batch, "has_null")!;
+                var hasNotNull = (BooleanArray)Column(batch, "has_not_null")!;
+                var distinct = Column(batch, "distinct_count") as Int64Array;
+                var unicode = Column(batch, "contains_unicode") as BooleanArray;
+                var maxLength = Column(batch, "max_string_length");
+                for (var i = 0; i < batch.Length; i++)
+                {
+                    rows.Add((names.GetString(i)!, new Catalog.ColumnStatisticsInput
+                    {
+                        Min = UnionValue(mins, i),
+                        Max = UnionValue(maxs, i),
+                        HasNull = hasNull.GetValue(i) ?? true,
+                        HasNotNull = hasNotNull.GetValue(i) ?? true,
+                        DistinctCount = distinct?.GetValue(i),
+                        ContainsUnicode = unicode?.GetValue(i),
+                        MaxStringLength = maxLength is null || maxLength.IsNull(i)
+                            ? null
+                            : Convert.ToInt64(ScalarArgCodec.ReadScalar(maxLength, i), System.Globalization.CultureInfo.InvariantCulture),
+                    }));
+                }
+            }
+        }
+
+        return rows;
+    }
+
+    private static IArrowArray? Column(RecordBatch batch, string name)
+    {
+        var index = batch.Schema.GetFieldIndex(name);
+        return index < 0 ? null : batch.Column(index);
+    }
+
+    private static object? UnionValue(IArrowArray? array, int index)
+    {
+        if (array is not UnionArray union || union.IsNull(index))
+        {
+            return null;
+        }
+
+        var type = (UnionType)union.Data.DataType;
+        var typeId = union.TypeIds[index];
+        var child = System.Array.IndexOf(type.TypeIds, (int)typeId);
+        if (child < 0)
+        {
+            return null;
+        }
+
+        var childIndex = union.Mode == UnionMode.Sparse ? index : ((DenseUnionArray)union).ValueOffsets[index];
+        var values = union.Fields[child];
+        return values is NullArray ? null : ScanPlanningEvaluator.ReadValue(values, childIndex);
+    }
+
     /// <summary>Appends <paramref name="value"/> to whichever union-member builder matches its CLR
     /// type (NULL values are still placed in the int64 member — the value itself carries no
     /// validity bit for a NULL min/max, but the caller conditions on <see cref="Catalog.ColumnStatisticsInput.Min"/>/
@@ -175,6 +254,10 @@ public static class ColumnStatisticsCodec
                 typeId = BinaryTypeId;
                 builders.Binary.Append(bin);
                 break;
+            case DateOnly date:
+                typeId = Date32TypeId;
+                builders.Date32.Append(date);
+                break;
             default:
                 throw new ArgumentException($"Unsupported column-statistics value type '{value.GetType()}'.", nameof(value));
         }
@@ -204,6 +287,11 @@ public static class ColumnStatisticsCodec
             builders.Binary.AppendNull();
         }
 
+        if (typeId != Date32TypeId)
+        {
+            builders.Date32.AppendNull();
+        }
+
         return typeId;
     }
 
@@ -219,6 +307,9 @@ public static class ColumnStatisticsCodec
 
         public BinaryArray.Builder Binary { get; } = new();
 
-        public IArrowArray[] Build() => [Int64.Build(), Double.Build(), String.Build(), Bool.Build(), Binary.Build()];
+        public Date32Array.Builder Date32 { get; } = new();
+
+        public IArrowArray[] Build() =>
+            [Int64.Build(), Double.Build(), String.Build(), Bool.Build(), Binary.Build(), Date32.Build()];
     }
 }

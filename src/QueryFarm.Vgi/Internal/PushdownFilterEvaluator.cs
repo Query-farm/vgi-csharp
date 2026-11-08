@@ -280,7 +280,7 @@ public static class PushdownFilterEvaluator
 
     private static bool? Not(bool? value) => value is null ? null : !value.Value;
 
-    private static int Compare(object left, object right)
+    internal static int Compare(object left, object right)
     {
         if (left is string leftString && right is string rightString)
         {

@@ -694,6 +694,7 @@ public sealed class CatalogRegistry
     {
         ArgumentNullException.ThrowIfNull(table);
         ValidateRowIdColumn(table);
+        table.ValidateScanPlanning();
         _tables[(identity, PathKey(table.EffectiveSchemaPath), table.Name)] = table;
         ContentsChanged();
 

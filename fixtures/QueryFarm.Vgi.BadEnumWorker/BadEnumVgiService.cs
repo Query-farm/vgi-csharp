@@ -119,8 +119,8 @@ internal sealed class BadEnumVgiService(IVgiService real) : IVgiService
 
     public Task<ScanBranchesResult> CatalogTableScanBranchesGetAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
-        byte[]? transactionOpaqueData, ICallContext? ctx = null) =>
-        real.CatalogTableScanBranchesGetAsync(attachOpaqueData, schemaPath, name, atUnit, atValue, transactionOpaqueData, ctx);
+        byte[]? transactionOpaqueData, byte[]? pushdownFilters, ICallContext? ctx = null) =>
+        real.CatalogTableScanBranchesGetAsync(attachOpaqueData, schemaPath, name, atUnit, atValue, transactionOpaqueData, pushdownFilters, ctx);
 
     public Task<ItemsResponse> CatalogViewGetAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null) =>

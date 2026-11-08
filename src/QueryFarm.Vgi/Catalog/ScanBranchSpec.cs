@@ -50,4 +50,28 @@ public sealed record ScanBranchSpec
     /// <summary>Declares this the INSERT target among a table's branches. At most one branch of a
     /// given <see cref="CatalogTable.Branches"/> list may set this.</summary>
     public bool Writable { get; init; }
+
+    private readonly long? _rowCount;
+
+    /// <summary>Protocol 3.2: estimated rows this branch produces before any predicate. Used for
+    /// cardinality estimation only — never trusted as exact. <see langword="null"/> (the default)
+    /// means unknown. Must be non-negative.</summary>
+    public long? RowCount
+    {
+        get => _rowCount;
+        init => _rowCount = value is < 0
+            ? throw new ArgumentOutOfRangeException(nameof(RowCount), value, "ScanBranchSpec.RowCount must be >= 0.")
+            : value;
+    }
+
+    /// <summary>Protocol 3.2: conservative per-column statistics for EVERY row this branch produces,
+    /// keyed by the table's declared column names (columns may be omitted). Encoded exactly like
+    /// <see cref="CatalogTable.Statistics"/> (<see cref="Internal.ColumnStatisticsCodec"/>). The
+    /// client drops the branch when a query predicate is provably false against them — every
+    /// non-null value must lie in <c>[Min, Max]</c>, <c>HasNull = false</c> must mean no NULLs,
+    /// <c>HasNotNull = false</c> must mean all NULL — so wrong statistics silently lose rows: leave
+    /// a column out rather than guess. Note <see cref="ColumnStatisticsInput.HasNull"/> defaults to
+    /// <see langword="false"/> (a claim of "no NULLs"): set it whenever the column may hold NULLs.
+    /// See vgi-python's <c>docs/protocol/scan-planning.md</c>.</summary>
+    public IReadOnlyDictionary<string, ColumnStatisticsInput>? ColumnStatistics { get; init; }
 }

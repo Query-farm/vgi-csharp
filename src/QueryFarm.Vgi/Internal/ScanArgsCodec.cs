@@ -44,6 +44,30 @@ public static class ScanArgsCodec
 
     private static void AppendColumn(string name, object? value, List<Field> fields, List<IArrowArray> arrays)
     {
+        if (value is IReadOnlyList<string?> strings)
+        {
+            // A VARCHAR[] argument — e.g. read_parquet(['a.parquet', 'b.parquet']).
+            var builder = new ListArray.Builder(StringType.Default);
+            var values = (StringArray.Builder)builder.ValueBuilder;
+            builder.Append();
+            foreach (var item in strings)
+            {
+                if (item is null)
+                {
+                    values.AppendNull();
+                }
+                else
+                {
+                    values.Append(item);
+                }
+            }
+
+            var list = builder.Build();
+            fields.Add(new Field(name, list.Data.DataType, nullable: true));
+            arrays.Add(list);
+            return;
+        }
+
         var type = InferType(value);
         fields.Add(new Field(name, type, nullable: true));
         arrays.Add(AnyArrayBuilder.Build(type, [value]));

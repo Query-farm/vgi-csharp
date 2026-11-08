@@ -27,7 +27,7 @@ Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targe
 The package selects its patched Arrow assemblies automatically, including in transitive consumers;
 no manual exclusions for DuckDB.NET's optional official Arrow assemblies are required.
 
-This branch uses VGI wire 3.1.0 under `vgi.v3` and requires a native VGI client speaking wire 3.1.x. Upgrade clients and workers together; wire 2.x and 3.0.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+This branch uses VGI wire 3.2.0 under `vgi.v3` and requires a native VGI client speaking wire 3.2.x. Upgrade clients and workers together; wire 2.x, 3.0.x and 3.1.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 
 > **Qualification:** the DuckDB 2.0 HTTP lane passed 351 canonical SQLLogic files,
 > with 28 explicit environment or capability skips; writable-catalog files are excluded from this HTTP count.
@@ -315,6 +315,49 @@ reads its secret `token` option only through the accessor.
 `secret` combines with `required`. A secret option may declare a default, but normally shouldn't.
 `required` is advertised, not enforced by the extension: reject a missing required option in your
 `OnAttach` handler.
+
+### Multi-branch tables and filtered scan planning
+
+A `CatalogTable` can redirect its scan to one or more branches instead of a single `ScanFunction`:
+`Branches` lists `ScanBranchSpec`s (a VGI or native DuckDB function such as `read_parquet`, a
+companion catalog table, or a format + locations), which the client stitches together with
+`UNION ALL`. Protocol 3.2 adds filtered planning
+([spec](https://github.com/Query-farm/vgi-python/blob/main/docs/protocol/scan-planning.md)):
+
+- `ScanPlanning = ScanPlanningModes.Filtered` makes the client resolve the branches once per scan,
+  after it has collected the query's predicates on the table. A filtered table cannot inline its
+  scan (`ScanFunction` with `InlineScanFunction = true` is refused).
+- `PlanScanBranches` is called for every `catalog_table_scan_branches_get` with those predicates
+  (`request.Filters`, null when none were collected). Return a `ScanBranchesPlan` with fewer
+  branches or files, or `null` to answer from `Branches`/`ScanFunction` unchanged. Every predicate
+  is advisory, so return any superset of what could match; zero branches means "no rows".
+  `ScanPlanningFilters.MayMatch(stats)` tells you whether a candidate described by min/max
+  statistics can match.
+- `ScanBranchSpec.RowCount` and `ScanBranchSpec.ColumnStatistics` let the client drop a branch whose
+  statistics contradict the query. They are conservative claims about every row of the branch:
+  leave a column out rather than guess.
+
+```csharp
+new CatalogTable
+{
+    Name = "events",
+    Columns = columns,                       // event_date DATE, n BIGINT
+    ScanPlanning = ScanPlanningModes.Filtered,
+    RequiredExtensions = ["parquet"],
+    PlanScanBranches = request => new ScanBranchesPlan
+    {
+        Branches = [.. manifest
+            .Where(file => request.Filters?.MayMatch(file.Stats) ?? true)
+            .Select(file => new ScanBranchSpec
+            {
+                FunctionName = "read_parquet",
+                PositionalArguments = [file.Path],
+                RowCount = file.Rows,
+                ColumnStatistics = file.Stats,  // e.g. ["event_date"] = new() { Min = day, Max = day, HasNull = false }
+            })],
+    },
+};
+```
 
 ### Writable tables
 

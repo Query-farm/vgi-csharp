@@ -174,18 +174,27 @@ public class EmbeddedIpcTests
     [Fact]
     public void ScanFunctionResultAndScanBranch_DeriveSchemaPath_AsATrailingNullableStringListField()
     {
-        // Both wire schemas append schema_path LAST and nullable, matching the reference
-        // ScanFunctionResultSchema()/ScanBranchSchema().
-        foreach (var clrType in new[] { typeof(ScanFunctionResult), typeof(ScanBranch) })
+        // Both wire schemas append schema_path nullable, matching the reference
+        // ScanFunctionResultSchema()/ScanBranchSchema() — last for ScanFunctionResult, and for
+        // ScanBranch followed only by protocol 3.2's row_count/column_statistics.
+        foreach (var (clrType, trailing) in new[] { (typeof(ScanFunctionResult), 0), (typeof(ScanBranch), 2) })
         {
             var schema = SchemaDerivation.InnerSchemaFor(clrType);
-            var field = schema.GetFieldByIndex(schema.FieldsList.Count - 1);
+            var field = schema.GetFieldByIndex(schema.FieldsList.Count - 1 - trailing);
 
             Assert.Equal("schema_path", field.Name);
             var listType = Assert.IsType<Apache.Arrow.Types.ListType>(field.DataType);
             Assert.Equal(Apache.Arrow.Types.StringType.Default.TypeId, listType.ValueDataType.TypeId);
             Assert.True(field.IsNullable);
         }
+
+        var branch = SchemaDerivation.InnerSchemaFor(typeof(ScanBranch));
+        var rowCount = branch.GetFieldByIndex(branch.FieldsList.Count - 2);
+        Assert.Equal(("row_count", true), (rowCount.Name, rowCount.IsNullable));
+        Assert.IsType<Apache.Arrow.Types.Int64Type>(rowCount.DataType);
+        var stats = branch.GetFieldByIndex(branch.FieldsList.Count - 1);
+        Assert.Equal(("column_statistics", true), (stats.Name, stats.IsNullable));
+        Assert.IsType<Apache.Arrow.Types.BinaryType>(stats.DataType);
     }
 
     [Fact]

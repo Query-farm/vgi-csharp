@@ -426,7 +426,7 @@ var worker = new Worker()
 // catalog/window_self_join.test's plain-table regression fixture.
 foreach (var table in DataSchemaTables.All(sequenceFunction, tenThousandFunction).Concat(MainSchemaTables.All)
     .Concat(CacheDataTables.All(cacheableNumbersFunction, cacheRevalidatableFunction, cacheFilteredFunction, secretCacheNonceFunction))
-    .Concat(RequiredFiltersTables.All).Concat(MultiBranchTables.All).Concat(VersionedTimeTravelTables.All)
+    .Concat(RequiredFiltersTables.All).Concat(MultiBranchTables.All).Concat(PlannedDaysTables.All).Concat(VersionedTimeTravelTables.All)
     .Concat(TimeTravelPushdownTables.All).Append(CacheVersionedTable.Table).Append(GeoPointsTable.Table))
 {
     worker.RegisterCatalogTable(table);

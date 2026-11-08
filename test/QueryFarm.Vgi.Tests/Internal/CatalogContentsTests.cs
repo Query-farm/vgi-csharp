@@ -698,7 +698,7 @@ public class CatalogContentsTests
 
         public Task<ScanBranchesResult> CatalogTableScanBranchesGetAsync(
             byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
-            byte[]? transactionOpaqueData, VgiRpc.Server.ICallContext? ctx = null) =>
-            real.CatalogTableScanBranchesGetAsync(attachOpaqueData, schemaPath, name, atUnit, atValue, transactionOpaqueData, ctx);
+            byte[]? transactionOpaqueData, byte[]? pushdownFilters, VgiRpc.Server.ICallContext? ctx = null) =>
+            real.CatalogTableScanBranchesGetAsync(attachOpaqueData, schemaPath, name, atUnit, atValue, transactionOpaqueData, pushdownFilters, ctx);
     }
 }

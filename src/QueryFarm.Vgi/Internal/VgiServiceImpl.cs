@@ -1777,15 +1777,19 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     }
 
     /// <summary>Resolves a table's scan branches — see <see cref="IVgiService.CatalogTableScanBranchesGetAsync"/>'s
-    /// doc comment. A table declaring an explicit <see cref="CatalogTable.Branches"/> list reports
-    /// exactly that (even when empty — the C++ parser is the one that loud-fails on zero branches,
-    /// not this worker); an ordinary <see cref="CatalogTable.ScanFunction"/>-backed table is
-    /// reported as a single synthesized branch wrapping that same function with no extra arguments,
-    /// no filter, not writable — the same shape <c>BuildInlineScanFunction</c> already gives the
-    /// inline <c>TableInfo.scan_function</c> field for its real scan path.</summary>
+    /// doc comment. Protocol 3.2: a table's <see cref="CatalogTable.PlanScanBranches"/> hook is
+    /// called first, with <paramref name="pushdownFilters"/> wrapped as a lazily-decoded
+    /// <see cref="ScanPlanningFilters"/>; when it is unset or returns <see langword="null"/>, a table
+    /// declaring an explicit <see cref="CatalogTable.Branches"/> list reports exactly that (even when
+    /// empty — legal for a filtered table, and for a bind table the C++ parser is the one that
+    /// loud-fails on zero branches, not this worker); an ordinary
+    /// <see cref="CatalogTable.ScanFunction"/>-backed table is reported as a single synthesized
+    /// branch wrapping that same function with no extra arguments, no filter, not writable — the
+    /// same shape <c>BuildInlineScanFunction</c> already gives the inline
+    /// <c>TableInfo.scan_function</c> field for its real scan path.</summary>
     public Task<ScanBranchesResult> CatalogTableScanBranchesGetAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, string? atUnit, string? atValue,
-        byte[]? transactionOpaqueData, ICallContext? ctx = null)
+        byte[]? transactionOpaqueData, byte[]? pushdownFilters = null, ICallContext? ctx = null)
     {
         if (catalog.InMemory.Find(attachOpaqueData) is { } memory && memory.Table(schemaPath, name) is not null)
         {
@@ -1799,7 +1803,27 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         List<ScanBranch> branches;
         List<string> requiredExtensions;
-        if (table.Branches is { } declared)
+        var planned = table.PlanScanBranches is { } plan
+            ? plan(new ScanPlanningRequest
+            {
+                Identity = identity,
+                Table = table,
+                SchemaPath = schemaPath,
+                TableName = name,
+                AtUnit = atUnit,
+                AtValue = atValue,
+                TransactionOpaqueData = transactionOpaqueData,
+                Filters = pushdownFilters is null
+                    ? null
+                    : new ScanPlanningFilters(pushdownFilters, () => PlanningColumns(table, atUnit, atValue)),
+            })
+            : null;
+        if (planned is not null)
+        {
+            branches = planned.Branches.Select(spec => BuildScanBranch(spec, identity, table.EffectiveSchemaPath)).ToList();
+            requiredExtensions = (planned.RequiredExtensions ?? table.RequiredExtensions).ToList();
+        }
+        else if (table.Branches is { } declared)
         {
             branches = declared.Select(spec => BuildScanBranch(spec, identity, table.EffectiveSchemaPath)).ToList();
             requiredExtensions = table.RequiredExtensions.ToList();
@@ -1861,7 +1885,19 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         FormatName = spec.FormatName,
         FormatLocations = spec.FormatLocations?.ToList(),
         FormatOptions = spec.FormatOptions is { } opts ? ScanArgsCodec.Encode([], opts) : null,
+        RowCount = spec.RowCount,
+        ColumnStatistics = spec.ColumnStatistics is { } stats
+            ? ColumnStatisticsCodec.Encode(stats.Select(kv => (kv.Key, kv.Value)).ToList())
+            : null,
     };
+
+    /// <summary>The declared columns <c>pushdown_filters</c>' column indexes refer to — the same
+    /// columns <c>catalog_table_get</c> serves for this table and AT clause.</summary>
+    private static Schema PlanningColumns(CatalogTable table, string? atUnit, string? atValue) =>
+        (!string.IsNullOrEmpty(atUnit) && table.Branches is null && table.SupportsTimeTravel
+            && table.ResolveAtClause is { } resolve
+                ? resolve(atUnit, atValue ?? "")
+                : table).ResolveColumns();
 
     public Task<ItemsResponse> CatalogViewGetAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
@@ -2596,6 +2632,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         // non-nullable.
         columns = TableServing.ServedColumns(table.EffectiveSchemaPath, table.Name, columns, table.Constraints, lookup);
         RequirePhysicalScan(table, columns);
+        table.ValidateScanPlanning();
         return new TableInfo
         {
             Comment = table.Comment,
@@ -2618,6 +2655,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ColumnStatistics = null,
             BindResult = null,
             RequiredFilters = table.RequiredFilters.Select(group => group.Select(path => path.ToList()).ToList()).ToList(),
+            ScanPlanning = table.ScanPlanning,
         };
     }
 

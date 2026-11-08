@@ -190,7 +190,9 @@ public sealed class CatalogTable
     /// declaring both would have this list consulted ONLY by the <c>vgi_table_branches()</c>
     /// diagnostic, never by a real query. A table with neither this NOR <see cref="ScanFunction"/>
     /// set (rare — only makes sense alongside an explicit <see cref="Columns"/>) is a worker bug,
-    /// caught at <c>catalog_table_scan_branches_get</c> time.</summary>
+    /// caught at <c>catalog_table_scan_branches_get</c> time. Zero branches is a protocol error only
+    /// for a <see cref="ScanPlanningModes.Bind"/> table; for a <see cref="ScanPlanningModes.Filtered"/>
+    /// one it means "no rows". <see cref="PlanScanBranches"/>, when set, is consulted first.</summary>
     public IReadOnlyList<ScanBranchSpec>? Branches { get; init; }
 
     /// <summary>DuckDB extensions required to scan any of <see cref="Branches"/> (e.g.
@@ -198,6 +200,27 @@ public sealed class CatalogTable
     /// Ignored (a plain <see cref="ScanFunction"/>-backed table has none) unless <see cref="Branches"/>
     /// is also set.</summary>
     public IReadOnlyList<string> RequiredExtensions { get; init; } = [];
+
+    /// <summary>Protocol 3.2: when the client resolves this table's scan redirect —
+    /// <see cref="ScanPlanningModes.Bind"/> (the default, 3.1 behaviour) or
+    /// <see cref="ScanPlanningModes.Filtered"/>, which makes the client call
+    /// <c>catalog_table_scan_branches_get</c> once per scan AFTER collecting the query's predicates
+    /// on the table and pass them to <see cref="PlanScanBranches"/> as
+    /// <see cref="ScanPlanningRequest.Filters"/>; zero branches then means "no rows". A filtered
+    /// table must not inline its scan: registration and serving refuse
+    /// <see cref="ScanFunction"/> with <see cref="InlineScanFunction"/> <see langword="true"/>.
+    /// Any other value is refused. See vgi-python's <c>docs/protocol/scan-planning.md</c>.</summary>
+    public string ScanPlanning { get; init; } = ScanPlanningModes.Bind;
+
+    /// <summary>Protocol 3.2 planning hook, called for EVERY <c>catalog_table_scan_branches_get</c>
+    /// against this table with the query's predicates (<see cref="ScanPlanningRequest.Filters"/>,
+    /// <see langword="null"/> when none were collected). Return the branches to scan — any superset of
+    /// the branches/files that could hold a matching row (every predicate is advisory; the client
+    /// re-applies all of them), never fewer. <see cref="ScanPlanningFilters.MayMatch"/> prunes
+    /// candidates by min/max statistics. Returning <see langword="null"/>, or leaving this hook unset
+    /// (the default), ignores the predicates and answers from <see cref="Branches"/>/
+    /// <see cref="ScanFunction"/> exactly as protocol 3.1 did.</summary>
+    public Func<ScanPlanningRequest, ScanBranchesPlan?>? PlanScanBranches { get; init; }
 
     /// <summary>Whether this table honours <c>AT (VERSION =&gt; ...)</c>/<c>AT (TIMESTAMP =&gt; ...)</c>
     /// time-travel clauses. <see langword="false"/> (the default) makes
@@ -240,6 +263,26 @@ public sealed class CatalogTable
     /// "use <see cref="ScanArguments"/>/<see cref="ScanNamedArguments"/> unchanged, ignore AT".</summary>
     public Func<string, string, (IReadOnlyList<object?> Positional, IReadOnlyDictionary<string, object?> Named)>? ResolveScanArguments
     { get; init; }
+
+    /// <summary>Refuses an unknown <see cref="ScanPlanning"/> value and a filtered table that would
+    /// inline its scan function (the protocol forbids <c>scan_function</c> on a filtered table).</summary>
+    internal void ValidateScanPlanning()
+    {
+        if (!ScanPlanningModes.IsKnown(ScanPlanning))
+        {
+            throw new InvalidOperationException(
+                $"Table '{string.Join('.', EffectiveSchemaPath)}.{Name}': ScanPlanning must be one of " +
+                $"'{ScanPlanningModes.Bind}', '{ScanPlanningModes.Filtered}', got '{ScanPlanning}'.");
+        }
+
+        if (ScanPlanning == ScanPlanningModes.Filtered && ScanFunction is not null && InlineScanFunction)
+        {
+            throw new InvalidOperationException(
+                $"Table '{string.Join('.', EffectiveSchemaPath)}.{Name}': ScanPlanning = 'filtered' cannot be combined " +
+                "with an inlined ScanFunction; the scan redirect must be resolved per query with the query's filters. " +
+                "Declare Branches/PlanScanBranches, or set InlineScanFunction = false.");
+        }
+    }
 
     /// <summary>Resolves <see cref="Columns"/>, falling back to <see cref="ScanFunction"/>'s output
     /// schema — throws if neither is available.</summary>

@@ -852,6 +852,10 @@ public sealed class DecodedFilters
     public object? ValueRef(ulong index) => ScalarArgCodec.ReadScalar(Payload("value", index).Array);
     public object? ValueRef(int index) => index < 0 ? throw new ArgumentOutOfRangeException(nameof(index)) : ValueRef((ulong)index);
     public Field ValueField(ulong index) => Payload("value", index).Field;
+
+    /// <summary>The raw one-row payload array behind <see cref="ValueRef(ulong)"/>, for readers that
+    /// need value types <see cref="ScalarArgCodec.ReadScalar"/> does not box (e.g. dates).</summary>
+    internal IArrowArray ValueArray(ulong index) => Payload("value", index).Array;
     public Field ValueField(int index) => index < 0 ? throw new ArgumentOutOfRangeException(nameof(index)) : ValueField((ulong)index);
 
     public IReadOnlyList<object?> LiteralSet(ulong index)
