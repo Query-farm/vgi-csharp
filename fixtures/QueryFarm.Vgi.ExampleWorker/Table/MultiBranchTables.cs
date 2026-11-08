@@ -40,8 +40,10 @@ public static class MultiBranchTables
 
     public static CatalogTable Recon { get; } = BuildRecon();
 
+    public static CatalogTable CommaFilter { get; } = BuildCommaFilter();
+
     public static IReadOnlyList<CatalogTable> All { get; } =
-        [Numbers, FilteredNumbers, Empty, TwoWritable, Split, Format, Hetero, Iceberg, NoPushdown, Recon];
+        [Numbers, FilteredNumbers, Empty, TwoWritable, Split, Format, Hetero, Iceberg, NoPushdown, Recon, CommaFilter];
 
     /// <summary>Shared scratch dir for the native-branch fixtures (their <c>read_parquet</c>/
     /// <c>read_csv_auto</c>/<c>iceberg_scan</c> arms). Must name the SAME concrete path the coupled
@@ -93,6 +95,17 @@ public static class MultiBranchTables
             Seq(100) with { BranchFilter = "n < 50" },
             Seq(100) with { BranchFilter = "n >= 50" },
         ],
+    };
+
+    /// <summary>Protocol 3.2: <c>branch_filter</c> must be ONE expression. <c>"n &lt; 5, n &gt; 2"</c>
+    /// parses as two, which the client rejects (3.1 clients silently kept the first).</summary>
+    private static CatalogTable BuildCommaFilter() => new()
+    {
+        Name = "multi_branch_comma_filter",
+        SchemaName = SchemaName,
+        Comment = "Protocol 3.2: multi-expression branch_filter is rejected",
+        Columns = NSchema,
+        Branches = [Seq(10) with { BranchFilter = "n < 5, n > 2" }],
     };
 
     private static CatalogTable BuildEmpty() => new()

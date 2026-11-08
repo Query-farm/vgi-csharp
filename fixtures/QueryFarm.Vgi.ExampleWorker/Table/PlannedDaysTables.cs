@@ -7,8 +7,9 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 
 /// <summary>
 /// Protocol 3.2 filtered scan planning fixtures (<c>test/sql/integration/catalog/scan_planning_*.test</c>),
-/// mirroring vgi-python's <c>planned_days*</c> tables. Five days of data, one parquet file per day
-/// under <c>${VGI_TEST_BRANCH_DIR}/planned_days/</c>. The tests create the files for the first four
+/// mirroring vgi-python's <c>planned_days*</c> tables. Five days of data, one parquet file per day:
+/// <c>${VGI_TEST_BRANCH_DIR}/planned_days_&lt;day&gt;.parquet</c> (flat — DuckDB <c>COPY</c> cannot
+/// create directories). The tests create the files for the first four
 /// days only: the 2026-10-05 file never exists, so any scan that fails to prune that day errors with
 /// "No files found" — a passing query proves the pruning happened.
 /// </summary>
@@ -67,15 +68,12 @@ public static class PlannedDaysTables
     {
         var filters = request.Filters;
         var days = Days.Where(day => filters is null || filters.MayMatch(DayStats(day))).ToList();
-        // Record what the worker saw so tests can assert the predicates arrived.
-        Directory.CreateDirectory(PlannedDir());
+        // Record what the worker saw so tests can assert the predicates arrived. Same bytes as
+        // vgi-python's json.dump: {"received_filters": true, "days": ["2026-10-03", ...]}.
         File.WriteAllText(
-            $"{PlannedDir()}/last_plan.json",
-            JsonSerializer.Serialize(new Dictionary<string, object>
-            {
-                ["received_filters"] = filters is not null,
-                ["days"] = days.Select(Iso).ToList(),
-            }));
+            $"{BranchDir()}/planned_days_last_plan.json",
+            $"{{\"received_filters\": {(filters is not null ? "true" : "false")}, \"days\": [" +
+            string.Join(", ", days.Select(day => JsonSerializer.Serialize(Iso(day)))) + "]}");
         if (days.Count == 0)
         {
             return new ScanBranchesPlan();
@@ -108,10 +106,10 @@ public static class PlannedDaysTables
 
     private static string Iso(DateOnly day) => day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 
-    private static string DayFile(DateOnly day) => $"{PlannedDir()}/{Iso(day)}.parquet";
+    private static string DayFile(DateOnly day) => $"{BranchDir()}/planned_days_{Iso(day)}.parquet";
 
     /// <summary>Same scratch-dir convention as <see cref="MultiBranchTables"/>.</summary>
-    private static string PlannedDir()
+    private static string BranchDir()
     {
         var raw = Environment.GetEnvironmentVariable("VGI_TEST_BRANCH_DIR");
         if (string.IsNullOrEmpty(raw))
@@ -119,6 +117,6 @@ public static class PlannedDaysTables
             raw = Path.GetTempPath();
         }
 
-        return $"{raw.Replace('\\', '/').TrimEnd('/')}/planned_days";
+        return raw.Replace('\\', '/').TrimEnd('/');
     }
 }
