@@ -98,7 +98,7 @@ test_integration_http:
 # VersionedTablesWorker,BadEnumWorker}/, fixtures/QueryFarm.Vgi.ExampleWorker/AttachOptions/.
 # Remaining --allow-skip entries below are either genuinely shared with every other lane (docker/
 # iceberg/spatial/network/HTTP-only) or Python-lane-specific setup this lane was never meant to
-# exercise (VGI_TEST_DEDICATED_WORKER/VGI_SCHEMA_RECONCILE_DB). The catalog_contents tests are
+# exercise (VGI_SCHEMA_RECONCILE_DB). The catalog_contents tests are
 # no longer gated: ExampleWorker serves all six contents_* fixture catalogs (see
 # fixtures/QueryFarm.Vgi.ExampleWorker/CatalogContents/CatalogContentsSetup.cs).
 #
@@ -115,7 +115,6 @@ CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) \
 	--allow-skip 'require-env VGI_TEST_ICEBERG' \
 	--allow-skip 'require-env VGI_TEST_COMPANION_TARGET' \
 	--allow-skip 'require-env VGI_TEST_BEARER_TOKEN' \
-	--allow-skip 'require-env VGI_TEST_DEDICATED_WORKER' \
 	--allow-skip 'require-env VGI_TEST_BRANCH_DIR' \
 	--allow-skip 'require-env VGI_HTTP_TRANSPORT' \
 	--allow-skip 'require-env VGI_HTTP_DISABLE_ZSTD' \
