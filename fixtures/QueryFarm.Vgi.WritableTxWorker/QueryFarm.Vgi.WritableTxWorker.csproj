@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>QueryFarm.Vgi.WritableTxWorker</RootNamespace>
+    <Description>The cross-SDK `txfix` fixture worker (writable table + transaction hooks) — drives vgi's test/sql/integration/writable_tx/** (docs/writable_tx_fixtures.md). Built only with QueryFarm.Vgi's public API.</Description>
+    <AssemblyName>vgi-writable-tx-worker</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/QueryFarm.Vgi/QueryFarm.Vgi.csproj" />
+  </ItemGroup>
+
+</Project>

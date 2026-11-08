@@ -14,6 +14,7 @@ VGI_PYTHON_DIR ?= $(or $(VGI_PYTHON),../vgi-python)
 OWN_PROJECTS := src/QueryFarm.Vgi/QueryFarm.Vgi.csproj \
 	fixtures/QueryFarm.Vgi.ExampleWorker/QueryFarm.Vgi.ExampleWorker.csproj \
 	fixtures/QueryFarm.Vgi.SimpleWritableWorker/QueryFarm.Vgi.SimpleWritableWorker.csproj \
+	fixtures/QueryFarm.Vgi.WritableTxWorker/QueryFarm.Vgi.WritableTxWorker.csproj \
 	fixtures/QueryFarm.Vgi.BadProtocolWorker/QueryFarm.Vgi.BadProtocolWorker.csproj \
 	fixtures/QueryFarm.Vgi.VersionedWorker/QueryFarm.Vgi.VersionedWorker.csproj \
 	fixtures/QueryFarm.Vgi.VersionedTablesWorker/QueryFarm.Vgi.VersionedTablesWorker.csproj \
@@ -134,6 +135,7 @@ CSHARP_BAD_PROTOCOL_BIN     := $(CURDIR)/fixtures/QueryFarm.Vgi.BadProtocolWorke
 CSHARP_VERSIONED_BIN        := $(CURDIR)/fixtures/QueryFarm.Vgi.VersionedWorker/bin/Debug/net10.0/vgi-versioned-worker
 CSHARP_VERSIONED_TABLES_BIN := $(CURDIR)/fixtures/QueryFarm.Vgi.VersionedTablesWorker/bin/Debug/net10.0/vgi-versioned-tables-worker
 CSHARP_BAD_ENUM_BIN         := $(CURDIR)/fixtures/QueryFarm.Vgi.BadEnumWorker/bin/Debug/net10.0/vgi-bad-enum-worker
+CSHARP_WRITABLE_TX_BIN      := $(CURDIR)/fixtures/QueryFarm.Vgi.WritableTxWorker/bin/Debug/net10.0/vgi-writable-tx-worker
 
 test_integration_gated: build
 	cd $(VGI_DIR) && \
@@ -145,6 +147,8 @@ test_integration_gated: build
 	    VGI_ATTACH_OPTIONS_WORKER="launch:$(CSHARP_EXAMPLE_BIN)" \
 	    VGI_ATTACH_OPTIONS_REQUIRED_WORKER="launch:$(CSHARP_EXAMPLE_BIN)" \
 	    VGI_BAD_ENUM_WORKER="$(CSHARP_BAD_ENUM_BIN)" \
+	    VGI_WRITABLE_TX_FIXTURES=1 VGI_WRITABLE_TX_WORKER="launch:$(CSHARP_WRITABLE_TX_BIN)" \
+	    VGI_TXFIX_STATE_DIR="$$(mktemp -d)" \
 	    VGI_REQUIRE_LAUNCHER_TRANSPORT=1 VGI_SECRET_LOOKUP_FIXTURES=1 \
 	    python3 scripts/run_tests.py -j 6 $(CSHARP_COVERAGE_GATE) \
 	        --test-config "$(abspath $(VGI_DIR))/test/configs/no_error_skip.json" \

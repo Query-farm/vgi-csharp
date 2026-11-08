@@ -15,7 +15,9 @@ CI downloads the native integration artifact built by the pinned VGI revision.
 The SDK repository builds only the C# workers:
 
 1. **Build the workers** — `dotnet build -c Release` produces the example,
-   simple-writable and bad-protocol workers.
+   simple-writable, bad-protocol and writable-tx (`txfix`, for `writable_tx/`) workers.
+   Both lanes set `VGI_WRITABLE_TX_FIXTURES=1`, `VGI_WRITABLE_TX_WORKER` (`launch:<path>`, or a
+   second `--http` server on the HTTP lane) and a per-lane `VGI_TXFIX_STATE_DIR`.
 2. **Checkout the test suite** — `Query-farm/vgi` at `VGI_REF` supplies the
    canonical test files and artifact-fetch helper.
 3. **Download and verify the runner** — the helper selects that exact commit's

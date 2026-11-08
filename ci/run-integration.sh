@@ -48,7 +48,8 @@ TEST_CONFIG="$(cd "$(dirname "$TEST_CONFIG")" && pwd)/$(basename "$TEST_CONFIG")
 WORKER="$REPO/fixtures/QueryFarm.Vgi.ExampleWorker/bin/$CONFIGURATION/net10.0/vgi-example-worker"
 SIMPLE_WRITABLE="$REPO/fixtures/QueryFarm.Vgi.SimpleWritableWorker/bin/$CONFIGURATION/net10.0/vgi-simple-writable-worker"
 BAD_PROTOCOL="$REPO/fixtures/QueryFarm.Vgi.BadProtocolWorker/bin/$CONFIGURATION/net10.0/vgi-bad-protocol-worker"
-for b in "$WORKER" "$SIMPLE_WRITABLE" "$BAD_PROTOCOL"; do
+WRITABLE_TX="$REPO/fixtures/QueryFarm.Vgi.WritableTxWorker/bin/$CONFIGURATION/net10.0/vgi-writable-tx-worker"
+for b in "$WORKER" "$SIMPLE_WRITABLE" "$BAD_PROTOCOL" "$WRITABLE_TX"; do
   [ -x "$b" ] || { echo "::error::missing worker binary $b (run: dotnet build -c $CONFIGURATION)"; exit 1; }
 done
 
@@ -120,30 +121,54 @@ mkdir -p "$STAGE/test/support"
 install -m 0755 "$DATABASE_WORKER_FIXTURE" \
   "$STAGE/test/support/database_worker_fixture.sh"
 
+# The writable_tx/ fixture (fixtures/QueryFarm.Vgi.WritableTxWorker, vgi docs/writable_tx_fixtures.md)
+# keeps its state in files shared by every worker process of the lane; a private directory keeps
+# lanes running at the same time on one host apart.
+export VGI_WRITABLE_TX_FIXTURES=1
+export VGI_TXFIX_STATE_DIR="$STAGE/txfix-state"
+rm -rf "$VGI_TXFIX_STATE_DIR"
+
+# Starts "$1 --http" in the background on an ephemeral port; sets STARTED_PID and STARTED_PORT.
+start_http_worker() {
+  local bin="$1" log="$2"
+  ( cd "$STAGE" && exec "$bin" --http ) > "$log" 2>&1 &
+  STARTED_PID=$!
+  STARTED_PORT=""
+  for _ in $(seq 1 120); do
+    kill -0 "$STARTED_PID" 2>/dev/null || { echo "::error::http worker $bin exited before reporting a port"; cat "$log"; exit 1; }
+    STARTED_PORT="$(sed -n 's/.*PORT:\([0-9]*\).*/\1/p' "$log" | head -1)"
+    [ -n "$STARTED_PORT" ] && return 0
+    sleep 0.5
+  done
+  echo "::error::http worker $bin never reported a port"; cat "$log"; exit 1
+}
+
 HTTP_PID=""
+TX_HTTP_PID=""
 if [ "$TRANSPORT" = launch ]; then
   # Pool the main worker behind DuckDB's AF_UNIX launcher. The suite opens many
   # connections and ATTACHes the same worker repeatedly; a bare path starts a new
   # .NET process for each connection, while launch: reuses one warm process.
   export VGI_TEST_WORKER="launch:$WORKER"
   export VGI_REQUIRE_LAUNCHER_TRANSPORT=1
+  export VGI_WRITABLE_TX_WORKER="launch:$WRITABLE_TX"
 else
   # One long-lived HTTP server for the whole lane, on an ephemeral port it reports
   # on stdout as `PORT:<n>`. VGI_REQUIRE_LAUNCHER_TRANSPORT is deliberately NOT set.
   HTTP_LOG="$STAGE/http-worker.log"
-  ( cd "$STAGE" && exec "$WORKER" --http ) > "$HTTP_LOG" 2>&1 &
-  HTTP_PID=$!
-  trap '[ -n "$HTTP_PID" ] && kill -TERM "$HTTP_PID" 2>/dev/null || true' EXIT
-  port=""
-  for _ in $(seq 1 120); do
-    kill -0 "$HTTP_PID" 2>/dev/null || { echo "::error::http worker exited before reporting a port"; cat "$HTTP_LOG"; exit 1; }
-    port="$(sed -n 's/.*PORT:\([0-9]*\).*/\1/p' "$HTTP_LOG" | head -1)"
-    [ -n "$port" ] && break
-    sleep 0.5
-  done
-  [ -n "$port" ] || { echo "::error::http worker never reported a port"; cat "$HTTP_LOG"; exit 1; }
+  TX_HTTP_LOG="$STAGE/http-writable-tx-worker.log"
+  trap '[ -n "$HTTP_PID" ] && kill -TERM "$HTTP_PID" 2>/dev/null; [ -n "$TX_HTTP_PID" ] && kill -TERM "$TX_HTTP_PID" 2>/dev/null; true' EXIT
+  start_http_worker "$WORKER" "$HTTP_LOG"
+  HTTP_PID=$STARTED_PID
+  port=$STARTED_PORT
   echo "http worker pid=$HTTP_PID port=$port"
   export VGI_TEST_WORKER="http://localhost:${port}"
+  # The writable_tx fixture over HTTP too: the transport where the SDK seals attach and
+  # transaction opaque data, so the hooks and functions must still agree on the plaintext id.
+  start_http_worker "$WRITABLE_TX" "$TX_HTTP_LOG"
+  TX_HTTP_PID=$STARTED_PID
+  echo "writable_tx http worker pid=$TX_HTTP_PID port=$STARTED_PORT"
+  export VGI_WRITABLE_TX_WORKER="http://127.0.0.1:${STARTED_PORT}"
   # database_worker/package.test packages a worker that the database:// resolver execs locally,
   # whatever transport the lane tests, so it needs a command rather than this URL. The suite's
   # fixture wrapper (test/support/database_worker_fixture.sh) runs
@@ -235,6 +260,11 @@ if [ "$TRANSPORT" = http ]; then
   if ! kill -0 "$HTTP_PID" 2>/dev/null; then
     echo "::error::the shared http worker died during the run — every result after that point is untrustworthy."
     echo "--- http worker log tail ---"; tail -80 "$HTTP_LOG"
+    rc=1
+  fi
+  if ! kill -0 "$TX_HTTP_PID" 2>/dev/null; then
+    echo "::error::the writable_tx http worker died during the run."
+    echo "--- writable_tx http worker log tail ---"; tail -80 "$TX_HTTP_LOG"
     rc=1
   fi
 fi

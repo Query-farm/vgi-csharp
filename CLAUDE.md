@@ -64,6 +64,11 @@ here" error.
 - `fixtures/QueryFarm.Vgi.SimpleWritableWorker/`, `fixtures/QueryFarm.Vgi.BadProtocolWorker/` —
   secondary fixtures (writable-catalog write paths; deliberately-malformed-protocol negative
   tests). Not published.
+- `fixtures/QueryFarm.Vgi.WritableTxWorker/` — the cross-SDK `txfix` fixture for vgi's
+  `test/sql/integration/writable_tx/**` (vgi `docs/writable_tx_fixtures.md`): an UPDATE-able table,
+  per-attach transactions, transaction hooks, a secret attach option. Must use public API only
+  (no `QueryFarm.Vgi.Internal`); if it can't express something, fix the SDK. `ci/run-integration.sh`
+  sets `VGI_WRITABLE_TX_FIXTURES`/`VGI_WRITABLE_TX_WORKER` (and a per-lane `VGI_TXFIX_STATE_DIR`).
 - `examples/01-minimal-scalar-worker/` — quickstart: one scalar function, stdio transport. Not
   published.
 - `test/QueryFarm.Vgi.Tests/` — xUnit unit tests (schema derivation, dispatch, codecs, storage).

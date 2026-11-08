@@ -42,6 +42,8 @@ export PATH="$HOME/.dotnet:$PATH"
 EXAMPLE_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.ExampleWorker/bin/Debug/net10.0/vgi-example-worker"
 WRITABLE_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.SimpleWritableWorker/bin/Debug/net10.0/vgi-simple-writable-worker"
 BAD_PROTOCOL_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.BadProtocolWorker/bin/Debug/net10.0/vgi-bad-protocol-worker"
+# writable_tx/ (vgi docs/writable_tx_fixtures.md): the `txfix` fixture, plain path or launch:.
+WRITABLE_TX_BIN="$VGI_CSHARP/fixtures/QueryFarm.Vgi.WritableTxWorker/bin/Debug/net10.0/vgi-writable-tx-worker"
 # Dedicated single-catalog binaries — attach/versioning.test and attach/versioned_tables*.test's
 # vgi_catalogs() discovery queries are unfiltered and expect exactly one row, which a shared
 # multi-catalog worker (like EXAMPLE_BIN) can't satisfy. attach_options/attach_options_required
@@ -106,6 +108,7 @@ if [[ "${HTTP:-0}" == "1" ]]; then
   [[ -n "$PORT" ]] || { echo "[harness] http worker never reported a port"; cat "$HTTP_LOG"; exit 1; }
   TEST_WORKER="http://localhost:$PORT"
   WRITABLE_WORKER="$WRITABLE_BIN"
+  WRITABLE_TX_WORKER="$WRITABLE_TX_BIN"
   VERSIONED_WORKER="$VERSIONED_BIN"
   VERSIONED_TABLES_WORKER="$VERSIONED_TABLES_BIN"
   # database_worker/package.test packages a worker the database:// resolver execs locally,
@@ -115,11 +118,13 @@ if [[ "${HTTP:-0}" == "1" ]]; then
 elif [[ "${SUBPROCESS:-0}" == "1" ]]; then
   TEST_WORKER="$EXAMPLE_BIN"
   WRITABLE_WORKER="$WRITABLE_BIN"
+  WRITABLE_TX_WORKER="$WRITABLE_TX_BIN"
   VERSIONED_WORKER="$VERSIONED_BIN"
   VERSIONED_TABLES_WORKER="$VERSIONED_TABLES_BIN"
 else
   TEST_WORKER="launch:$EXAMPLE_BIN"
   WRITABLE_WORKER="launch:$WRITABLE_BIN"
+  WRITABLE_TX_WORKER="launch:$WRITABLE_TX_BIN"
   VERSIONED_WORKER="launch:$VERSIONED_BIN"
   VERSIONED_TABLES_WORKER="launch:$VERSIONED_TABLES_BIN"
   # Only meaningful (and only asserted on) under the launcher transport — see
@@ -128,6 +133,7 @@ else
 fi
 
 ENV_ARGS+=(VGI_TEST_WORKER="$TEST_WORKER" VGI_SIMPLE_WRITABLE_WORKER="$WRITABLE_WORKER" VGI_SECRET_LOOKUP_FIXTURES=1)
+ENV_ARGS+=(VGI_WRITABLE_TX_FIXTURES=1 VGI_WRITABLE_TX_WORKER="$WRITABLE_TX_WORKER" VGI_TXFIX_STATE_DIR="$CACHE/txfix-state")
 # attach_options / attach_options_required are additional catalogs on the SAME example-worker
 # binary (see fixtures/QueryFarm.Vgi.ExampleWorker/AttachOptions/) — same $TEST_WORKER value,
 # just a different ATTACH catalog name per test file. versioned / versioned_tables are their own
