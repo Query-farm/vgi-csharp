@@ -68,12 +68,17 @@ public static class PlannedDaysTables
     {
         var filters = request.Filters;
         var days = Days.Where(day => filters is null || filters.MayMatch(DayStats(day))).ToList();
-        // Record what the worker saw so tests can assert the predicates arrived. Same bytes as
-        // vgi-python's json.dump: {"received_filters": true, "days": ["2026-10-03", ...]}.
-        File.WriteAllText(
-            $"{BranchDir()}/planned_days_last_plan.json",
-            $"{{\"received_filters\": {(filters is not null ? "true" : "false")}, \"days\": [" +
-            string.Join(", ", days.Select(day => JsonSerializer.Serialize(Iso(day)))) + "]}");
+        // Record the days a FILTERED planning call kept, so scan_planning_filtered.test can assert
+        // the predicates arrived. Unfiltered calls (e.g. vgi_table_branches() from tests running in
+        // parallel) must not overwrite it. Same bytes as vgi-python's json.dump.
+        if (filters is not null)
+        {
+            File.WriteAllText(
+                $"{BranchDir()}/planned_days_last_plan.json",
+                "{\"received_filters\": true, \"days\": [" +
+                string.Join(", ", days.Select(day => JsonSerializer.Serialize(Iso(day)))) + "]}");
+        }
+
         if (days.Count == 0)
         {
             return new ScanBranchesPlan();

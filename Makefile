@@ -104,7 +104,14 @@ test_integration_http:
 #
 # C# runs 323 today (358 discovered, 35 expected skips).
 CSHARP_MIN_EXECUTED ?= 318
-CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) \
+# Engine-gated native tests (vgi CLAUDE.md, docs/upstream-duckdb-build.md): which side of each
+# VGI_ENGINE_* split skips depends on the DuckDB the extension was built against, so take both the
+# variables and the expected skip reasons from VGI_DIR's own Makefile instead of hard-coding them.
+# (Set VGI_ENGINE_EXPECTED_SKIPS yourself to override.)
+VGI_ENGINE_EXPECTED_SKIPS ?= $(shell $(MAKE) -s --no-print-directory -C $(VGI_DIR) \
+	--eval='vgi_csharp_engine_skips: ; $$(info $$(VGI_ENGINE_EXPECTED_SKIPS))@:' vgi_csharp_engine_skips 2>/dev/null)
+
+CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) $(VGI_ENGINE_EXPECTED_SKIPS) \
 	--allow-skip 'require spatial' \
 	--allow-skip 'require-env VGI_DOCKER_IMAGE' \
 	--allow-skip 'require-env VGI_DOCKER_TCP_IMAGE' \
@@ -138,6 +145,7 @@ CSHARP_WRITABLE_TX_BIN      := $(CURDIR)/fixtures/QueryFarm.Vgi.WritableTxWorker
 
 test_integration_gated: build
 	cd $(VGI_DIR) && \
+	    set -a && eval "$$($(MAKE) -s --no-print-directory engine_test_env 2>/dev/null)" && set +a && \
 	    VGI_TEST_WORKER="launch:$(CSHARP_EXAMPLE_BIN)" \
 	    VGI_SIMPLE_WRITABLE_WORKER="launch:$(CSHARP_SIMPLE_WRITABLE_BIN)" \
 	    VGI_BAD_PROTOCOL_WORKER="$(CSHARP_BAD_PROTOCOL_BIN)" \
