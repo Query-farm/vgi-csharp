@@ -1,8 +1,8 @@
 // The cross-SDK `txfix` fixture worker — drives vgi's test/sql/integration/writable_tx/**
 // (vgi docs/writable_tx_fixtures.md). Built only with QueryFarm.Vgi's public API: attach options
-// (AttachOptions), per-attach transactions (AttachContext.SupportsTransactions), transaction hooks
-// (TransactionHooks), the attach envelope (AttachData) and the writable-table helpers
-// (WriteResults / WriteRequest).
+// (AttachOptions: declared, and read back in every function and hook, the secret `token`
+// included), per-attach transactions (AttachContext.SupportsTransactions), transaction hooks
+// (TransactionHooks) and the writable-table helpers (WriteResults / WriteRequest).
 //
 // IMPORTANT: stdout is the wire channel — never Console.WriteLine here; use Console.Error only.
 //

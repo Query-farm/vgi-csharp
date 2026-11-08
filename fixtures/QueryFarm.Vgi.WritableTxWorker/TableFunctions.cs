@@ -50,7 +50,7 @@ public sealed class ResetFunction : OneShotFunction
 
     protected override IReadOnlyList<IReadOnlyDictionary<string, object?>> Rows(TableInitParams initParams)
     {
-        var attach = TxAttach.Info(initParams.AttachOpaqueData);
+        var attach = TxAttach.Info(initParams.AttachOptions);
         TxState.Update(state =>
         {
             var partition = attach.PartitionOf(state);
@@ -66,18 +66,26 @@ public sealed class ResetFunction : OneShotFunction
     }
 }
 
-/// <summary><c>whoami()</c>: the attach's options as a function sees them.</summary>
+/// <summary><c>whoami()</c>: the attach's options as a function sees them, and whether the token's
+/// bytes appear in the attach data the SDK handed over (they must not: the SDK encrypts it).</summary>
 public sealed class WhoAmIFunction : OneShotFunction
 {
     public override string Name => "whoami";
 
     public override Schema OutputSchema { get; } = new(
-        [new Field("token", StringType.Default, true), new Field("transactional", BooleanType.Default, true)], metadata: null);
+        [
+            new Field("token", StringType.Default, true),
+            new Field("transactional", BooleanType.Default, true),
+            new Field("token_in_attach_data", BooleanType.Default, true),
+        ],
+        metadata: null);
 
     protected override IReadOnlyList<IReadOnlyDictionary<string, object?>> Rows(TableInitParams initParams)
     {
-        var info = TxAttach.Info(initParams.AttachOpaqueData);
-        return [new Dictionary<string, object?> { ["token"] = info.Token, ["transactional"] = info.Transactional }];
+        var info = TxAttach.Info(initParams.AttachOptions);
+        var inAttachData = info.Token is { Length: > 0 } token
+            && initParams.AttachOpaqueData.AsSpan().IndexOf(System.Text.Encoding.UTF8.GetBytes(token)) >= 0;
+        return [new Dictionary<string, object?> { ["token"] = info.Token, ["transactional"] = info.Transactional, ["token_in_attach_data"] = inAttachData }];
     }
 }
 
@@ -111,7 +119,7 @@ public sealed class EventsFunction : OneShotFunction
         metadata: null);
 
     protected override IReadOnlyList<IReadOnlyDictionary<string, object?>> Rows(TableInitParams initParams) =>
-        TxState.Read(state => TxAttach.Info(initParams.AttachOpaqueData).PartitionOf(state).Events
+        TxState.Read(state => TxAttach.Info(initParams.AttachOptions).PartitionOf(state).Events
             .Select(e => (IReadOnlyDictionary<string, object?>)new Dictionary<string, object?>
             {
                 ["seq"] = e.Seq,
@@ -153,7 +161,7 @@ public sealed class TxScanFunction(string name, Schema columns, Func<Partition, 
             if (!_done)
             {
                 _done = true;
-                var attach = TxAttach.Info(initParams.AttachOpaqueData);
+                var attach = TxAttach.Info(initParams.AttachOptions);
                 var tx = attach.Transactional ? TxAttach.TxId(initParams.TransactionOpaqueData) : null;
                 var data = TxState.Read(state => scan._rows(attach.PartitionOf(state), tx).ToList());
                 output.Emit(WriteResults.BuildBatch(initParams.ProjectedSchema, data));

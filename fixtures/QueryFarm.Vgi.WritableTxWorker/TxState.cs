@@ -48,15 +48,12 @@ public sealed class Partition
 }
 
 /// <summary>The fixture's whole state: one <see cref="Partition"/> per <c>token</c> value (a NULL
-/// token is its own partition), and the secret token of each attach, keyed by the random handle the
-/// worker keeps in that attach's data — the token itself never rides a client-held value.</summary>
+/// token is its own partition).</summary>
 public sealed class StateDoc
 {
     private const string NullToken = "null";
 
     public Dictionary<string, Partition> Partitions { get; set; } = [];
-
-    public Dictionary<string, string> Tokens { get; set; } = [];
 
     /// <summary>The partition of <paramref name="token"/>, created with the initial rows on first use.</summary>
     public Partition For(string? token)

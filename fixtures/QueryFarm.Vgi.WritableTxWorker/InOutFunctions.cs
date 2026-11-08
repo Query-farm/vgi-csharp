@@ -64,7 +64,7 @@ public sealed class ItemsUpdateFunction(Schema userColumns) : ITableInOutFunctio
 
     public ITableInOutProcessor CreateProcessor(TableInOutInitParams initParams)
     {
-        var info = TxAttach.Info(initParams.AttachOpaqueData);
+        var info = TxAttach.Info(initParams.AttachOptions);
         var tx = info.Transactional ? TxAttach.TxId(initParams.TransactionOpaqueData) : null;
         return new Processor(userColumns, WriteRequest.From(initParams.Arguments).ResultMode, info, tx);
     }

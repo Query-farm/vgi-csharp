@@ -5,22 +5,18 @@ using QueryFarm.Vgi.Protocol;
 
 namespace QueryFarm.Vgi.WritableTxWorker;
 
-/// <summary>What one attach of <c>txfix</c> is: transactional or not, and the handle its secret
-/// <c>token</c> is kept under server-side.</summary>
-public sealed record TxAttachInfo(bool Transactional, string Handle)
+/// <summary>What one attach of <c>txfix</c> is: its <c>token</c> (a secret option) and whether it is
+/// transactional, both read through the SDK's attach-options accessor.</summary>
+public sealed record TxAttachInfo(string? Token, bool Transactional)
 {
-    /// <summary>The <c>token</c> this attach was given, or <see langword="null"/>.</summary>
-    public string? Token => TxState.Read(state => state.Tokens.GetValueOrDefault(Handle));
-
     /// <summary>This attach's state partition (its token's).</summary>
-    public Partition PartitionOf(StateDoc state) => state.For(state.Tokens.GetValueOrDefault(Handle));
+    public Partition PartitionOf(StateDoc state) => state.For(Token);
 }
 
 /// <summary>
-/// The ATTACH options and the attach hook. The secret <c>token</c> never goes into the attach's
-/// opaque data (vgi-opaque-data-sealing.md rule 5 — on stdio and unix it reaches the client
-/// unsealed): the hook stores it in the shared state under a random handle and keeps only the
-/// handle and the <c>transactional</c> flag in <see cref="AttachContext.ExtraOpaqueData"/>.
+/// The ATTACH options and the attach hook. The secret <c>token</c> reaches every function and hook
+/// through <see cref="AttachOptions"/> (the SDK keeps it encrypted inside the attach data); this
+/// worker never stores it itself.
 /// </summary>
 public static class TxAttach
 {
@@ -36,31 +32,13 @@ public static class TxAttach
         ],
     };
 
-    public static AttachContext OnAttach(CatalogAttachRequest request)
-    {
-        var options = AttachOptions.Read(request);
-        var transactional = options.GetBoolean("transactional") ?? false;
-        var handle = RandomNumberGenerator.GetBytes(16);
-        if (options.GetString("token") is { } token)
-        {
-            TxState.Update(state => state.Tokens[Convert.ToHexStringLower(handle)] = token);
-        }
+    public static AttachContext OnAttach(CatalogAttachRequest request) =>
+        new() { SupportsTransactions = AttachOptions.Read(request).GetBoolean("transactional") ?? false };
 
-        return new AttachContext
-        {
-            SupportsTransactions = transactional,
-            ExtraOpaqueData = [transactional ? (byte)1 : (byte)0, .. handle],
-        };
-    }
-
-    /// <summary>Decodes an attach's opaque data (any <c>*Params.AttachOpaqueData</c>).</summary>
-    public static TxAttachInfo Info(byte[] attachOpaqueData)
-    {
-        var extra = AttachData.ExtraOf(attachOpaqueData);
-        return extra.Length == 17
-            ? new TxAttachInfo(extra[0] == 1, Convert.ToHexStringLower(extra.AsSpan(1)))
-            : new TxAttachInfo(false, "");
-    }
+    /// <summary>Reads an attach's options (any <c>*Params.AttachOptions</c> or
+    /// <see cref="TransactionContext.AttachOptions"/>).</summary>
+    public static TxAttachInfo Info(AttachOptions options) =>
+        new(options.GetString("token"), options.GetBoolean("transactional") ?? false);
 
     /// <summary>The lowercase-hex transaction id, or <see langword="null"/> for none.</summary>
     public static string? TxId(byte[] transactionOpaqueData) =>
@@ -76,7 +54,7 @@ public sealed class TxHooks : TransactionHooks
     public override Task<byte[]?> BeginAsync(TransactionContext context)
     {
         var id = RandomNumberGenerator.GetBytes(16);
-        var attach = TxAttach.Info(context.AttachOpaqueData);
+        var attach = TxAttach.Info(context.AttachOptions);
         TxState.Update(state =>
         {
             attach.PartitionOf(state).AddEvent("begin", Convert.ToHexStringLower(id));
@@ -88,7 +66,7 @@ public sealed class TxHooks : TransactionHooks
     public override Task CommitAsync(TransactionContext context)
     {
         var tx = Convert.ToHexStringLower(context.TransactionOpaqueData);
-        var attach = TxAttach.Info(context.AttachOpaqueData);
+        var attach = TxAttach.Info(context.AttachOptions);
         var refused = TxState.Update(doc =>
         {
             var state = attach.PartitionOf(doc);
@@ -111,7 +89,7 @@ public sealed class TxHooks : TransactionHooks
     public override Task RollbackAsync(TransactionContext context)
     {
         var tx = Convert.ToHexStringLower(context.TransactionOpaqueData);
-        var attach = TxAttach.Info(context.AttachOpaqueData);
+        var attach = TxAttach.Info(context.AttachOptions);
         TxState.Update(doc =>
         {
             var state = attach.PartitionOf(doc);
