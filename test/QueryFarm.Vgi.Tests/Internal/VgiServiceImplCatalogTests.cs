@@ -741,9 +741,9 @@ public class ScanPlanningTests
 
     private static ScanPlanningFilters Filters() => new(GoldenFilters, () => DayColumns);
 
-    private static Dictionary<string, ColumnStatisticsInput> Day(int day) => new()
+    private static Dictionary<string, BranchColumnStatistics> Day(int day) => new()
     {
-        ["event_date"] = new ColumnStatisticsInput { Min = new DateOnly(2026, 10, day), Max = new DateOnly(2026, 10, day), HasNull = false },
+        ["event_date"] = new BranchColumnStatistics { Min = new DateOnly(2026, 10, day), Max = new DateOnly(2026, 10, day), HasNull = false },
     };
 
     private static ScanBranchSpec DayBranch(int day) => new()
@@ -779,28 +779,28 @@ public class ScanPlanningTests
         Assert.True(filters.MayMatch(Day(3)));
         Assert.True(filters.MayMatch(Day(5)));
         // A range straddling the bound may match.
-        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput>
+        Assert.True(filters.MayMatch(new Dictionary<string, BranchColumnStatistics>
         {
             ["event_date"] = new() { Min = new DateOnly(2026, 9, 1), Max = new DateOnly(2026, 10, 3) },
         }));
         // n < 100 against n in [100, 200] cannot match; [99, 200] can.
-        Assert.False(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["n"] = new() { Min = 100L, Max = 200L } }));
-        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["n"] = new() { Min = 99L, Max = 200L } }));
+        Assert.False(filters.MayMatch(new Dictionary<string, BranchColumnStatistics> { ["n"] = new() { Min = 100L, Max = 200L } }));
+        Assert.True(filters.MayMatch(new Dictionary<string, BranchColumnStatistics> { ["n"] = new() { Min = 99L, Max = 200L } }));
         // Only an upper bound known: n >= 100 is not proven.
-        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["n"] = new() { Max = 50L } }));
+        Assert.True(filters.MayMatch(new Dictionary<string, BranchColumnStatistics> { ["n"] = new() { Max = 50L } }));
         // An entirely-NULL column never satisfies a comparison.
-        Assert.False(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["n"] = new() { HasNull = true, HasNotNull = false } }));
+        Assert.False(filters.MayMatch(new Dictionary<string, BranchColumnStatistics> { ["n"] = new() { HasNull = true, HasNotNull = false } }));
     }
 
     [Fact]
     public void MayMatch_KeepsWhatItCannotReasonAbout()
     {
         var filters = Filters();
-        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput>()));
-        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["other"] = new() { Min = 0L, Max = 0L } }));
-        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["event_date"] = new() }));
+        Assert.True(filters.MayMatch(new Dictionary<string, BranchColumnStatistics>()));
+        Assert.True(filters.MayMatch(new Dictionary<string, BranchColumnStatistics> { ["other"] = new() { Min = 0L, Max = 0L } }));
+        Assert.True(filters.MayMatch(new Dictionary<string, BranchColumnStatistics> { ["event_date"] = new() }));
         // A bound of an incomparable type (a long against a DATE literal) is not evidence.
-        Assert.True(filters.MayMatch(new Dictionary<string, ColumnStatisticsInput> { ["event_date"] = new() { Min = 0L, Max = 1L } }));
+        Assert.True(filters.MayMatch(new Dictionary<string, BranchColumnStatistics> { ["event_date"] = new() { Min = 0L, Max = 1L } }));
         // An empty payload carries no predicates.
         Assert.True(new ScanPlanningFilters([], () => DayColumns).MayMatch(Day(1)));
     }
@@ -923,6 +923,51 @@ public class ScanPlanningTests
             ScanFunction = new StubTableFunction("t_scan"),
         }));
         Assert.Contains("inlined ScanFunction", inlined.Message);
+    }
+
+    [Fact]
+    public async Task BranchStatistics_DefaultToTheConservativeClaim()
+    {
+        var defaults = new BranchColumnStatistics();
+        Assert.True(defaults.HasNull);
+        Assert.True(defaults.HasNotNull);
+        var registry = new CatalogRegistry();
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "t",
+            SchemaName = "data",
+            Columns = DayColumns,
+            Branches = [new ScanBranchSpec { FunctionName = "read_parquet", PositionalArguments = ["/tmp/x.parquet"], ColumnStatistics = new Dictionary<string, BranchColumnStatistics> { ["n"] = new() } }],
+        });
+        var result = await new VgiServiceImpl(registry).CatalogTableScanBranchesGetAsync([], ["data"], "t", null, null, null);
+        var branch = EmbeddedIpc.Decode<ScanBranch>(result.Branches[0]);
+        var (column, stats) = Assert.Single(ColumnStatisticsCodec.Decode(branch.ColumnStatistics));
+        Assert.Equal("n", column);
+        Assert.True(stats.HasNull);
+        Assert.True(stats.HasNotNull);
+        Assert.Null(stats.Min);
+        Assert.Null(stats.Max);
+        // A default (unknown) column never prunes, not even IS NULL / IS NOT NULL.
+        var filters = Filters();
+        Assert.True(filters.MayMatch(new Dictionary<string, BranchColumnStatistics> { ["n"] = new() }));
+    }
+
+    [Fact]
+    public async Task BranchStatistics_RejectAnAllNullClaimWithBounds()
+    {
+        var registry = new CatalogRegistry();
+        registry.RegisterCatalogTable(new CatalogTable
+        {
+            Name = "t",
+            SchemaName = "data",
+            Columns = DayColumns,
+            Branches = [new ScanBranchSpec { FunctionName = "read_parquet", PositionalArguments = ["/tmp/x.parquet"], ColumnStatistics = new Dictionary<string, BranchColumnStatistics> { ["n"] = new() { HasNotNull = false, Min = 1L } } }],
+        });
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new VgiServiceImpl(registry).CatalogTableScanBranchesGetAsync([], ["data"], "t", null, null, null));
+        Assert.Contains("HasNotNull = false", error.Message);
+        Assert.Throws<InvalidOperationException>(() => Filters().MayMatch(
+            new Dictionary<string, BranchColumnStatistics> { ["n"] = new() { HasNotNull = false, Max = 1L } }));
     }
 
     [Fact]

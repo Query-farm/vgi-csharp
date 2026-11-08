@@ -333,9 +333,12 @@ companion catalog table, or a format + locations), which the client stitches tog
   is advisory, so return any superset of what could match; zero branches means "no rows".
   `ScanPlanningFilters.MayMatch(stats)` tells you whether a candidate described by min/max
   statistics can match.
-- `ScanBranchSpec.RowCount` and `ScanBranchSpec.ColumnStatistics` let the client drop a branch whose
-  statistics contradict the query. They are conservative claims about every row of the branch:
-  leave a column out rather than guess.
+- `ScanBranchSpec.RowCount` and `ScanBranchSpec.ColumnStatistics` (`BranchColumnStatistics` per
+  column) let the client drop a branch whose statistics contradict the query. They are conservative
+  claims about every row of the branch, and the defaults are the safe claim: bounds unknown,
+  `HasNull = true`, `HasNotNull = true`. Narrow a claim (e.g. `HasNull = false`) only when it holds
+  for every row, or leave the column out; a wrong claim silently drops rows. `HasNotNull = false`
+  (entirely NULL) cannot be combined with `Min`/`Max`.
 
 ```csharp
 new CatalogTable

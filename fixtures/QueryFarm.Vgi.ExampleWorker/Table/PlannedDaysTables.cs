@@ -101,9 +101,9 @@ public static class PlannedDaysTables
         PositionalArguments = [DayFile(day)],
     };
 
-    private static Dictionary<string, ColumnStatisticsInput> DayStats(DateOnly day) => new()
+    private static Dictionary<string, BranchColumnStatistics> DayStats(DateOnly day) => new()
     {
-        ["event_date"] = new ColumnStatisticsInput { Min = day, Max = day, HasNull = false },
+        ["event_date"] = new BranchColumnStatistics { Min = day, Max = day, HasNull = false },
     };
 
     private static string Iso(DateOnly day) => day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);

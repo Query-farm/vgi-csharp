@@ -98,12 +98,22 @@ public sealed class ScanPlanningFilters
     /// <summary>
     /// Returns <see langword="false"/> only when the predicates provably exclude every row described
     /// by <paramref name="statistics"/> — a candidate (a file, a partition, a branch) described the
-    /// same way as <see cref="ScanBranchSpec.ColumnStatistics"/>: every non-null value of a column
+    /// the same way as <see cref="ScanBranchSpec.ColumnStatistics"/>: every non-null value of a column
     /// lies within <c>[Min, Max]</c> (a null bound is unknown), <c>HasNull = false</c> means no
     /// NULLs, <c>HasNotNull = false</c> means entirely NULL. Use it to prune a manifest before
     /// returning branches. Predicates, columns and value types it cannot reason about count as "may
     /// match", so the answer errs towards keeping data.
     /// </summary>
+    public bool MayMatch(IReadOnlyDictionary<string, BranchColumnStatistics> statistics)
+    {
+        ArgumentNullException.ThrowIfNull(statistics);
+        return MayMatch(BranchColumnStatistics.ToInputs(statistics));
+    }
+
+    /// <summary><see cref="MayMatch(IReadOnlyDictionary{string, BranchColumnStatistics})"/> over
+    /// table-statistics values (e.g. <see cref="Internal.ColumnStatisticsCodec.Decode"/> output). Note
+    /// <see cref="ColumnStatisticsInput.HasNull"/> defaults to <see langword="false"/>, a claim of
+    /// "no NULLs".</summary>
     public bool MayMatch(IReadOnlyDictionary<string, ColumnStatisticsInput> statistics)
     {
         ArgumentNullException.ThrowIfNull(statistics);

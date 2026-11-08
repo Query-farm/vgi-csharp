@@ -65,13 +65,63 @@ public sealed record ScanBranchSpec
     }
 
     /// <summary>Protocol 3.2: conservative per-column statistics for EVERY row this branch produces,
-    /// keyed by the table's declared column names (columns may be omitted). Encoded exactly like
-    /// <see cref="CatalogTable.Statistics"/> (<see cref="Internal.ColumnStatisticsCodec"/>). The
-    /// client drops the branch when a query predicate is provably false against them — every
-    /// non-null value must lie in <c>[Min, Max]</c>, <c>HasNull = false</c> must mean no NULLs,
-    /// <c>HasNotNull = false</c> must mean all NULL — so wrong statistics silently lose rows: leave
-    /// a column out rather than guess. Note <see cref="ColumnStatisticsInput.HasNull"/> defaults to
-    /// <see langword="false"/> (a claim of "no NULLs"): set it whenever the column may hold NULLs.
-    /// See vgi-python's <c>docs/protocol/scan-planning.md</c>.</summary>
-    public IReadOnlyDictionary<string, ColumnStatisticsInput>? ColumnStatistics { get; init; }
+    /// keyed by the table's declared column names (columns may be omitted), serialized like
+    /// <see cref="CatalogTable.Statistics"/> (<see cref="Internal.ColumnStatisticsCodec"/>). The client
+    /// drops the branch when a query predicate is provably false against them, so wrong statistics
+    /// silently lose rows: leave a column out rather than guess. <see cref="BranchColumnStatistics"/>
+    /// defaults to the safe claim (may hold NULLs and values, bounds unknown). See vgi-python's
+    /// <c>docs/protocol/scan-planning.md</c>.</summary>
+    public IReadOnlyDictionary<string, BranchColumnStatistics>? ColumnStatistics { get; init; }
+}
+
+/// <summary>
+/// Protocol 3.2: one column's statistics on a <see cref="ScanBranchSpec"/> — conservative claims about
+/// EVERY row the branch produces, which the client prunes by. Unlike
+/// <see cref="ColumnStatisticsInput"/> (table statistics), every default is the safe claim: unknown
+/// bounds, <see cref="HasNull"/> <see langword="true"/> ("may contain NULLs") and
+/// <see cref="HasNotNull"/> <see langword="true"/> ("may contain values"). Narrow a claim only when it
+/// holds for every row: a wrong claim makes the client drop the branch and silently lose rows.
+/// Serialized into the same column-statistics payload as table statistics.
+/// </summary>
+public sealed record BranchColumnStatistics
+{
+    /// <summary>Lower bound on every non-null value (a CLR scalar matching the column type —
+    /// <see cref="long"/>, <see cref="double"/>, <see cref="string"/>, <see cref="bool"/>,
+    /// <see cref="byte"/>[], <see cref="DateOnly"/>), or <see langword="null"/> when unknown.</summary>
+    public object? Min { get; init; }
+
+    /// <summary>Upper bound on every non-null value, or <see langword="null"/> when unknown.</summary>
+    public object? Max { get; init; }
+
+    /// <summary><see langword="false"/> claims the column holds no NULLs in this branch.</summary>
+    public bool HasNull { get; init; } = true;
+
+    /// <summary><see langword="false"/> claims the column is entirely NULL in this branch (then
+    /// <see cref="Min"/>/<see cref="Max"/> must be unset).</summary>
+    public bool HasNotNull { get; init; } = true;
+
+    /// <summary>Approximate distinct count, or <see langword="null"/> when unknown.</summary>
+    public long? DistinctCount { get; init; }
+
+    /// <summary>Validates the claims and converts them to the shared wire input.</summary>
+    internal ColumnStatisticsInput ToInput(string columnName)
+    {
+        if (!HasNotNull && (Min is not null || Max is not null))
+        {
+            throw new InvalidOperationException(
+                $"BranchColumnStatistics for column '{columnName}': HasNotNull = false (entirely NULL) cannot be combined with Min/Max.");
+        }
+
+        return new ColumnStatisticsInput
+        {
+            Min = Min,
+            Max = Max,
+            HasNull = HasNull,
+            HasNotNull = HasNotNull,
+            DistinctCount = DistinctCount,
+        };
+    }
+
+    internal static Dictionary<string, ColumnStatisticsInput> ToInputs(IReadOnlyDictionary<string, BranchColumnStatistics> statistics) =>
+        statistics.ToDictionary(kv => kv.Key, kv => kv.Value.ToInput(kv.Key), StringComparer.Ordinal);
 }

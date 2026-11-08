@@ -1887,7 +1887,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         FormatOptions = spec.FormatOptions is { } opts ? ScanArgsCodec.Encode([], opts) : null,
         RowCount = spec.RowCount,
         ColumnStatistics = spec.ColumnStatistics is { } stats
-            ? ColumnStatisticsCodec.Encode(stats.Select(kv => (kv.Key, kv.Value)).ToList())
+            ? ColumnStatisticsCodec.Encode(stats.Select(kv => (kv.Key, kv.Value.ToInput(kv.Key))).ToList())
             : null,
     };
 
