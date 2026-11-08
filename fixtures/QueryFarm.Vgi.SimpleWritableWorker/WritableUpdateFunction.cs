@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using QueryFarm.Vgi.Catalog;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Table;
 using QueryFarm.Vgi.TableInOut;
@@ -26,11 +27,11 @@ public sealed class WritableUpdateFunction(string name, Schema visibleSchema, Sc
     public Schema OutputSchema => visibleSchema;
 
     public Schema ResolveOutputSchema(TableInOutBindParams bindParams) =>
-        WriteResults.Schema(WriteOptions.Decode(bindParams.Arguments).ResultMode, visibleSchema);
+        WriteResults.Schema(WriteRequest.From(bindParams.Arguments).ResultMode, visibleSchema);
 
     public ITableInOutProcessor CreateProcessor(TableInOutInitParams initParams)
     {
-        var mode = WriteOptions.Decode(initParams.Arguments).ResultMode;
+        var mode = WriteRequest.From(initParams.Arguments).ResultMode;
         return new Processor(visibleSchema, fullSchema, rowIdColumn, store, mode, initParams.AttachOpaqueData);
     }
 

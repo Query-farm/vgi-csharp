@@ -13,10 +13,17 @@ namespace QueryFarm.Vgi.Internal;
 /// </summary>
 public sealed class TableInOutFinalizeStreamState(ITableInOutProcessor processor) : ProducerState
 {
-    public override Task ProduceAsync(OutputCollector output, ICallContext? ctx, CancellationToken cancellationToken)
+    public override async Task ProduceAsync(OutputCollector output, ICallContext? ctx, CancellationToken cancellationToken)
     {
-        processor.Finalize(output);
+        if (processor is IAsyncTableInOutProcessor asyncProcessor)
+        {
+            await asyncProcessor.FinalizeAsync(output, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            processor.Finalize(output);
+        }
+
         ContinuedOutput.RefuseOutsideExchange(processor.GetType().Name + ".Finalize", output.EmittedMetadata);
-        return Task.CompletedTask;
     }
 }

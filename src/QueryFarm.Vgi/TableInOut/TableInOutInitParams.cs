@@ -69,4 +69,13 @@ public sealed class TableInOutInitParams
     /// <summary>Raw <c>BindRequest.AttachOpaqueData</c> — see
     /// <see cref="Table.TableBindParams.AttachOpaqueData"/>'s doc comment.</summary>
     public byte[] AttachOpaqueData { get; init; } = [];
+
+    /// <summary>The transaction's plaintext id (<c>BindRequest.TransactionOpaqueData</c>) — non-empty
+    /// only on an attach that advertised <see cref="Protocol.CatalogAttachResult.SupportsTransactions"/>
+    /// (see <see cref="Protocol.AttachContext.SupportsTransactions"/>), where it is the id
+    /// <see cref="Catalog.TransactionHooks.BeginAsync"/> returned for the SQL transaction this call
+    /// runs in. The same bytes reach the commit/rollback hook, so a write function (an UPDATE
+    /// delegate, say) can stage its changes under it and let the commit hook apply them. See
+    /// <see cref="Table.TableBindParams.TransactionOpaqueData"/>.</summary>
+    public byte[] TransactionOpaqueData { get; init; } = [];
 }

@@ -879,6 +879,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             InputSchema = inputSchema,
             ArgumentNames = request.ArgumentNames,
             AttachOpaqueData = request.AttachOpaqueData ?? [],
+            TransactionOpaqueData = request.TransactionOpaqueData ?? [],
             CopyTo = request.CopyTo,
         };
     }
@@ -1029,9 +1030,15 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             InputSchema = inputSchema,
             ArgumentNames = bindRequest.ArgumentNames,
             AttachOpaqueData = bindRequest.AttachOpaqueData ?? [],
+            TransactionOpaqueData = bindRequest.TransactionOpaqueData ?? [],
             CopyTo = bindRequest.CopyTo,
         };
-        var outputSchema = function.ResolveOutputSchema(bindParams);
+        // The schema bind accepted (the client echoes it on every init), as InitTable does: calling
+        // ResolveOutputSchema again here re-ran any bind-time validation it performs once per
+        // substream. Direct local callers may omit it.
+        var outputSchema = request.OutputSchema is { Length: > 0 }
+            ? SchemaIpc.ReadSchemaOnly(request.OutputSchema)
+            : function.ResolveOutputSchema(bindParams);
         var executionId = request.ExecutionId is { Length: > 0 } existing ? existing : Guid.NewGuid().ToByteArray();
         var substreamKey = SubstreamKey(request, executionId);
 
@@ -1077,6 +1084,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ExecutionId = executionId,
             SubstreamId = request.SubstreamId,
             AttachOpaqueData = bindRequest.AttachOpaqueData ?? [],
+            TransactionOpaqueData = bindRequest.TransactionOpaqueData ?? [],
         };
         var inputProcessor = function.CreateProcessor(initParams);
 
@@ -1119,6 +1127,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
                 InputSchema = inputSchema,
                 ArgumentNames = bindRequest.ArgumentNames,
+                AttachOpaqueData = bindRequest.AttachOpaqueData ?? [],
+                TransactionOpaqueData = bindRequest.TransactionOpaqueData ?? [],
             };
             var outputSchema = function.ResolveOutputSchema(bindParams);
             var finalizeStateId = request.FinalizeStateId ?? [];
@@ -1187,7 +1197,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// <see langword="byte"/>[]) — originally built for table-buffering's execution-scoped state —
     /// so reusing it keyed by <c>transaction_opaque_data</c> instead of an execution id needs no new
     /// storage machinery, just <see cref="FunctionStorage.DeleteAll"/> on commit/rollback to clear
-    /// it. See <c>ExampleWorker.Table.TxCachedValueFunction</c> for the fixture this backs.</summary>
+    /// it. See <c>ExampleWorker.Table.TxCachedValueFunction</c> for the fixture this backs.
+    /// <para>That name-based rule is only the default: an <see cref="Worker.OnAttach"/> handler
+    /// decides per attach with <see cref="AttachContext.SupportsTransactions"/>, and the
+    /// begin/commit/rollback RPCs run the worker's <see cref="Catalog.TransactionHooks"/>.</para></summary>
     public Task<CatalogAttachResult> CatalogAttachAsync(CatalogAttachRequest request, ICallContext? ctx = null)
     {
         // An attach ticket is redeemed before any catalog code: the sealed catalog name, options
@@ -1211,7 +1224,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return Task.FromResult(new CatalogAttachResult
         {
             AttachOpaqueData = attachOpaqueData,
-            SupportsTransactions = memory is null && request.Name == "example",
+            // Per attach from the OnAttach handler; the legacy default keeps the conformance
+            // fixture's "example" catalog transactional.
+            SupportsTransactions = attachContext?.SupportsTransactions ?? (memory is null && request.Name == "example"),
             SupportsTimeTravel = memory is null,
             CatalogVersionFrozen = memory is null,
             CatalogVersion = memory?.ReportedVersion ?? CatalogVersion,
@@ -1242,7 +1257,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// or an in-memory catalog), <see cref="ConstraintProfiles.RecordsRead"/> and
     /// <see cref="ConstraintProfiles.ScalarExpression"/>; an in-memory catalog also advertises
     /// <see cref="ConstraintProfiles.Create"/> and <see cref="ConstraintProfiles.Enforce"/> (it
-    /// accepts <c>CREATE TABLE ... NOT NULL</c>). Selected = advertised ∩ the client's offer
+    /// accepts <c>CREATE TABLE ... NOT NULL</c>), and so does an attach serving a writable constrained
+    /// declarative table (<see cref="CatalogRegistry.ServesWritableConstrainedTable"/>). Selected = advertised ∩ the client's offer
     /// (<see cref="ConstraintRecord.SelectProfiles"/>) for read, and for the in-memory profiles;
     /// the handler's selected ddl/write/transaction profiles pass through. Both stay
     /// <see langword="null"/> when nothing is advertised and the handler set nothing.
@@ -1263,7 +1279,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var servesRecords = inMemory || attachContext?.ServesConstraintRecords == true || catalog.MayServeConstraintRecords(identity);
-        if (explicitAdvertised is null && !servesRecords)
+        // A writable constrained declarative table (constraint records + an insert/update/delete
+        // function): DuckDB refuses to write to it unless enforce.v1 was negotiated, as
+        // vgi-typescript's catalogWriteProfiles advertises.
+        var enforces = inMemory || catalog.ServesWritableConstrainedTable(identity);
+        if (explicitAdvertised is null && !servesRecords && !enforces)
         {
             return (attachContext?.CatalogCapabilities, attachContext?.SelectedCapabilities);
         }
@@ -1279,6 +1299,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         if (inMemory)
         {
             advertised.Ddl = Merge(advertised.Ddl, ConstraintProfiles.Create);
+        }
+
+        if (enforces)
+        {
             advertised.Write = Merge(advertised.Write, ConstraintProfiles.Enforce);
         }
 
@@ -1288,42 +1312,75 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         if (inMemory)
         {
             selected.Ddl = Merge(selected.Ddl, [.. negotiated.Ddl.Where(profile => profile == ConstraintProfiles.Create)]);
+        }
+
+        if (enforces)
+        {
             selected.Write = Merge(selected.Write, [.. negotiated.Write.Where(profile => profile == ConstraintProfiles.Enforce)]);
         }
 
         return (EmbeddedIpc.Encode(advertised), EmbeddedIpc.Encode(selected));
     }
 
-    /// <summary>Mints a fresh per-transaction id (only ever called for a catalog identity whose
-    /// <see cref="CatalogAttachAsync"/> response set <c>SupportsTransactions</c> — see that method's
-    /// doc comment) — a plain random GUID is sufficient: it needs no relationship to
-    /// <paramref name="attachOpaqueData"/> or to any other transaction, only global uniqueness so
-    /// <see cref="FunctionStorage"/> never aliases two different transactions' state.</summary>
-    public Task<TransactionBeginResponse> CatalogTransactionBeginAsync(byte[] attachOpaqueData, ICallContext? ctx = null) =>
-        Task.FromResult(new TransactionBeginResponse
+    /// <summary>Starts a transaction (only ever called for an attach whose
+    /// <see cref="CatalogAttachAsync"/> result set <c>SupportsTransactions</c>): the registered
+    /// <see cref="Catalog.TransactionHooks.BeginAsync"/> mints the id, or — with no hooks, or a hook
+    /// returning <see langword="null"/> — 16 CSPRNG bytes do (vgi-opaque-data-sealing.md rule 6: the
+    /// id is a client-held value and the transaction's storage key).</summary>
+    public async Task<TransactionBeginResponse> CatalogTransactionBeginAsync(byte[] attachOpaqueData, ICallContext? ctx = null)
+    {
+        byte[]? id = null;
+        if (catalog.TransactionHooks is { } hooks)
         {
-            // CSPRNG (vgi-opaque-data-sealing.md rule 6): the id is the transaction's storage key.
-            TransactionOpaqueData = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16),
-        });
+            id = await hooks.BeginAsync(new Catalog.TransactionContext { AttachOpaqueData = attachOpaqueData ?? [], CallContext = ctx })
+                .ConfigureAwait(false);
+        }
 
-    /// <summary>Clears every namespace/key this transaction wrote via <see cref="FunctionStorage"/>
-    /// (e.g. <c>TxCachedValueFunction</c>'s per-key cache) — a plain <see cref="FunctionStorage.DeleteAll"/>
-    /// keyed by the transaction id, since that class is already an opaque-byte[]-keyed cross-process
-    /// store regardless of whether the key came from an execution id or a transaction id.</summary>
-    public Task CatalogTransactionCommitAsync(byte[] attachOpaqueData, byte[] transactionOpaqueData, ICallContext? ctx = null)
-    {
-        FunctionStorage.DeleteAll(transactionOpaqueData);
-        return Task.CompletedTask;
+        return new TransactionBeginResponse
+        {
+            TransactionOpaqueData = id is { Length: > 0 } ? id : System.Security.Cryptography.RandomNumberGenerator.GetBytes(16),
+        };
     }
 
-    /// <summary>Same cleanup as <see cref="CatalogTransactionCommitAsync"/> — a rolled-back
-    /// transaction's cached values must not leak into whatever transaction reuses this connection
-    /// next.</summary>
-    public Task CatalogTransactionRollbackAsync(byte[] attachOpaqueData, byte[] transactionOpaqueData, ICallContext? ctx = null)
+    /// <summary>Runs <see cref="Catalog.TransactionHooks.CommitAsync"/> — an exception fails the
+    /// client's COMMIT — then clears every namespace/key the transaction wrote via
+    /// <see cref="FunctionStorage"/> (e.g. <c>TxCachedValueFunction</c>'s per-key cache), keyed by the
+    /// transaction id, whether or not the hook succeeded.</summary>
+    public async Task CatalogTransactionCommitAsync(byte[] attachOpaqueData, byte[] transactionOpaqueData, ICallContext? ctx = null)
     {
-        FunctionStorage.DeleteAll(transactionOpaqueData);
-        return Task.CompletedTask;
+        try
+        {
+            if (catalog.TransactionHooks is { } hooks)
+            {
+                await hooks.CommitAsync(NewTransactionContext(attachOpaqueData, transactionOpaqueData, ctx)).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            FunctionStorage.DeleteAll(transactionOpaqueData);
+        }
     }
+
+    /// <summary>Runs <see cref="Catalog.TransactionHooks.RollbackAsync"/>, then the same cleanup as
+    /// <see cref="CatalogTransactionCommitAsync"/> — a rolled-back transaction's cached values must
+    /// not leak into whatever transaction reuses this connection next.</summary>
+    public async Task CatalogTransactionRollbackAsync(byte[] attachOpaqueData, byte[] transactionOpaqueData, ICallContext? ctx = null)
+    {
+        try
+        {
+            if (catalog.TransactionHooks is { } hooks)
+            {
+                await hooks.RollbackAsync(NewTransactionContext(attachOpaqueData, transactionOpaqueData, ctx)).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            FunctionStorage.DeleteAll(transactionOpaqueData);
+        }
+    }
+
+    private static Catalog.TransactionContext NewTransactionContext(byte[]? attachOpaqueData, byte[]? transactionOpaqueData, ICallContext? ctx) =>
+        new() { AttachOpaqueData = attachOpaqueData ?? [], TransactionOpaqueData = transactionOpaqueData ?? [], CallContext = ctx };
 
     /// <summary>Serializes every <see cref="CatalogRegistry.GlobalFunctions"/> entry to a
     /// <see cref="FunctionInfo"/> via the same per-kind builder every schema-discovery RPC uses —

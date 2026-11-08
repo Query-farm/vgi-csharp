@@ -514,6 +514,20 @@ public sealed class Worker
         return this;
     }
 
+    /// <summary>Registers the worker's catalog transaction hooks — begin (mint the transaction
+    /// id), commit (a throw fails the client's <c>COMMIT</c>) and rollback; see
+    /// <see cref="Catalog.TransactionHooks"/>. DuckDB calls them only for an attach whose
+    /// <c>catalog_attach</c> result advertised transactions, which an <see cref="OnAttach"/>
+    /// handler turns on per attach with <see cref="Protocol.AttachContext.SupportsTransactions"/>.
+    /// One set of hooks serves every catalog of the worker; switch on
+    /// <see cref="Catalog.TransactionContext.Attach"/> where they differ.</summary>
+    public Worker TransactionHooks(Catalog.TransactionHooks hooks)
+    {
+        ArgumentNullException.ThrowIfNull(hooks);
+        _catalog.TransactionHooks = hooks;
+        return this;
+    }
+
     /// <summary>Whether <c>catalog_attach</c> advertises
     /// <see cref="Protocol.CatalogAttachResult.SupportsCatalogContents"/>, letting the client load
     /// the whole catalog with one <c>catalog_contents</c> call instead of <c>catalog_schemas</c> plus

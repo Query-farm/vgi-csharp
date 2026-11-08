@@ -1,6 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using QueryFarm.Vgi.SimpleWritableWorker;
+using QueryFarm.Vgi.Catalog;
 using Xunit;
 
 namespace QueryFarm.Vgi.Tests.Protocol;

@@ -64,4 +64,19 @@ public sealed class AttachContext
     /// Lets one worker serve a catalog that must be loaded per schema (e.g. one whose listing is
     /// transaction-specific) beside ones that can be loaded in a single call.</summary>
     public bool? SupportsCatalogContents { get; init; }
+
+    /// <summary>Sets <see cref="CatalogAttachResult.SupportsTransactions"/> for this attach only.
+    /// <see langword="true"/> makes DuckDB open a worker transaction for every SQL transaction on
+    /// this attach (autocommit statements included): it calls <c>catalog_transaction_begin</c>,
+    /// threads the returned id onto every function call as <c>TransactionOpaqueData</c>
+    /// (<see cref="Table.TableBindParams.TransactionOpaqueData"/>,
+    /// <see cref="TableInOut.TableInOutInitParams.TransactionOpaqueData"/>, ...), and ends it with
+    /// <c>catalog_transaction_commit</c> or <c>catalog_transaction_rollback</c> — handled by the
+    /// <see cref="Catalog.TransactionHooks"/> registered with <see cref="Worker.TransactionHooks"/>.
+    /// <see langword="false"/> means no transaction traffic for this attach.
+    /// <see langword="null"/> (the default) keeps the SDK's legacy default: <see langword="true"/>
+    /// only for a declarative catalog attached under the name <c>example</c> (the conformance
+    /// fixture), <see langword="false"/> otherwise. Typically derived from an attach option, e.g.
+    /// <c>SupportsTransactions = AttachOptions.Read(request).GetBoolean("transactional") ?? false</c>.</summary>
+    public bool? SupportsTransactions { get; init; }
 }

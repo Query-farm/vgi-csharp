@@ -241,6 +241,10 @@ public sealed class CatalogRegistry
     /// it, mirroring how a Python worker's own <c>catalog_attach</c> override dispatches.</summary>
     public Func<Protocol.CatalogAttachRequest, Protocol.AttachContext?>? OnAttach { get; set; }
 
+    /// <summary>The worker's catalog transaction hooks (<see cref="Worker.TransactionHooks"/>), if
+    /// any — run by <c>VgiServiceImpl.CatalogTransactionBegin/Commit/RollbackAsync</c>.</summary>
+    public Catalog.TransactionHooks? TransactionHooks { get; set; }
+
     /// <summary>Advertised as <see cref="Protocol.CatalogAttachResult.SupportsCatalogContents"/> on
     /// every attach (see <see cref="Worker.CatalogContents"/>). On by default: every catalog this
     /// registry serves is declarative — populated by <c>Register*</c> calls at startup, with no
@@ -292,6 +296,15 @@ public sealed class CatalogRegistry
         _constraintRecordIdentities.ContainsKey(identity)
         || (FallsBackToDefault(identity) && _constraintRecordIdentities.ContainsKey(DefaultIdentity))
         || CatalogTablesFor(identity).Any(table => table.Constraints.Count > 0);
+
+    /// <summary>Whether an attach of <paramref name="identity"/> serves a writable constrained
+    /// table: a declarative table carrying constraint records AND an insert, update or delete
+    /// function. DuckDB only writes to a constrained table when the provider negotiated
+    /// <see cref="Catalog.ConstraintProfiles.Enforce"/> (it promises to keep the table's ENFORCED
+    /// constraints), so such an attach advertises it — vgi-typescript's <c>catalogWriteProfiles</c>.</summary>
+    internal bool ServesWritableConstrainedTable(string identity) =>
+        CatalogTablesFor(identity).Any(table => table.Constraints.Count > 0
+            && (table.InsertFunction is not null || table.UpdateFunction is not null || table.DeleteFunction is not null));
 
     public void RegisterScalar(IScalarFunction function, string identity = DefaultIdentity) =>
         Add(_scalarFunctions, identity, function.SchemaPath, function.Name, function);
@@ -675,6 +688,8 @@ public sealed class CatalogRegistry
     /// DISTINCT objects that happen to share a name (the overload-testing pattern) are untouched.</summary>
     public void RegisterCatalogTable(CatalogTable table, string identity = DefaultIdentity)
     {
+        ArgumentNullException.ThrowIfNull(table);
+        ValidateRowIdColumn(table);
         _tables[(identity, PathKey(table.EffectiveSchemaPath), table.Name)] = table;
         ContentsChanged();
 
@@ -696,6 +711,36 @@ public sealed class CatalogRegistry
         if (table.DeleteFunction is { } delete)
         {
             RegisterTableInOut(delete, identity);
+        }
+    }
+
+    /// <summary>A row-id column is a DuckDB <i>virtual</i> column, which DuckDB only requests from a
+    /// scan that supports projection pushdown; without it every UPDATE/DELETE (and any query naming
+    /// the row id) fails inside DuckDB with the opaque "Virtual columns require projection pushdown".
+    /// Refuse the table here instead, naming the fix.</summary>
+    private static void ValidateRowIdColumn(CatalogTable table)
+    {
+        if (table.RowIdColumn is not { } rowId)
+        {
+            return;
+        }
+
+        var name = $"{string.Join('.', table.EffectiveSchemaPath)}.{table.Name}";
+        if ((table.Columns ?? table.ScanFunction?.OutputSchema) is { } columns && columns.GetFieldIndex(rowId) < 0)
+        {
+            throw new ArgumentException(
+                $"Catalog table '{name}': RowIdColumn '{rowId}' is not a column of the table " +
+                $"(columns: {string.Join(", ", columns.FieldsList.Select(f => f.Name))}).", nameof(table));
+        }
+
+        if (table.ScanFunction is { } scan && scan.ProjectionPushdown != true)
+        {
+            throw new ArgumentException(
+                $"Catalog table '{name}' declares RowIdColumn '{rowId}', but its scan function '{scan.Name}' does not " +
+                "declare ProjectionPushdown = true. DuckDB reads the row id as a virtual column and only requests one " +
+                "from a scan with projection pushdown (otherwise: \"Virtual columns require projection pushdown\"). " +
+                "Declare ProjectionPushdown => true on the scan function and emit TableInitParams.ProjectedSchema.",
+                nameof(table));
         }
     }
 

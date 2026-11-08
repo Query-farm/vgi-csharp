@@ -252,18 +252,33 @@ default.
 ### Attach options and credentials
 
 A catalog can declare typed `ATTACH`-time options (`ATTACH ... (TYPE vgi, LOCATION ..., region 'eu')`)
-by building `AttachOptionSpec`s with `AttachOptionSpecBuilder.Build` and passing them, encoded, as
-the `CatalogInfo.AttachOptionSpecs` it registers via `Worker.RegisterCatalog`:
+with `AttachOptions.Spec` (namespace `QueryFarm.Vgi.Catalog`), passed as the
+`CatalogInfo.AttachOptionSpecs` it registers via `Worker.RegisterCatalog`, and read the values in an
+`OnAttach` handler with `AttachOptions.Read`:
 
 ```csharp
-AttachOptionSpecs =
-[
-    EmbeddedIpc.Encode(AttachOptionSpecBuilder.Build("api_key", "API key", StringType.Default,
-        defaultValue: null, required: true, secret: true)),
-    EmbeddedIpc.Encode(AttachOptionSpecBuilder.Build("region", "Region", StringType.Default,
-        new StringArray.Builder().Append("us-east-1").Build())),
-],
+worker
+    .RegisterCatalog(new CatalogInfo
+    {
+        Name = "sales",
+        AttachOptionSpecs =
+        [
+            AttachOptions.Spec("api_key", "API key", StringType.Default, required: true, secret: true),
+            AttachOptions.Spec("region", "Region", StringType.Default, defaultValue: "us-east-1"),
+        ],
+    })
+    .OnAttach(request =>
+    {
+        var options = AttachOptions.Read(request);   // GetString / GetBoolean / GetInt64 / ...
+        var region = options.GetString("region");
+        return new AttachContext { ExtraOpaqueData = Encoding.UTF8.GetBytes(region ?? "") };
+    });
 ```
+
+Every function of the attach receives the attach's opaque data as `AttachOpaqueData`;
+`AttachData.Parse(bytes)` splits it into the routing `Identity`, the per-attach random `AttachId`
+and the `Extra` bytes the handler returned (`AttachData.ExtraOf(bytes)` for just those).
+(`AttachOptionSpecBuilder.Build` in `QueryFarm.Vgi.Internal` still works; `AttachOptions.Spec` wraps it.)
 
 **Credential options (API keys, tokens, passwords) MUST be declared `secret: true`.** The caller
 passes the value inline as an ordinary attach option. The DuckDB extension redacts it from
@@ -275,9 +290,70 @@ pass it as an expression:
 ATTACH 'sales' (TYPE vgi, LOCATION 'https://sales.example.com', api_key getenv('SALES_API_KEY'));
 ```
 
+**Never copy a secret option into `ExtraOpaqueData`**: over HTTP the SDK seals the attach data, but
+on stdio and unix sockets it reaches the client in plaintext (vgi-opaque-data-sealing.md rule 5).
+Keep the value server-side, keyed by a random handle you put in `ExtraOpaqueData` (state shared by
+every worker process: a file, a database), or keep only a digest of it.
+`fixtures/QueryFarm.Vgi.WritableTxWorker` does exactly this for its `token` option.
+
 `secret` combines with `required`. A secret option may declare a default, but normally shouldn't.
 `required` is advertised, not enforced by the extension: reject a missing required option in your
 `OnAttach` handler.
+
+### Writable tables
+
+A `CatalogTable` becomes writable by naming an ordinary `ITableInOutFunction` per operation
+(`InsertFunction`, `UpdateFunction`, `DeleteFunction`) and its maximum result mode per operation in
+`WriteResultModes` (`WriteOperation.*` → `WriteResultMode.Count` / `Rows` / `Changes`). The helpers
+in `QueryFarm.Vgi.Catalog.WriteResults` build what a write function needs:
+
+```csharp
+var columns = new Schema([idField, nameField, WriteResults.RowIdField()], null);  // rowid BIGINT, is_row_id
+var user = WriteResults.UserColumns(columns);                                      // without the row id
+
+// in the write function:
+public Schema ResolveOutputSchema(TableInOutBindParams bind) =>
+    WriteResults.Schema(WriteRequest.From(bind.Arguments).ResultMode, user);
+// per input batch (UPDATE: the SET columns + the row id last):
+output.Emit(WriteResults.Batch(mode, user, oldRows, newRows));
+```
+
+UPDATE and DELETE need a row-id column (`CatalogTable.RowIdColumn`), which DuckDB reads as a
+*virtual* column, so the table's `ScanFunction` must declare `ProjectionPushdown => true` and emit
+`TableInitParams.ProjectedSchema`; registration refuses a table that names a row id over a scan
+without it. A writable table that also carries `Constraints` makes its attach negotiate
+`vgi.constraint.enforce.v1` automatically — its write functions then promise to keep the ENFORCED
+constraints (e.g. refuse to change a key). A write function whose processor awaits I/O can
+implement `IAsyncTableInOutProcessor` (and a scan, `IAsyncTableFunctionProducer`).
+
+### Transactions
+
+DuckDB opens a worker transaction for every SQL transaction (autocommit statements included) on an
+attach whose result advertises `supports_transactions`. Choose that per attach in the `OnAttach`
+handler and handle the lifecycle with `TransactionHooks`:
+
+```csharp
+sealed class Hooks : TransactionHooks
+{
+    public override Task<byte[]?> BeginAsync(TransactionContext c) => Task.FromResult<byte[]?>(null); // null: SDK mints 16 random bytes
+    public override Task CommitAsync(TransactionContext c) => ApplyStaged(c.Attach, c.TransactionOpaqueData); // throw to fail COMMIT
+    public override Task RollbackAsync(TransactionContext c) => DiscardStaged(c.TransactionOpaqueData);
+}
+
+worker
+    .OnAttach(request => new AttachContext
+    {
+        SupportsTransactions = AttachOptions.Read(request).GetBoolean("transactional") ?? false,
+    })
+    .TransactionHooks(new Hooks());
+```
+
+Functions see the same plaintext id as `TransactionOpaqueData` on `TableBindParams`,
+`TableInitParams`, `TableInOutBindParams` and `TableInOutInitParams` (on HTTP the SDK seals it on
+the wire and opens it before either runs), so a write function can stage changes under it and the
+commit hook can apply them. Calls of one transaction may reach different worker processes; keep
+staged state where all of them can see it. `fixtures/QueryFarm.Vgi.WritableTxWorker` is a complete
+example (vgi `docs/writable_tx_fixtures.md`).
 
 ## Transports
 
@@ -446,6 +522,7 @@ src/QueryFarm.Vgi/                    the published package
                                        codecs, evaluators, storage
 fixtures/QueryFarm.Vgi.ExampleWorker/ the ~170-function conformance-driving fixture worker
 fixtures/QueryFarm.Vgi.SimpleWritableWorker/  writable-catalog write-path fixture
+fixtures/QueryFarm.Vgi.WritableTxWorker/      `txfix`: writable table + transaction hooks (public API only)
 fixtures/QueryFarm.Vgi.BadProtocolWorker/     malformed-protocol negative-test fixture
 examples/01-minimal-scalar-worker/    "Your first worker" above, as a buildable project
 test/QueryFarm.Vgi.Tests/             xUnit unit tests

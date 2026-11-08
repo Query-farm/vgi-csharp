@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using QueryFarm.Vgi.Catalog;
 using QueryFarm.Vgi.Internal;
 using QueryFarm.Vgi.Table;
 using QueryFarm.Vgi.TableInOut;
@@ -26,13 +27,13 @@ public sealed class WritableInsertFunction(string name, Schema visibleSchema, Sc
 
     public Schema ResolveOutputSchema(TableInOutBindParams bindParams)
     {
-        var mode = brokenReturning ? "count" : WriteOptions.Decode(bindParams.Arguments).ResultMode;
+        var mode = brokenReturning ? "count" : WriteRequest.From(bindParams.Arguments).ResultMode;
         return WriteResults.Schema(mode, visibleSchema);
     }
 
     public ITableInOutProcessor CreateProcessor(TableInOutInitParams initParams)
     {
-        var mode = brokenReturning ? "count" : WriteOptions.Decode(initParams.Arguments).ResultMode;
+        var mode = brokenReturning ? "count" : WriteRequest.From(initParams.Arguments).ResultMode;
         return new Processor(visibleSchema, fullSchema, store, mode, brokenReturning, initParams.AttachOpaqueData);
     }
 
@@ -57,7 +58,7 @@ public sealed class WritableInsertFunction(string name, Schema visibleSchema, Sc
             // was actually requested (test/sql/integration/simple_writable/returning_validation.test).
             if (brokenReturning)
             {
-                output.Emit(WriteCount.Batch(input.Length));
+                output.Emit(WriteResults.CountBatch(input.Length));
                 return;
             }
             output.Emit(WriteResults.Batch(

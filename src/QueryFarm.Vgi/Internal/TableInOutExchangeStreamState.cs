@@ -26,11 +26,11 @@ public sealed class TableInOutExchangeStreamState(
     /// continuation tick. Lives on this state, which every transport keeps for the stream's life.</summary>
     private bool _morePending;
 
-    public override Task ExchangeAsync(AnnotatedBatch input, OutputCollector output, ICallContext? ctx, CancellationToken cancellationToken)
+    public override async Task ExchangeAsync(AnnotatedBatch input, OutputCollector output, ICallContext? ctx, CancellationToken cancellationToken)
     {
         try
         {
-            Turn(input, output);
+            await TurnAsync(input, output, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -39,13 +39,11 @@ public sealed class TableInOutExchangeStreamState(
             onAbandoned?.Invoke();
             throw;
         }
-
-        return Task.CompletedTask;
     }
 
     public override void OnCancel(ICallContext? ctx) => onAbandoned?.Invoke();
 
-    private void Turn(AnnotatedBatch input, OutputCollector output)
+    private async Task TurnAsync(AnnotatedBatch input, OutputCollector output, CancellationToken cancellationToken)
     {
         // A tick asks for the next reply of the last input's output, and is the only valid input
         // while that output is pending.
@@ -74,7 +72,13 @@ public sealed class TableInOutExchangeStreamState(
         output.InputMetadata = input.Metadata;
         using (ContinuedOutput.BeginExchangeTurn(output))
         {
-            if (tick)
+            if (processor is IAsyncTableInOutProcessor asyncProcessor)
+            {
+                await (tick
+                    ? asyncProcessor.ResumeAsync(output, cancellationToken)
+                    : asyncProcessor.ProcessAsync(input.Batch, output, cancellationToken)).ConfigureAwait(false);
+            }
+            else if (tick)
             {
                 processor.Resume(output);
             }

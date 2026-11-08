@@ -76,8 +76,16 @@ public sealed class CatalogTable
     [Obsolete(LegacyConstraintMessage)]
     public IReadOnlyList<CatalogForeignKey> ForeignKeys { get; init; } = [];
 
-    /// <summary>The row-identity column for UPDATE/DELETE (<see cref="Internal.VgiRowIdMetadata"/>).
-    /// Required when <see cref="WriteResultModes"/> declares update or delete.</summary>
+    /// <summary>The row-identity column for UPDATE/DELETE (<see cref="Internal.VgiRowIdMetadata"/>;
+    /// <see cref="WriteResults.RowIdField"/> builds one). Required when <see cref="WriteResultModes"/>
+    /// declares update or delete. It must be a column of <see cref="Columns"/> (or the scan's output)
+    /// of its own — DuckDB hides it from <c>SELECT *</c> and INSERT — and DuckDB reads it as a
+    /// <i>virtual</i> column, which it only requests from a scan with projection pushdown: the
+    /// <see cref="ScanFunction"/> must declare <see cref="ITableFunction.ProjectionPushdown"/>
+    /// <see langword="true"/> and emit <see cref="Table.TableInitParams.ProjectedSchema"/>.
+    /// Registration (<see cref="Worker.RegisterCatalogTable"/>) refuses a table that breaks either
+    /// rule, rather than leaving DuckDB to fail every UPDATE/DELETE with "Virtual columns require
+    /// projection pushdown".</summary>
     public string? RowIdColumn { get; init; }
 
     /// <summary>The read path — a normal table function (also independently registered under this
@@ -149,7 +157,11 @@ public sealed class CatalogTable
     /// query.</summary>
     public long? StatisticsCacheMaxAgeSeconds { get; init; }
 
-    /// <summary>Maximum result mode for each supported write operation.</summary>
+    /// <summary>Maximum result mode for each supported write operation — keys from
+    /// <see cref="WriteOperation"/>, values from <see cref="WriteResultMode"/>. A table that also
+    /// carries <see cref="Constraints"/> makes its attach negotiate
+    /// <see cref="ConstraintProfiles.Enforce"/> automatically: its write functions promise to keep
+    /// the ENFORCED constraints (reject a NULL in a NOT NULL column, refuse to change a key, ...).</summary>
     public IReadOnlyDictionary<string, string> WriteResultModes { get; init; } =
         new Dictionary<string, string>();
 
