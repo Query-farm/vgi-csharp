@@ -39,6 +39,16 @@ public sealed class ScalarBindParams
     /// dynamic scope-based one.</summary>
     public byte[]? Secrets { get; init; }
 
+    /// <summary>Raw <c>attach_opaque_data</c> of the attach this call belongs to (empty when the call
+    /// carries none) — see <see cref="Table.TableBindParams.AttachOpaqueData"/>.</summary>
+    public byte[] AttachOpaqueData { get; init; } = [];
+
+    private Catalog.AttachOptions? _attachOptions;
+
+    /// <summary>This attach's ATTACH options, <c>secret</c> ones included (decrypted on first
+    /// access) — <see cref="Catalog.AttachOptions.FromAttachData"/> over <see cref="AttachOpaqueData"/>.</summary>
+    public Catalog.AttachOptions AttachOptions => _attachOptions ??= Catalog.AttachOptions.FromAttachData(AttachOpaqueData);
+
     private QueryFarm.Vgi.Arguments.SecretValues? _secretValues;
 
     /// <summary>Typed, read-only view of <see cref="Secrets"/> — look secrets up with

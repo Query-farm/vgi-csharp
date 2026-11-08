@@ -56,6 +56,12 @@ public sealed class TableBindParams
     /// the call carries none.</summary>
     public byte[] AttachOpaqueData { get; init; } = [];
 
+    private Catalog.AttachOptions? _attachOptions;
+
+    /// <summary>This attach's ATTACH options, <c>secret</c> ones included (decrypted on first
+    /// access) — <see cref="Catalog.AttachOptions.FromAttachData"/> over <see cref="AttachOpaqueData"/>.</summary>
+    public Catalog.AttachOptions AttachOptions => _attachOptions ??= Catalog.AttachOptions.FromAttachData(AttachOpaqueData);
+
     /// <summary>Raw <see cref="Protocol.BindRequest.TransactionOpaqueData"/> — non-empty only when
     /// this call runs inside an explicit SQL transaction (<c>BEGIN</c>/<c>COMMIT</c>/<c>ROLLBACK</c>)
     /// on a catalog that advertised <see cref="Protocol.CatalogAttachResult.SupportsTransactions"/>;

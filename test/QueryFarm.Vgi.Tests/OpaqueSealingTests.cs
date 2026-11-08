@@ -225,7 +225,7 @@ public sealed class OpaqueSealingTests
         registry.OnAttach = VaultAttach;
         var plaintext = (await new VgiServiceImpl(registry).CatalogAttachAsync(
             new CatalogAttachRequest { Name = "vault", Options = Options("api_key", Secret) })).AttachOpaqueData;
-        Assert.True(plaintext.AsSpan().StartsWith("vault\0"u8));
+        Assert.Equal("vault", QueryFarm.Vgi.Catalog.AttachData.Parse(plaintext).Identity);
         Assert.False(Contains(plaintext, Encoding.UTF8.GetBytes(Secret)));
     }
 

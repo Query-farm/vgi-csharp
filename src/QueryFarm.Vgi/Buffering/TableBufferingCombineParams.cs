@@ -31,6 +31,12 @@ public sealed class TableBufferingCombineParams
 
     public byte[]? AttachOpaqueData { get; init; }
 
+    private Catalog.AttachOptions? _attachOptions;
+
+    /// <summary>This attach's ATTACH options, <c>secret</c> ones included (decrypted on first
+    /// access) — <see cref="Catalog.AttachOptions.FromAttachData"/> over <see cref="AttachOpaqueData"/>.</summary>
+    public Catalog.AttachOptions AttachOptions => _attachOptions ??= Catalog.AttachOptions.FromAttachData(AttachOpaqueData);
+
     public byte[]? TransactionId { get; init; }
 
     /// <summary>Non-<see langword="null"/> only for a <c>COPY ... TO</c> sink — see

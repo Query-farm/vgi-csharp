@@ -27,7 +27,8 @@ public sealed class ScalarStreamState(
     Schema outputSchema,
     byte[] arguments,
     byte[]? settings,
-    byte[]? secrets) : ExchangeState
+    byte[]? secrets,
+    byte[]? attachOpaqueData = null) : ExchangeState
 {
     public override Task ExchangeAsync(AnnotatedBatch input, OutputCollector output, ICallContext? ctx, CancellationToken cancellationToken)
     {
@@ -38,6 +39,7 @@ public sealed class ScalarStreamState(
             Arguments = arguments,
             Settings = settings,
             Secrets = secrets,
+            AttachOpaqueData = attachOpaqueData ?? [],
             DeclaredArgumentsSchema = function.ArgumentsSchema,
         });
         ContinuedOutput.RefuseOutsideExchange(function.Name, function.CacheControlMetadata);

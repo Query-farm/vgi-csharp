@@ -245,6 +245,13 @@ public sealed class Worker
 
     /// <summary>The key HTTP seals client-held values with: the configured one, else one generated
     /// for this process (kept, so every server this worker builds agrees).</summary>
+    private Func<byte[]> RegisteredSealingRoot()
+    {
+        var root = ResolveSealingKey();
+        Internal.AttachSecretOptions.Register(root);
+        return () => root;
+    }
+
     internal byte[] ResolveSealingKey() =>
         ResolveSigningKey() ?? (_generatedSigningKey ??= System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
@@ -528,6 +535,27 @@ public sealed class Worker
         return this;
     }
 
+    /// <summary>Sets the root key <c>secret</c> ATTACH options are encrypted under inside each
+    /// attach's opaque data (see <see cref="Catalog.AttachOptions"/>). Every worker process that
+    /// serves the catalog must be given the same key. Optional: without it the worker uses its HTTP
+    /// signing key on HTTP (<see cref="SigningKey"/> / <c>VGI_SIGNING_KEY</c>, or the key it minted at
+    /// startup), and on stdio / unix sockets the host-local key file
+    /// (<c>$VGI_ATTACH_SECRET_KEY_FILE</c>, else <c>$XDG_RUNTIME_DIR/vgi/attach-secret-options.key</c>,
+    /// else <c>&lt;temp&gt;/vgi-&lt;user&gt;/attach-secret-options.key</c>; 32 random bytes, created on
+    /// first use, mode 0600). The AEAD key is derived from it with HKDF-SHA256; it is never logged.</summary>
+    public Worker AttachSecretOptionsKey(byte[] key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (key.Length < 16)
+        {
+            throw new ArgumentException("The secret-options key must be at least 16 bytes.", nameof(key));
+        }
+
+        _catalog.AttachSecretOptionsKey = key.ToArray();
+        Internal.AttachSecretOptions.Register(key);
+        return this;
+    }
+
     /// <summary>Whether <c>catalog_attach</c> advertises
     /// <see cref="Protocol.CatalogAttachResult.SupportsCatalogContents"/>, letting the client load
     /// the whole catalog with one <c>catalog_contents</c> call instead of <c>catalog_schemas</c> plus
@@ -775,8 +803,16 @@ public sealed class Worker
         {
             // HTTP authenticates callers, so every value a client holds for the worker is sealed and
             // bound to its caller there (vgi-opaque-data-sealing.md); the OS owns the boundary on
-            // stdio/unix, where values stay plaintext and never carry a secret option.
-            IVgiService service = new VgiServiceImpl(_catalog);
+            // stdio/unix, where values stay plaintext (secret ATTACH options inside are encrypted by
+            // the SDK, see AttachOptionsEnvelope).
+            IVgiService service = new VgiServiceImpl(_catalog)
+            {
+                // Secret ATTACH options: the configured key, else on HTTP the sealing key (registered
+                // now so a replica sharing VGI_SIGNING_KEY opens values another one minted), else the
+                // host-local key file (VgiServiceImpl's default).
+                SecretOptionsRoot = _catalog.AttachSecretOptionsKey is { } configured ? () => configured
+                    : transport == ServerTransport.Http ? RegisteredSealingRoot() : null,
+            };
             if (transport == ServerTransport.Http)
             {
                 service = OpaqueSealingProxy.Wrap(service, new OpaqueSealer(ResolveSealingKey()));

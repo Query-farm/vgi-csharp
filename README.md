@@ -254,7 +254,8 @@ default.
 A catalog can declare typed `ATTACH`-time options (`ATTACH ... (TYPE vgi, LOCATION ..., region 'eu')`)
 with `AttachOptions.Spec` (namespace `QueryFarm.Vgi.Catalog`), passed as the
 `CatalogInfo.AttachOptionSpecs` it registers via `Worker.RegisterCatalog`, and read the values in an
-`OnAttach` handler with `AttachOptions.Read`:
+`OnAttach` handler with `AttachOptions.Read`, and in every function and transaction hook of the attach with the params'
+`AttachOptions` property (`AttachOptions.FromAttachData(bytes)` from raw bytes):
 
 ```csharp
 worker
@@ -270,14 +271,30 @@ worker
     .OnAttach(request =>
     {
         var options = AttachOptions.Read(request);   // GetString / GetBoolean / GetInt64 / ...
-        var region = options.GetString("region");
-        return new AttachContext { ExtraOpaqueData = Encoding.UTF8.GetBytes(region ?? "") };
+        if (options.GetString("api_key") is not { Length: > 0 })
+            throw new InvalidOperationException("sales needs api_key");
+        return null;
     });
+
+// in any function (table, in-out, buffering, scalar, aggregate) or TransactionHooks:
+var apiKey = initParams.AttachOptions.GetString("api_key");   // secret options included
 ```
 
-Every function of the attach receives the attach's opaque data as `AttachOpaqueData`;
-`AttachData.Parse(bytes)` splits it into the routing `Identity`, the per-attach random `AttachId`
-and the `Extra` bytes the handler returned (`AttachData.ExtraOf(bytes)` for just those).
+The worker keeps an attach's options in its `attach_opaque_data`, which every call of the attach
+carries back. **Secret options are encrypted there** (XChaCha20-Poly1305, bound to the attach's
+random id, under an HKDF-SHA256 subkey of the worker's key): `Worker.AttachSecretOptionsKey(...)`
+if set, else on HTTP the signing key (`VGI_SIGNING_KEY`, or the key minted at startup), else on
+stdio/unix a host-local key file shared by the user's VGI workers on that host
+(`$VGI_ATTACH_SECRET_KEY_FILE`, else `$XDG_RUNTIME_DIR/vgi/attach-secret-options.key`, else
+`<temp>/vgi-<user>/attach-secret-options.key`; 32 random bytes, 0600, created on first use). So a
+secret never appears in plaintext in a value the client holds, on any transport (sealing rule 5),
+and catalog code never copies it anywhere itself. Every worker process serving the catalog over
+HTTP needs the same signing key (or secret-options key) to read it. A value that does not open
+(moved into another attach, tampered with) fails with `attach_opaque_data not recognized`.
+
+`AttachData.Parse(bytes)` splits the value into the routing `Identity`, the per-attach random
+`AttachId`, the `Extra` bytes the handler returned (`AttachData.ExtraOf(bytes)` for just those) and
+`Options`.
 (`AttachOptionSpecBuilder.Build` in `QueryFarm.Vgi.Internal` still works; `AttachOptions.Spec` wraps it.)
 
 **Credential options (API keys, tokens, passwords) MUST be declared `secret: true`.** The caller
@@ -290,11 +307,10 @@ pass it as an expression:
 ATTACH 'sales' (TYPE vgi, LOCATION 'https://sales.example.com', api_key getenv('SALES_API_KEY'));
 ```
 
-**Never copy a secret option into `ExtraOpaqueData`**: over HTTP the SDK seals the attach data, but
-on stdio and unix sockets it reaches the client in plaintext (vgi-opaque-data-sealing.md rule 5).
-Keep the value server-side, keyed by a random handle you put in `ExtraOpaqueData` (state shared by
-every worker process: a file, a database), or keep only a digest of it.
-`fixtures/QueryFarm.Vgi.WritableTxWorker` does exactly this for its `token` option.
+**Never copy a secret option into `ExtraOpaqueData`** (on stdio and unix sockets that part reaches the
+client in plaintext) — read it through `AttachOptions` instead. A catalog that needs only to
+recognize a credential, not use it, can also keep just a digest. `fixtures/QueryFarm.Vgi.WritableTxWorker`
+reads its secret `token` option only through the accessor.
 
 `secret` combines with `required`. A secret option may declare a default, but normally shouldn't.
 `required` is advertised, not enforced by the extension: reject a missing required option in your

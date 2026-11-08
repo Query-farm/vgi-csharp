@@ -245,6 +245,10 @@ public sealed class CatalogRegistry
     /// any — run by <c>VgiServiceImpl.CatalogTransactionBegin/Commit/RollbackAsync</c>.</summary>
     public Catalog.TransactionHooks? TransactionHooks { get; set; }
 
+    /// <summary>The explicitly configured secret-options root key (<see cref="Worker.AttachSecretOptionsKey"/>),
+    /// if any.</summary>
+    internal byte[]? AttachSecretOptionsKey { get; set; }
+
     /// <summary>Advertised as <see cref="Protocol.CatalogAttachResult.SupportsCatalogContents"/> on
     /// every attach (see <see cref="Worker.CatalogContents"/>). On by default: every catalog this
     /// registry serves is declarative — populated by <c>Register*</c> calls at startup, with no

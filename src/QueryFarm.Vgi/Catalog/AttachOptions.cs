@@ -6,9 +6,23 @@ using QueryFarm.Vgi.Protocol;
 namespace QueryFarm.Vgi.Catalog;
 
 /// <summary>
-/// ATTACH options: declaring them for discovery (<see cref="Spec"/>) and reading the values a
-/// <c>catalog_attach</c> request carries (<see cref="Read(CatalogAttachRequest)"/>).
+/// ATTACH options: declaring them for discovery (<see cref="Spec"/>), reading the values a
+/// <c>catalog_attach</c> request carries (<see cref="Read(CatalogAttachRequest)"/>), and reading them
+/// back in every function and transaction hook of the attach (<see cref="FromAttachData"/>, or the
+/// <c>AttachOptions</c> property of the params / <see cref="TransactionContext"/>).
 /// </summary>
+/// <remarks>
+/// <para>The worker keeps an attach's options in its <c>attach_opaque_data</c>: non-secret ones in
+/// plain form, <c>secret</c> ones (declared with <c>secret: true</c>) encrypted with
+/// XChaCha20-Poly1305 under a key derived (HKDF-SHA256) from the worker's secret-options key
+/// (<see cref="Worker.AttachSecretOptionsKey"/>), else its HTTP signing key on HTTP, else a host-local
+/// key file (<c>$VGI_ATTACH_SECRET_KEY_FILE</c>, <c>$XDG_RUNTIME_DIR/vgi/attach-secret-options.key</c>
+/// or <c>&lt;temp&gt;/vgi-&lt;user&gt;/attach-secret-options.key</c>, 32 random bytes, mode 0600,
+/// created on first use). The encrypted part is bound to its attach, so it cannot be moved into
+/// another one. Secret values therefore never appear in plaintext in a value the client holds, on
+/// any transport, and catalog code never needs to copy them into
+/// <see cref="AttachContext.ExtraOpaqueData"/> or keep them server-side.</para>
+/// </remarks>
 /// <example>
 /// <code>
 /// worker.RegisterCatalog(new CatalogInfo
@@ -33,6 +47,35 @@ public sealed class AttachOptions
     private readonly Dictionary<string, object?> _values;
 
     private AttachOptions(Dictionary<string, object?> values) => _values = values;
+
+    private static readonly AttachOptions s_empty = new(new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>The ATTACH options of the attach <paramref name="attachOpaqueData"/> belongs to (any
+    /// <c>*Params.AttachOpaqueData</c>, or <see cref="TransactionContext.AttachOpaqueData"/>),
+    /// <c>secret</c> ones included. Shorthand for <c>AttachData.Parse(attachOpaqueData).Options</c>.</summary>
+    /// <exception cref="Exception">The encrypted part does not open: the uniform
+    /// <c>attach_opaque_data not recognized</c> error.</exception>
+    public static AttachOptions FromAttachData(byte[]? attachOpaqueData) => AttachData.Parse(attachOpaqueData).Options;
+
+    internal static AttachOptions FromSection(byte[]? section, byte[] attachId)
+    {
+        if (section is null)
+        {
+            return s_empty;
+        }
+
+        var (plain, blob) = AttachOptionsEnvelope.Parts(section);
+        var options = Read(plain);
+        if (blob.Length > 0)
+        {
+            foreach (var (name, value) in Read(AttachSecretOptions.Decrypt(blob, attachId)).Values)
+            {
+                options._values[name] = value;
+            }
+        }
+
+        return options;
+    }
 
     /// <summary>Every supplied option (DuckDB fills in declared defaults), by name — compared
     /// case-insensitively, as DuckDB compares option names. Values are boxed CLR values
@@ -156,8 +199,9 @@ public sealed class AttachOptions
     /// one-element <see cref="IArrowArray"/>; <see langword="null"/> for none.</param>
     /// <param name="required">The ATTACH must supply the option (mutually exclusive with a default).</param>
     /// <param name="secret">The option carries a credential: DuckDB redacts it from
-    /// <c>duckdb_databases()</c>, logs and the result-cache key. Never copy such a value into
-    /// <see cref="AttachContext.ExtraOpaqueData"/> — see <see cref="AttachData"/>.</param>
+    /// <c>duckdb_databases()</c>, logs and the result-cache key, and the worker keeps it encrypted in
+    /// the attach data (see the remarks above); functions read it with <see cref="FromAttachData"/>.
+    /// Never copy such a value into <see cref="AttachContext.ExtraOpaqueData"/>.</param>
     public static byte[] Spec(string name, string description, IArrowType type, object? defaultValue = null, bool required = false, bool secret = false)
     {
         ArgumentNullException.ThrowIfNull(type);

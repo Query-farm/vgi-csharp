@@ -113,6 +113,12 @@ public sealed class TableInitParams
     /// doc comment.</summary>
     public byte[] AttachOpaqueData { get; init; } = [];
 
+    private Catalog.AttachOptions? _attachOptions;
+
+    /// <summary>This attach's ATTACH options, <c>secret</c> ones included (decrypted on first
+    /// access) — <see cref="Catalog.AttachOptions.FromAttachData"/> over <see cref="AttachOpaqueData"/>.</summary>
+    public Catalog.AttachOptions AttachOptions => _attachOptions ??= Catalog.AttachOptions.FromAttachData(AttachOpaqueData);
+
     /// <summary>See <see cref="TableBindParams.TransactionOpaqueData"/> — the same value, re-decoded
     /// from the <see cref="Protocol.BindRequest"/> embedded in this init call.</summary>
     public byte[] TransactionOpaqueData { get; init; } = [];

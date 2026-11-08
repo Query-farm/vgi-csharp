@@ -63,6 +63,9 @@ public sealed class TransactionContext
     /// stored.</summary>
     public AttachData Attach => _attach ??= AttachData.Parse(AttachOpaqueData);
 
+    /// <summary>The attach's ATTACH options, <c>secret</c> ones included — <c>Attach.Options</c>.</summary>
+    public AttachOptions AttachOptions => Attach.Options;
+
     /// <summary>The RPC call context (caller identity on HTTP), when the transport supplies one.</summary>
     public ICallContext? CallContext { get; init; }
 }

@@ -330,6 +330,39 @@ public sealed class WritableTxApiTests
     }
 
     [Fact]
+    public void BuildBatchAndReadRowsRoundTripNestedAndTemporalTypes()
+    {
+        var point = new StructType([new Field("x", DoubleType.Default, true), new Field("tags", new ListType(new Field("item", StringType.Default, true)), true)]);
+        var schema = new Schema(
+            [
+                new Field("at", new TimestampType(TimeUnit.Microsecond, "UTC"), true),
+                new Field("day", Date32Type.Default, true),
+                new Field("names", new ListType(new Field("item", StringType.Default, true)), true),
+                new Field("point", point, true),
+            ],
+            metadata: null);
+        var at = new DateTimeOffset(2026, 11, 8, 12, 30, 0, TimeSpan.Zero);
+        IReadOnlyDictionary<string, object?> full = new Dictionary<string, object?>
+        {
+            ["at"] = at,
+            ["day"] = new DateOnly(2026, 11, 8),
+            ["names"] = new[] { "a", "b" },
+            ["point"] = new Dictionary<string, object?> { ["x"] = 1.5, ["tags"] = new List<string> { "t" } },
+        };
+        IReadOnlyDictionary<string, object?> empty = new Dictionary<string, object?>();
+
+        var rows = WriteResults.ReadRows(WriteResults.BuildBatch(schema, [full, empty]));
+
+        Assert.Equal(at, rows[0]["at"]);
+        Assert.Equal(new DateOnly(2026, 11, 8), rows[0]["day"]);
+        Assert.Equal(["a", "b"], Assert.IsType<List<object?>>(rows[0]["names"]));
+        var p = Assert.IsType<Dictionary<string, object?>>(rows[0]["point"]);
+        Assert.Equal(1.5, p["x"]);
+        Assert.Equal(["t"], Assert.IsType<List<object?>>(p["tags"]));
+        Assert.All(rows[1].Values, Assert.Null);
+    }
+
+    [Fact]
     public void RowIdFieldAndUserColumns()
     {
         var rowId = WriteResults.RowIdField();

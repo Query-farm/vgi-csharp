@@ -529,6 +529,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ArgumentNames = request.ArgumentNames,
             Settings = request.Settings,
             Secrets = request.Secrets,
+            AttachOpaqueData = request.AttachOpaqueData ?? [],
         };
 
         ArgumentConstraints.Enforce(function.ArgumentsSchema, ArgumentConstraints.Positions.ConstOnly, arguments);
@@ -589,7 +590,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             }
         }
 
-        var callParams = BuildAggregateCallParams(request.FunctionName, request.ExecutionId, stateStore, ctx);
+        var callParams = BuildAggregateCallParams(request.FunctionName, request.ExecutionId, stateStore, ctx, request.AttachOpaqueData);
         function.Update(inputColumns, groupIds, states, callParams);
 
         foreach (var (gid, bytes) in states)
@@ -620,7 +621,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var targets = ReadInt64Column((Int64Array)batch.Column(tgtIndex), count);
 
         var stateStore = new AggregateStateStore(new FunctionStorage(request.ExecutionId));
-        var callParams = BuildAggregateCallParams(request.FunctionName, request.ExecutionId, stateStore, ctx);
+        var callParams = BuildAggregateCallParams(request.FunctionName, request.ExecutionId, stateStore, ctx, request.AttachOpaqueData);
         var dirty = new Dictionary<long, byte[]>();
 
         for (var i = 0; i < count; i++)
@@ -672,7 +673,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             states[i] = stateStore.ReadState(groupIds[i]);
         }
 
-        var callParams = BuildAggregateCallParams(request.FunctionName, request.ExecutionId, stateStore, ctx);
+        var callParams = BuildAggregateCallParams(request.FunctionName, request.ExecutionId, stateStore, ctx, request.AttachOpaqueData);
         var resultArray = function.Finalize(groupIds, states, outputSchema, callParams);
         if (resultArray.Length != count)
         {
@@ -702,6 +703,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Arguments = request.Arguments,
             Settings = request.Settings,
             Secrets = request.Secrets,
+            AttachOpaqueData = request.AttachOpaqueData ?? [],
             InputSchema = inputSchema,
             ArgumentNames = request.ArgumentNames,
             DeclaredArgumentsSchema = function.ArgumentsSchema,
@@ -897,7 +899,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             MaxWorkers = 1,
         };
 
-        var state = new ScalarStreamState(function, outputSchema, bindRequest.Arguments, bindRequest.Settings, bindRequest.Secrets);
+        var state = new ScalarStreamState(function, outputSchema, bindRequest.Arguments, bindRequest.Settings, bindRequest.Secrets, bindRequest.AttachOpaqueData);
 
         // InputSchema MUST be the bound argument-column schema, never null: a scalar call is an
         // EXCHANGE stream (DuckDB pushes one batch of argument columns per turn), and the wire
@@ -1215,6 +1217,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var attachContext = catalog.OnAttach?.Invoke(request);
         var identity = attachContext?.Identity ?? request.Name;
         var attachOpaqueData = EncodeIdentity(identity, attachContext?.ExtraOpaqueData);
+        // The ATTACH options ride the value too, so every function and transaction hook can read
+        // them (AttachOptions.FromAttachData) -- secret ones encrypted, bound to this attach's id.
+        if (AttachOptionsEnvelope.Build(request.Options, AttachOptionSpecsFor(request.Name), Catalog.AttachData.Parse(attachOpaqueData).AttachId, ResolveSecretOptionsRoot) is { } optionsSection)
+        {
+            attachOpaqueData = AttachOptionsEnvelope.Insert(attachOpaqueData, optionsSection);
+        }
 
         // A DDL-capable in-memory catalog (Worker.RegisterInMemoryCatalog) gets a private catalog
         // per attach; its version moves with every DDL, so it is not frozen.
@@ -1321,6 +1329,32 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         return (EmbeddedIpc.Encode(advertised), EmbeddedIpc.Encode(selected));
     }
+
+    /// <summary>The root key secret ATTACH options are encrypted under: set by the worker per
+    /// transport (its secret-options key, else on HTTP its signing key); <see langword="null"/>
+    /// falls back to the registry's configured key, else the host-local key file. Resolved only when
+    /// a secret option actually has a value.</summary>
+    internal Func<byte[]>? SecretOptionsRoot { get; init; }
+
+    private byte[] ResolveSecretOptionsRoot()
+    {
+        try
+        {
+            return SecretOptionsRoot?.Invoke() ?? catalog.AttachSecretOptionsKey ?? HostLocalKey.Load();
+        }
+        catch (InvalidOperationException exc)
+        {
+            throw new InvalidOperationException($"Cannot encrypt this ATTACH's secret options: {exc.Message}", exc);
+        }
+    }
+
+    /// <summary>The declared option specs of catalog <paramref name="name"/> (which say which
+    /// options are secret).</summary>
+    private List<AttachOptionSpec> AttachOptionSpecsFor(string name) =>
+        catalog.Catalogs.Where(c => c.Name == name)
+            .SelectMany(c => c.AttachOptionSpecs ?? [])
+            .Select(EmbeddedIpc.Decode<AttachOptionSpec>)
+            .ToList();
 
     /// <summary>Starts a transaction (only ever called for an attach whose
     /// <see cref="CatalogAttachAsync"/> result set <c>SupportsTransactions</c>): the registered
@@ -2069,13 +2103,14 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// const arguments from storage since none of those three standalone unary RPCs carry them on
     /// the wire (see <see cref="Aggregate.AggregateCallParams"/>'s doc comment).</summary>
     private static Aggregate.AggregateCallParams BuildAggregateCallParams(
-        string functionName, byte[] executionId, AggregateStateStore stateStore, ICallContext? ctx) =>
+        string functionName, byte[] executionId, AggregateStateStore stateStore, ICallContext? ctx, byte[]? attachOpaqueData) =>
         new()
         {
             FunctionName = functionName,
             ExecutionId = executionId,
             Arguments = TableArgCodec.Decode(stateStore.LoadArgs()),
             Ctx = ctx,
+            AttachOpaqueData = attachOpaqueData ?? [],
         };
 
     /// <summary>Separates the deterministic identity-name portion of an encoded
@@ -2092,8 +2127,10 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var separatorIndex = System.Array.IndexOf(attachOpaqueData, IdentitySeparator);
-        var nameBytes = separatorIndex >= 0 ? attachOpaqueData[..separatorIndex] : attachOpaqueData;
-        return Encoding.UTF8.GetString(nameBytes);
+        var nameBytes = separatorIndex >= 0 ? attachOpaqueData.AsMemory(0, separatorIndex) : attachOpaqueData;
+        // An options section (AttachOptionsEnvelope) may follow the name, after a 0x01 marker.
+        var marker = nameBytes.Span.IndexOf(AttachOptionsEnvelope.Marker);
+        return Encoding.UTF8.GetString(marker >= 0 ? nameBytes.Span[..marker] : nameBytes.Span);
     }
 
     /// <summary>Encodes the routing identity (unchanged: still the sole input to

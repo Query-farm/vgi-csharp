@@ -46,8 +46,10 @@ public sealed class AttachContext
     /// following 16-byte GUID). Fixture-defined format; the framework never inspects it.
     /// <para>Never put a <c>secret</c> attach option (or anything derived from one that would reveal
     /// it) here: over HTTP the value is sealed, but on stdio and unix sockets it travels to the
-    /// client in plaintext (vgi-opaque-data-sealing.md rule 5). Keep a secret server-side, or keep
-    /// only a digest of it.</para></summary>
+    /// client in plaintext (vgi-opaque-data-sealing.md rule 5). There is no need to: the SDK keeps
+    /// every ATTACH option in the attach data itself, secret ones encrypted, and functions and hooks
+    /// read them with <see cref="Catalog.AttachOptions.FromAttachData"/> (or their params'
+    /// <c>AttachOptions</c>). Read the extra bytes back with <see cref="Catalog.AttachData.ExtraOf"/>.</para></summary>
     public byte[]? ExtraOpaqueData { get; init; }
 
     /// <summary>Fed onto <see cref="CatalogAttachResult.ResolvedDataVersion"/> — the concrete

@@ -23,4 +23,14 @@ public sealed class AggregateCallParams
     /// <summary>In-band log sink (surfaces as a <c>duckdb_logs()</c> row with <c>type='VGI'</c>) —
     /// <see langword="null"/> only in a unit test that constructs this params object directly.</summary>
     public ICallContext? Ctx { get; init; }
+
+    /// <summary>Raw <c>attach_opaque_data</c> of the attach this call belongs to (empty when the call
+    /// carries none) — see <see cref="Table.TableBindParams.AttachOpaqueData"/>.</summary>
+    public byte[] AttachOpaqueData { get; init; } = [];
+
+    private Catalog.AttachOptions? _attachOptions;
+
+    /// <summary>This attach's ATTACH options, <c>secret</c> ones included (decrypted on first
+    /// access) — <see cref="Catalog.AttachOptions.FromAttachData"/> over <see cref="AttachOpaqueData"/>.</summary>
+    public Catalog.AttachOptions AttachOptions => _attachOptions ??= Catalog.AttachOptions.FromAttachData(AttachOpaqueData);
 }

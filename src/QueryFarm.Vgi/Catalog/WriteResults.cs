@@ -242,7 +242,7 @@ public static class WriteResults
             var row = new Dictionary<string, object?>(StringComparer.Ordinal);
             for (var c = 0; c < batch.ColumnCount; c++)
             {
-                row[batch.Schema.GetFieldByIndex(c).Name] = ScalarArgCodec.ReadScalar(batch.Column(c), r);
+                row[batch.Schema.GetFieldByIndex(c).Name] = ReadValue(batch.Column(c), r);
             }
 
             rows.Add(row);
@@ -252,31 +252,179 @@ public static class WriteResults
     }
 
     /// <summary>Builds a batch of <paramref name="schema"/> from row maps keyed by column name (a
-    /// missing key is NULL) — the inverse of <see cref="ReadRows"/>. Supports the primitive types:
-    /// signed/unsigned integers, float, double, VARCHAR, BOOLEAN and BLOB.</summary>
+    /// missing key is NULL) — the inverse of <see cref="ReadRows"/>. Supports signed/unsigned
+    /// integers, float, double, VARCHAR, BOOLEAN, BLOB, TIMESTAMP (a <see cref="DateTimeOffset"/> or
+    /// <see cref="DateTime"/>), DATE (a <see cref="DateOnly"/>, <see cref="DateTime"/> or
+    /// <see cref="DateTimeOffset"/>), LIST (any <see cref="System.Collections.IEnumerable"/>, not a
+    /// string) and STRUCT (a <see cref="IReadOnlyDictionary{TKey, TValue}"/> of field values), nested
+    /// to any depth.</summary>
     public static RecordBatch BuildBatch(Schema schema, IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)
     {
         ArgumentNullException.ThrowIfNull(schema);
         ArgumentNullException.ThrowIfNull(rows);
         var arrays = schema.FieldsList
-            .Select(field => AnyArrayBuilder.Build(field.DataType, rows.Select(row => row.GetValueOrDefault(field.Name)).ToList()))
+            .Select(field => BuildArray(field.DataType, rows.Select(row => row.GetValueOrDefault(field.Name)).ToList()))
             .ToArray();
         return new RecordBatch(schema, arrays, rows.Count);
     }
 
-    private static StructArray StructOf(Schema userColumns, IReadOnlyList<IReadOnlyDictionary<string, object?>?> rows)
+    /// <summary>One Arrow array of <paramref name="type"/> from boxed values — see
+    /// <see cref="BuildBatch"/> for the supported types.</summary>
+    public static IArrowArray BuildArray(IArrowType type, IReadOnlyList<object?> values)
     {
-        IReadOnlyDictionary<string, object?> empty = new Dictionary<string, object?>();
-        var values = BuildBatch(userColumns, rows.Select(row => row ?? empty).ToList());
-        var validity = new ArrowBuffer.BitmapBuilder();
-        var nullCount = 0;
-        foreach (var row in rows)
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(values);
+        switch (type)
         {
-            validity.Append(row is not null);
-            if (row is null) nullCount++;
+            case TimestampType timestamp:
+                {
+                    var builder = new TimestampArray.Builder(timestamp);
+                    foreach (var value in values)
+                    {
+                        switch (value)
+                        {
+                            case null: builder.AppendNull(); break;
+                            case DateTimeOffset offset: builder.Append(offset); break;
+                            case DateTime dateTime:
+                                builder.Append(new DateTimeOffset(dateTime.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc) : dateTime));
+                                break;
+                            default: throw new ArgumentException($"A TIMESTAMP value must be a DateTimeOffset or DateTime, not {value.GetType().Name}.", nameof(values));
+                        }
+                    }
+
+                    return builder.Build();
+                }
+
+            case Date32Type:
+                {
+                    var builder = new Date32Array.Builder();
+                    foreach (var value in values)
+                    {
+                        switch (value)
+                        {
+                            case null: builder.AppendNull(); break;
+                            case DateOnly date: builder.Append(date); break;
+                            case DateTime dateTime: builder.Append(dateTime); break;
+                            case DateTimeOffset offset: builder.Append(offset.UtcDateTime); break;
+                            default: throw new ArgumentException($"A DATE value must be a DateOnly, DateTime or DateTimeOffset, not {value.GetType().Name}.", nameof(values));
+                        }
+                    }
+
+                    return builder.Build();
+                }
+
+            case ListType list:
+                {
+                    var offsets = new ArrowBuffer.Builder<int>();
+                    var validity = new ArrowBuffer.BitmapBuilder();
+                    var items = new List<object?>();
+                    var nulls = 0;
+                    offsets.Append(0);
+                    foreach (var value in values)
+                    {
+                        if (value is null)
+                        {
+                            validity.Append(false);
+                            nulls++;
+                        }
+                        else if (value is System.Collections.IEnumerable sequence and not string and not byte[])
+                        {
+                            validity.Append(true);
+                            foreach (var item in sequence)
+                            {
+                                items.Add(item);
+                            }
+                        }
+                        else
+                        {
+                            throw new ArgumentException($"A LIST value must be a sequence, not {value.GetType().Name}.", nameof(values));
+                        }
+
+                        offsets.Append(items.Count);
+                    }
+
+                    var child = BuildArray(list.ValueDataType, items);
+                    return new ListArray(list, values.Count, offsets.Build(), child, validity.Build(), nulls);
+                }
+
+            case StructType structType:
+                {
+                    IReadOnlyDictionary<string, object?> empty = new Dictionary<string, object?>();
+                    var rows = values.Select(value => value switch
+                    {
+                        null => null,
+                        IReadOnlyDictionary<string, object?> row => row,
+                        _ => throw new ArgumentException($"A STRUCT value must be an IReadOnlyDictionary<string, object?>, not {value.GetType().Name}.", nameof(values)),
+                    }).ToList();
+                    var children = structType.Fields
+                        .Select(field => BuildArray(field.DataType, rows.Select(row => (row ?? empty).GetValueOrDefault(field.Name)).ToList()))
+                        .ToArray();
+                    var validity = new ArrowBuffer.BitmapBuilder();
+                    var nulls = 0;
+                    foreach (var row in rows)
+                    {
+                        validity.Append(row is not null);
+                        nulls += row is null ? 1 : 0;
+                    }
+
+                    return new StructArray(structType, values.Count, children, validity.Build(), nulls);
+                }
+
+            default:
+                return AnyArrayBuilder.Build(type, values);
+        }
+    }
+
+    /// <summary>The value at <paramref name="index"/> of <paramref name="array"/> as a boxed CLR value
+    /// (<see langword="null"/> for SQL NULL): what <see cref="ReadRows"/> returns per cell. TIMESTAMP
+    /// reads as <see cref="DateTimeOffset"/>, DATE as <see cref="DateOnly"/>, LIST as
+    /// <c>List&lt;object?&gt;</c>, STRUCT as <c>Dictionary&lt;string, object?&gt;</c>.</summary>
+    public static object? ReadValue(IArrowArray array, int index)
+    {
+        ArgumentNullException.ThrowIfNull(array);
+        if (array.IsNull(index))
+        {
+            return null;
         }
 
-        var children = Enumerable.Range(0, userColumns.FieldsList.Count).Select(values.Column).ToArray();
-        return new StructArray(new StructType(userColumns.FieldsList), rows.Count, children, validity.Build(), nullCount);
+        switch (array)
+        {
+            case TimestampArray timestamps:
+                return timestamps.GetTimestamp(index);
+            case Date32Array dates:
+                return dates.GetDateOnly(index);
+            case ListArray list:
+                {
+                    var start = list.ValueOffsets[index];
+                    var end = list.ValueOffsets[index + 1];
+                    var items = new List<object?>(end - start);
+                    for (var i = start; i < end; i++)
+                    {
+                        items.Add(ReadValue(list.Values, i));
+                    }
+
+                    return items;
+                }
+
+            case StructArray structs:
+                {
+                    var fields = ((StructType)structs.Data.DataType).Fields;
+                    var row = new Dictionary<string, object?>(StringComparer.Ordinal);
+                    for (var f = 0; f < fields.Count; f++)
+                    {
+                        row[fields[f].Name] = ReadValue(structs.Fields[f], index);
+                    }
+
+                    return row;
+                }
+
+            default:
+                return ScalarArgCodec.ReadScalar(array, index);
+        }
+    }
+
+    private static StructArray StructOf(Schema userColumns, IReadOnlyList<IReadOnlyDictionary<string, object?>?> rows)
+    {
+        return (StructArray)BuildArray(new StructType(userColumns.FieldsList), rows.Cast<object?>().ToList());
     }
 }

@@ -70,6 +70,12 @@ public sealed class TableInOutInitParams
     /// <see cref="Table.TableBindParams.AttachOpaqueData"/>'s doc comment.</summary>
     public byte[] AttachOpaqueData { get; init; } = [];
 
+    private Catalog.AttachOptions? _attachOptions;
+
+    /// <summary>This attach's ATTACH options, <c>secret</c> ones included (decrypted on first
+    /// access) — <see cref="Catalog.AttachOptions.FromAttachData"/> over <see cref="AttachOpaqueData"/>.</summary>
+    public Catalog.AttachOptions AttachOptions => _attachOptions ??= Catalog.AttachOptions.FromAttachData(AttachOpaqueData);
+
     /// <summary>The transaction's plaintext id (<c>BindRequest.TransactionOpaqueData</c>) — non-empty
     /// only on an attach that advertised <see cref="Protocol.CatalogAttachResult.SupportsTransactions"/>
     /// (see <see cref="Protocol.AttachContext.SupportsTransactions"/>), where it is the id
