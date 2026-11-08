@@ -216,13 +216,30 @@ internal static class HostLocalKey
         }
 
         CheckPrivate(path, isDirectory: false, path);
-        var bytes = File.ReadAllBytes(path);
+        var bytes = ReadWithRetry(path);
         if (bytes.Length != Size)
         {
             throw Unusable(path, $"holds {bytes.Length} bytes, not exactly {Size} raw random bytes");
         }
 
         return bytes;
+    }
+
+    /// <summary>Reads the key, retrying briefly on a sharing violation: on Windows another first
+    /// start may still be moving its key into place.</summary>
+    private static byte[] ReadWithRetry(string path)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return File.ReadAllBytes(path);
+            }
+            catch (IOException) when (attempt < 50 && File.Exists(path))
+            {
+                Thread.Sleep(10);
+            }
+        }
     }
 
     private static void Create(string path, string directory)
