@@ -196,14 +196,27 @@ public sealed class AttachSecretOptionsTests : IDisposable
         }
     }
 
+    /// <summary>20 independent races of 24 concurrent first starts each (a fresh key path per
+    /// round): every round agrees on one key and leaves exactly one file. Repeated because the race
+    /// is timing-dependent (0.24.3 failed it intermittently on Windows).</summary>
     [Fact]
     public async Task ConcurrentFirstStartsAgreeOnOneKey()
     {
-        var path = Path.Combine(_dir, "race", HostLocalKey.FileName);
-        var keys = await Task.WhenAll(Enumerable.Range(0, 24).Select(_ => Task.Run(() => HostLocalKey.LoadOrCreate(path))));
-        Assert.All(keys, k => Assert.Equal(keys[0], k));
-        Assert.Equal(keys[0], File.ReadAllBytes(path));
-        Assert.Single(Directory.GetFiles(Path.GetDirectoryName(path)!));
+        for (var round = 0; round < 20; round++)
+        {
+            var path = Path.Combine(_dir, $"race-{round}", HostLocalKey.FileName);
+            using var start = new ManualResetEventSlim(false);
+            var racers = Enumerable.Range(0, 24).Select(_ => Task.Run(() =>
+            {
+                start.Wait();
+                return HostLocalKey.LoadOrCreate(path);
+            })).ToArray();
+            start.Set();
+            var keys = await Task.WhenAll(racers);
+            Assert.All(keys, k => Assert.Equal(keys[0], k));
+            Assert.Equal(keys[0], File.ReadAllBytes(path));
+            Assert.Single(Directory.GetFiles(Path.GetDirectoryName(path)!));
+        }
     }
 
     [Fact]
