@@ -156,6 +156,31 @@ public sealed class WritableTxApiTests
         Assert.Equal(inOut.InitAttach, hooks.Calls.Single(c => c.Kind == "commit").Attach);
     }
 
+    /// <summary>On the sealed (HTTP) path the whole attach envelope is sealed, the
+    /// <see cref="AttachContext.ExtraOpaqueData"/> bytes included: the client never holds them in
+    /// plaintext, and functions get them back opened.</summary>
+    [Fact]
+    public async Task OnTheSealedPathExtraOpaqueDataIsSealedAndReachesFunctionsOpened()
+    {
+        var secret = "hue-app-key-0123456789abcdef"u8.ToArray();
+        var registry = new CatalogRegistry { OnAttach = _ => new AttachContext { ExtraOpaqueData = secret } };
+        var inOut = new CapturingInOut();
+        registry.RegisterTableInOut(inOut);
+        IVgiService service = OpaqueSealingProxy.Wrap(new VgiServiceImpl(registry), new OpaqueSealer("unit-test-sealing-key-0123456789"u8.ToArray()));
+
+        var sealedAttach = (await service.CatalogAttachAsync(new CatalogAttachRequest { Name = "c" })).AttachOpaqueData;
+        Assert.Equal(OpaqueSealer.AttachVersion, sealedAttach[0]);
+        Assert.Equal(-1, sealedAttach.AsSpan().IndexOf(secret));
+
+        await service.InitAsync(new InitRequest
+        {
+            BindCall = EmbeddedIpc.Encode(BindFor(inOut.Name, sealedAttach, [])),
+            Phase = VgiInitPhase.Input,
+            ExecutionId = Guid.NewGuid().ToByteArray(),
+        });
+        Assert.Equal(secret, AttachData.ExtraOf(inOut.InitAttach));
+    }
+
     // ------------------------------------------------------------------ table in-out params
 
     [Fact]
