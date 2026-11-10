@@ -36,8 +36,8 @@ namespace QueryFarm.Vgi.ExampleWorker.Table;
 /// to diff against, and the WKB path is proven.</para>
 ///
 /// <para><b>Expression-filter pushdown.</b> This fixture advertises the exact versioned
-/// <c>duckdb.spatial/intersects_extent@1</c> identity and evaluates it through embedded DuckDB's
-/// spatial extension against the same GeoArrow WKB representation.</para>
+/// <c>duckdb.spatial/intersects_extent@1</c> identity and evaluates it with the SDK's native WKB
+/// extent evaluator (<c>Internal/WkbExtent.cs</c>) against the same GeoArrow WKB representation.</para>
 /// </summary>
 public sealed class SpatialFilterExampleFunction : ITableFunction
 {

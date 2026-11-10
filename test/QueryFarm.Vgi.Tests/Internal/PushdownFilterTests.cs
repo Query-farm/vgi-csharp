@@ -201,7 +201,7 @@ public class PushdownFilterTests
     }
 
     [Fact]
-    public void SpatialExtensionCapability_UsesTheEmbeddedDuckDbEvaluator()
+    public void SpatialExtensionCapability_IsEvaluated()
     {
         var call = $"{{\"node\":\"call\",\"function\":{{\"namespace\":\"duckdb.spatial\",\"name\":\"intersects_extent\",\"version\":1}},\"arguments\":[{Column("geom", 0)},{Literal(0)}]}}";
         var metadata = new Dictionary<string, string> { ["ARROW:extension:name"] = "geoarrow.wkb" };

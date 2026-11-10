@@ -517,17 +517,4 @@ public static class ExpressionFilterEvaluator
         s_connection = conn;
         return conn;
     }
-
-    internal static bool SpatialIntersectsExtent(byte[] left, byte[] right)
-    {
-        using var command = GetConnection().CreateCommand();
-        command.CommandText = "SELECT ST_GeomFromWKB($1) && ST_GeomFromWKB($2)";
-        var leftParameter = command.CreateParameter();
-        leftParameter.Value = left;
-        command.Parameters.Add(leftParameter);
-        var rightParameter = command.CreateParameter();
-        rightParameter.Value = right;
-        command.Parameters.Add(rightParameter);
-        return Convert.ToBoolean(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-    }
 }
