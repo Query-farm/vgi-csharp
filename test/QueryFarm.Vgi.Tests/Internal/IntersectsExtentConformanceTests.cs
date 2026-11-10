@@ -45,7 +45,7 @@ public class IntersectsExtentConformanceTests
         var filters = new Dictionary<string, FilterSet>(StringComparer.Ordinal);
         var mismatches = new List<string>();
         var cases = document.RootElement.GetProperty("cases").EnumerateArray().ToList();
-        Assert.Equal(1849, cases.Count);
+        Assert.Equal(2116, cases.Count);
         foreach (var testCase in cases)
         {
             var left = testCase.GetProperty("left").GetString()!;
