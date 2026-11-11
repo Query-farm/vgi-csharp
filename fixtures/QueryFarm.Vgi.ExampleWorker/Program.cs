@@ -438,13 +438,17 @@ foreach (var table in DataSchemaTables.All(sequenceFunction, tenThousandFunction
 // each ScanFunction under its own schema for us, so these two calls contribute exactly the two
 // test_same_name_table_scan registrations table/function_registration.test's inventory counts —
 // don't also .RegisterTable() them. The `data` comment is asserted verbatim by table/comments.test.
-worker.RegisterCatalogTable(new CatalogTable { Name = "projection_rows", SchemaName = "main", ScanFunction = new ProjectionSequenceFunction() });
+// Protocol 3.3: a CatalogTable's scan is listed table_only (hidden from duckdb_functions(), not
+// callable) unless ExposeScan. Every example table exposes its scan, because the shared suite counts
+// and calls these scans as ordinary functions (vgi-python lists them in its schemas' functions).
+worker.RegisterCatalogTable(new CatalogTable { Name = "projection_rows", SchemaName = "main", ScanFunction = new ProjectionSequenceFunction(), ExposeScan = true });
 worker.RegisterCatalogTable(new CatalogTable
 {
     Name = "test_same_name_table",
     SchemaName = "main",
     Comment = "Schema-disambiguation probe; the main-schema table",
     ScanFunction = new SameNameTableScanFunction("main"),
+    ExposeScan = true,
 });
 
 worker.RegisterCatalogTable(new CatalogTable
@@ -453,6 +457,7 @@ worker.RegisterCatalogTable(new CatalogTable
     SchemaName = "data",
     Comment = "Schema-disambiguation probe; the data-schema table",
     ScanFunction = new SameNameTableScanFunction("data"),
+    ExposeScan = true,
 });
 
 // Function-backed table over the secret-using secret_demo function (test/sql/integration/secret/
@@ -471,6 +476,7 @@ worker.RegisterCatalogTable(new CatalogTable
     Comment = "A large sequence of integers from 0 to 1,000,000",
     ScanFunction = sequenceFunction,
     ScanArguments = [1_000_000L],
+    ExposeScan = true,
 });
 
 // table/table_function_statistics.test — a catalog table declaring NO Statistics of its own, so
@@ -483,6 +489,7 @@ worker.RegisterCatalogTable(new CatalogTable
     Comment = "123456 integers; stats served by the sequence function, not the table",
     ScanFunction = sequenceFunction,
     ScanArguments = [123_456L],
+    ExposeScan = true,
 });
 
 // table/partition_columns.test — PartitionColumns reached as a CATALOG TABLE, whose scan function the
@@ -495,6 +502,7 @@ worker.RegisterCatalogTable(new CatalogTable
     Comment = "Per-country sales, SINGLE_VALUE partition column declared last; GROUP BY country must plan as PARTITIONED_AGGREGATE",
     ScanFunction = trailingPartitionSalesFunction,
     ScanArguments = [100L],
+    ExposeScan = true,
 });
 
 // Canonical VIRTUAL columns: the scan emits n only and DuckDB evaluates doubled/label.
@@ -516,6 +524,7 @@ worker.RegisterCatalogTable(new CatalogTable
         ["label"] = "'item_' || CAST(n AS VARCHAR)",
     },
     ScanFunction = new GeneratedSequenceScanFunction(),
+    ExposeScan = true,
 });
 
 // table/rowid.test — five variants of the same rowid_sequence() function, reusing its scan
@@ -530,6 +539,7 @@ worker.RegisterCatalogTable(new CatalogTable
     ScanFunction = rowIdSequenceFunction,
     ScanArguments = [20L],
     ScanNamedArguments = new Dictionary<string, object?> { ["layout"] = "first", ["row_id_type"] = "int64" },
+    ExposeScan = true,
 });
 worker.RegisterCatalogTable(new CatalogTable
 {
@@ -540,6 +550,7 @@ worker.RegisterCatalogTable(new CatalogTable
     ScanFunction = rowIdSequenceFunction,
     ScanArguments = [20L],
     ScanNamedArguments = new Dictionary<string, object?> { ["layout"] = "middle", ["row_id_type"] = "int64" },
+    ExposeScan = true,
 });
 worker.RegisterCatalogTable(new CatalogTable
 {
@@ -550,6 +561,7 @@ worker.RegisterCatalogTable(new CatalogTable
     ScanFunction = rowIdSequenceFunction,
     ScanArguments = [20L],
     ScanNamedArguments = new Dictionary<string, object?> { ["layout"] = "last", ["row_id_type"] = "int64" },
+    ExposeScan = true,
 });
 worker.RegisterCatalogTable(new CatalogTable
 {
@@ -560,6 +572,7 @@ worker.RegisterCatalogTable(new CatalogTable
     ScanFunction = rowIdSequenceFunction,
     ScanArguments = [20L],
     ScanNamedArguments = new Dictionary<string, object?> { ["layout"] = "first", ["row_id_type"] = "string" },
+    ExposeScan = true,
 });
 worker.RegisterCatalogTable(new CatalogTable
 {
@@ -570,6 +583,7 @@ worker.RegisterCatalogTable(new CatalogTable
     ScanFunction = rowIdSequenceFunction,
     ScanArguments = [20L],
     ScanNamedArguments = new Dictionary<string, object?> { ["layout"] = "first", ["row_id_type"] = "struct" },
+    ExposeScan = true,
 });
 
 // table/late_materialization.test — a rowid table advertising LateMaterialization, so the C++
@@ -581,6 +595,7 @@ worker.RegisterCatalogTable(new CatalogTable
     SchemaName = "data",
     Comment = "Late-materialization table (1000 rows, unique rowid)",
     ScanFunction = new LateMaterializationFunction { Name = "late_mat_scan", RowCount = 1000 },
+    ExposeScan = true,
 });
 worker.RegisterCatalogTable(new CatalogTable
 {
@@ -588,6 +603,7 @@ worker.RegisterCatalogTable(new CatalogTable
     SchemaName = "data",
     Comment = "Late-materialization table with NULLs in the ord column",
     ScanFunction = new LateMaterializationFunction { Name = "late_mat_nulls_scan", RowCount = 1000, NullOrdStride = 7 },
+    ExposeScan = true,
 });
 worker.RegisterCatalogTable(new CatalogTable
 {
@@ -595,6 +611,7 @@ worker.RegisterCatalogTable(new CatalogTable
     SchemaName = "data",
     Comment = "Late-materialization table with deliberately non-unique rowid (contract violation)",
     ScanFunction = new LateMaterializationFunction { Name = "late_mat_dup_scan", RowCount = 2000, RowIdFor = i => i / 2 },
+    ExposeScan = true,
 });
 
 worker.RegisterCatalogTable(new CatalogTable
@@ -603,6 +620,7 @@ worker.RegisterCatalogTable(new CatalogTable
     SchemaName = "data",
     Comment = "Catalog table echoing pushed-down filters (filter-pushdown-through-view tests).",
     ScanFunction = new FilterEchoTableScanFunction(),
+    ExposeScan = true,
 });
 
 worker.RegisterCatalogTable(new CatalogTable
@@ -611,6 +629,7 @@ worker.RegisterCatalogTable(new CatalogTable
     SchemaName = "data",
     Comment = "Function-backed table over the secret-using secret_demo function",
     ScanFunction = new SecretDemoFunction(),
+    ExposeScan = true,
 });
 
 // Catalog views (test/sql/integration/view/views.test) — the definitions below resolve against
@@ -724,6 +743,7 @@ worker.RegisterCatalogTable(new CatalogTable
         ],
         metadata: null),
     ScanFunction = new NarrowScanFunction(),
+    ExposeScan = true,
 }, identity: "narrow_bind");
 worker.RegisterCatalogTable(new CatalogTable
 {
@@ -731,6 +751,7 @@ worker.RegisterCatalogTable(new CatalogTable
     SchemaName = "main",
     Comment = "Positive control — catalog and wide_scan agree on {id, val}",
     ScanFunction = new WideScanFunction(),
+    ExposeScan = true,
 }, identity: "narrow_bind");
 
 // The "projection_repro" catalog (test/sql/integration/projection_pushdown_repro.test) — a

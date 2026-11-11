@@ -88,10 +88,23 @@ public sealed class CatalogTable
     /// projection pushdown".</summary>
     public string? RowIdColumn { get; init; }
 
-    /// <summary>The read path — a normal table function (also independently registered under this
-    /// table's <see cref="SchemaName"/>/<see cref="ITableFunction.Name"/> so the C++ side can call it
-    /// by name once it resolves this table's inline <see cref="Protocol.TableInfo.ScanFunction"/>).</summary>
+    /// <summary>The read path — a normal table function (also listed under its own
+    /// <see cref="ITableFunction.SchemaPath"/>/<see cref="ITableFunction.Name"/> so the C++ side can
+    /// call it by name once it resolves this table's <see cref="Protocol.TableInfo.ScanFunction"/>;
+    /// listed <see cref="FunctionVisibility.TableOnly"/> unless <see cref="ExposeScan"/>).</summary>
     public ITableFunction? ScanFunction { get; init; }
+
+    /// <summary>Protocol 3.3: whether <see cref="ScanFunction"/> is also an ordinary SQL-callable
+    /// table function (listed in <c>duckdb_functions()</c>, callable as
+    /// <c>schema.scan_name(...)</c>). Every function a table names (scan, insert, update, delete)
+    /// is listed in <c>catalog_schema_contents_functions</c> automatically, so DuckDB always has
+    /// its capabilities (projection/filter pushdown, row ids, <c>has_finalize</c>, required
+    /// secrets, ...). Write functions are always listed with
+    /// <see cref="FunctionVisibility.TableOnly"/> (not in <c>duckdb_functions()</c>, not callable),
+    /// and so is the scan unless this is <see langword="true"/> or the same instance is also
+    /// registered as an ordinary function (<see cref="Worker.RegisterTable"/>). Default
+    /// <see langword="false"/>. Requires <see cref="ScanFunction"/>.</summary>
+    public bool ExposeScan { get; init; }
 
     /// <summary>Fixed positional call arguments baked into <see cref="ScanFunction"/>'s inline
     /// <see cref="Protocol.ScanFunctionResult"/> — e.g. a table backed by a function whose FIRST
@@ -110,7 +123,7 @@ public sealed class CatalogTable
     /// it directly and never calls <c>catalog_table_scan_branches_get</c>/logs
     /// <c>vgi.scan_function.inlined</c> (see <c>table/inlined_scan_function.test</c>). Set
     /// <see langword="false"/> for a table that should exercise the legacy per-bind RPC lookup path
-    /// instead — <see cref="ScanFunction"/> stays registered as an ordinary callable function and
+    /// instead — <see cref="ScanFunction"/> stays listed (callable only with <see cref="ExposeScan"/>) and
     /// <see cref="Protocol.IVgiService.CatalogTableScanBranchesGetAsync"/> still answers for it (a
     /// single synthesized branch wrapping the same function), it's just no longer inlined onto this
     /// table's own <see cref="Protocol.TableInfo"/>.</summary>
@@ -268,6 +281,13 @@ public sealed class CatalogTable
     /// inline its scan function (the protocol forbids <c>scan_function</c> on a filtered table).</summary>
     internal void ValidateScanPlanning()
     {
+        if (ExposeScan && ScanFunction is null)
+        {
+            throw new InvalidOperationException(
+                $"Table '{string.Join('.', EffectiveSchemaPath)}.{Name}': ExposeScan = true requires a ScanFunction; " +
+                "register a Branches-backed table's function as an ordinary function instead.");
+        }
+
         if (!ScanPlanningModes.IsKnown(ScanPlanning))
         {
             throw new InvalidOperationException(

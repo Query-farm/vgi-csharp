@@ -127,6 +127,7 @@ public static class VersionedTimeTravelTables
             ScanFunction = scan,
             ScanArguments = [3L],
             SupportsTimeTravel = true,
+            ExposeScan = true,
             ResolveAtClause = (atUnit, atValue) =>
             {
                 var version = VersionResolution.Resolve(atUnit, atValue, DataVersions);
@@ -144,6 +145,7 @@ public static class VersionedTimeTravelTables
                     ScanFunction = scan,
                     ScanArguments = [(long)version],
                     SupportsTimeTravel = true,
+                    ExposeScan = true,
                 };
             },
         };
@@ -294,6 +296,7 @@ public static class VersionedTimeTravelTables
             Constraints = ConstraintsFor(version),
             DefinitionRevision = FixtureConstraints.Revision,
             ScanFunction = scan,
+            ExposeScan = true,
             ScanArguments = [(long)version],
             SupportsTimeTravel = true,
             ResolveAtClause = (unit, value) => Variant(VersionResolution.Resolve(unit, value, ConstraintsVersions)),

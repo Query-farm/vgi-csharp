@@ -50,6 +50,7 @@ public static class TimeTravelPushdownTables
         Comment = "Function-backed: prunes by filter AND time-travels (AT read at init).",
         Columns = TtSchema,
         ScanFunction = new TtPushdownFnFunction(),
+        ExposeScan = true,
         SupportsTimeTravel = true,
     };
 
@@ -60,6 +61,7 @@ public static class TimeTravelPushdownTables
         Comment = "Columns-based: prunes by filter AND time-travels (AT → version arg).",
         Columns = TtSchema,
         ScanFunction = new TtPushdownColsFunction(),
+        ExposeScan = true,
         ScanArguments = [(long)CurrentVersion],
         InlineScanFunction = false,
         SupportsTimeTravel = true,

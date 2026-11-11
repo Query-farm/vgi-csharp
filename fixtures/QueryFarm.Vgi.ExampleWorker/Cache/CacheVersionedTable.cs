@@ -35,6 +35,7 @@ public static class CacheVersionedTable
         SchemaName = SchemaName,
         Comment = "Version-specific cacheable rows (AT-keyed cache isolation)",
         ScanFunction = new CacheVersionedFunction(),
+        ExposeScan = true,
         ScanArguments = [(long)CurrentVersion],
         InlineScanFunction = false,
         SupportsTimeTravel = true,

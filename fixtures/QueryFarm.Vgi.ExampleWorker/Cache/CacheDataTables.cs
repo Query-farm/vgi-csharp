@@ -95,6 +95,7 @@ public static class CacheDataTables
         // Columns default to the scan's output; with no constraint records the SDK serves every
         // field nullable (Arrow non-nullability is not a SQL fact).
         ScanFunction = scanFunction,
+        ExposeScan = true,
     };
 }
 

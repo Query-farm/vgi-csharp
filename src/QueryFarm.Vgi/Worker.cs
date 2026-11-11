@@ -56,9 +56,12 @@ public sealed class Worker
     /// <c>catalog_attach</c> result (see <see cref="CatalogContents"/>). 3.2.0 added filtered scan
     /// planning: <c>TableInfo.scan_planning</c>, <c>pushdown_filters</c> on
     /// <c>catalog_table_scan_branches_get</c>, and <c>row_count</c>/<c>column_statistics</c> on
-    /// <see cref="Protocol.ScanBranch"/> (see <see cref="Catalog.CatalogTable.PlanScanBranches"/>).</para>
+    /// <see cref="Protocol.ScanBranch"/> (see <see cref="Catalog.CatalogTable.PlanScanBranches"/>). 3.3.0 added
+    /// <c>FunctionInfo.visibility</c>: a table's scan and write functions are listed
+    /// <c>"table_only"</c> (absent from <c>duckdb_functions()</c>, not callable) unless
+    /// <see cref="Catalog.CatalogTable.ExposeScan"/> (see <see cref="Catalog.FunctionVisibility"/>).</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "3.2.0";
+    public const string DefaultProtocolVersion = "3.3.0";
 
     private readonly CatalogRegistry _catalog = new();
     public Worker CatalogSnapshot(Catalog.Snapshots.CatalogSnapshotPolicy policy) { _catalog.SnapshotPolicy = policy; return this; }

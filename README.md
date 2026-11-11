@@ -27,7 +27,7 @@ Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targe
 The package selects its patched Arrow assemblies automatically, including in transitive consumers;
 no manual exclusions for DuckDB.NET's optional official Arrow assemblies are required.
 
-This branch uses VGI wire 3.2.0 under `vgi.v3` and requires a native VGI client speaking wire 3.2.x. Upgrade clients and workers together; wire 2.x, 3.0.x and 3.1.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+This branch uses VGI wire 3.3.0 under `vgi.v3` and requires a native VGI client speaking wire 3.3.x. Upgrade clients and workers together; wire 2.x and 3.0.x-3.2.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 
 > **Qualification:** the DuckDB 2.0 HTTP lane passed 351 canonical SQLLogic files,
 > with 28 explicit environment or capability skips; writable-catalog files are excluded from this HTTP count.
@@ -362,6 +362,21 @@ new CatalogTable
     },
 };
 ```
+
+### Table functions and visibility (protocol 3.3)
+
+DuckDB takes a table's scan and write capabilities (projection/filter pushdown, row ids,
+`has_finalize`, required secrets, ...) only from the function's entry in the schema's function
+listing, so the SDK lists every function a `CatalogTable` names, with `FunctionInfo.visibility`:
+
+- write functions (`InsertFunction`/`UpdateFunction`/`DeleteFunction`) are always `table_only`:
+  absent from `duckdb_functions()` and not callable from SQL;
+- the `ScanFunction` is `table_only` too unless the table sets `ExposeScan = true`, or the same
+  instance is also registered as an ordinary function (`RegisterTable`);
+- every other function is public.
+
+Nothing else is needed: `RegisterCatalogTable` lists the table's functions itself
+(`QueryFarm.Vgi.Catalog.FunctionVisibility` holds the two wire values).
 
 ### Writable tables
 

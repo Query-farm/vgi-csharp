@@ -88,6 +88,7 @@ internal static class CatalogContentsSetup
                 Comment = "Integers 0..9",
                 ScanFunction = sequence,
                 ScanArguments = [10L],
+                ExposeScan = true,
             }, identity: name)
             .RegisterCatalogTable(new CatalogTable
             {
@@ -96,6 +97,7 @@ internal static class CatalogContentsSetup
                 Comment = "Integers 0..4",
                 ScanFunction = sequence,
                 ScanArguments = [5L],
+                ExposeScan = true,
             }, identity: name)
             .RegisterView(new CatalogView { Name = "answer", Definition = "SELECT 42 AS answer", Comment = "One row" }, identity: name)
             .RegisterMacro(new CatalogMacro

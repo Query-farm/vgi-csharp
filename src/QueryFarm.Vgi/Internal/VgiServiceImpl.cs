@@ -2030,26 +2030,35 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
             .Select(EncodedFunctionInfo)
             .ToArray(),
-        // DuckDB's catalog doesn't distinguish a plain source table function from a streaming
-        // table-in-out function or a table-buffering function at this level — all three are
-        // "table functions" from the client's point of view (the TABLE-typed argument, present
-        // only on the latter two, is what makes the C++ side register them differently).
-        SchemaObjectType.TableFunction => catalog.TableFunctionsFor(identity)
-            .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
-            .Select(EncodedFunctionInfo)
-            .Concat(catalog.TableInOutFunctionsFor(identity)
-                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
-                .Select(EncodedFunctionInfo))
-            .Concat(catalog.TableBufferingFunctionsFor(identity)
-                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
-                .Select(EncodedFunctionInfo))
-            .ToArray(),
+        SchemaObjectType.TableFunction => BuildTableFunctionListing(identity, path),
         SchemaObjectType.AggregateFunction => catalog.AggregateFunctionsFor(identity)
             .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
             .Select(EncodedFunctionInfo)
             .ToArray(),
         _ => [],
     };
+
+    /// <summary>The table-function listing, with protocol 3.3 <c>visibility</c>: a table's scan
+    /// and write functions are listed <see cref="Catalog.FunctionVisibility.TableOnly"/> per
+    /// <see cref="CatalogRegistry.VisibilityResolver"/>, everything else public.</summary>
+    private byte[][] BuildTableFunctionListing(string identity, List<string> path)
+    {
+        // DuckDB's catalog doesn't distinguish a plain source table function from a streaming
+        // table-in-out function or a table-buffering function at this level — all three are
+        // "table functions" from the client's point of view (the TABLE-typed argument, present
+        // only on the latter two, is what makes the C++ side register them differently).
+        var visibility = catalog.VisibilityResolver(identity);
+        return catalog.TableFunctionsFor(identity)
+            .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
+            .Select(function => visibility(function) is null ? EncodedFunctionInfo(function) : EncodedTableOnlyFunctionInfo(function))
+            .Concat(catalog.TableInOutFunctionsFor(identity)
+                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
+                .Select(function => visibility(function) is null ? EncodedFunctionInfo(function) : EncodedTableOnlyFunctionInfo(function)))
+            .Concat(catalog.TableBufferingFunctionsFor(identity)
+                .Where(function => CatalogRegistry.PathsEqual(function.SchemaPath, path))
+                .Select(EncodedFunctionInfo))
+            .ToArray();
+    }
 
     /// <summary>Upper bound on <see cref="_functionListings"/>; far above the handful of (attach
     /// identity, schema, listing type) combinations a worker really serves.</summary>
@@ -2097,6 +2106,23 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     private byte[] EncodedFunctionInfo(IAggregateFunction function) =>
         _aggregateInfos.GetValue(function, static f => EmbeddedIpc.Encode(BuildFunctionInfo(f)));
+
+    /// <summary>The same descriptions with protocol 3.3 <c>visibility = "table_only"</c>: a table's
+    /// scan or write function, listed so DuckDB has its capabilities but not exposed to SQL.</summary>
+    private readonly ConditionalWeakTable<ITableFunction, byte[]> _tableOnlyTableInfos = new();
+    private readonly ConditionalWeakTable<ITableInOutFunction, byte[]> _tableOnlyTableInOutInfos = new();
+
+    private byte[] EncodedTableOnlyFunctionInfo(ITableFunction function) =>
+        _tableOnlyTableInfos.GetValue(function, static f => EmbeddedIpc.Encode(TableOnly(BuildFunctionInfo(f))));
+
+    private byte[] EncodedTableOnlyFunctionInfo(ITableInOutFunction function) =>
+        _tableOnlyTableInOutInfos.GetValue(function, static f => EmbeddedIpc.Encode(TableOnly(BuildFunctionInfo(f))));
+
+    private static FunctionInfo TableOnly(FunctionInfo info)
+    {
+        info.Visibility = Catalog.FunctionVisibility.TableOnly;
+        return info;
+    }
 
     /// <summary>Decodes <c>BindRequest.InputSchema</c> — the concrete per-call argument shape
     /// DuckDB's binder resolved for this call site, used both to feed

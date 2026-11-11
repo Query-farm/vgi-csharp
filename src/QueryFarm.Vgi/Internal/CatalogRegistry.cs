@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using QueryFarm.Vgi.Aggregate;
 using QueryFarm.Vgi.Buffering;
@@ -313,14 +314,91 @@ public sealed class CatalogRegistry
     public void RegisterScalar(IScalarFunction function, string identity = DefaultIdentity) =>
         Add(_scalarFunctions, identity, function.SchemaPath, function.Name, function);
 
-    public void RegisterTable(ITableFunction function, string identity = DefaultIdentity) =>
-        Add(_tableFunctions, identity, function.SchemaPath, function.Name, function);
+    /// <summary>Registers an ordinary (public) table function. Registering the instance a
+    /// <see cref="CatalogTable.ScanFunction"/> names makes that scan public (protocol 3.3), before or
+    /// after the table; the same instance is listed once.</summary>
+    public void RegisterTable(ITableFunction function, string identity = DefaultIdentity)
+    {
+        _publicFunctions.Add((identity, function));
+        if (AlreadyRegisteredByReference(_tableFunctions, identity, function.SchemaPath, function.Name, function))
+        {
+            FunctionsChanged();
+            return;
+        }
 
+        Add(_tableFunctions, identity, function.SchemaPath, function.Name, function);
+    }
+
+    /// <summary>Registers an ordinary table-in-out function. A table's insert/update/delete
+    /// function is always listed <see cref="FunctionVisibility.TableOnly"/>, registered here or not;
+    /// the same instance is listed once.</summary>
     public void RegisterTableInOut(ITableInOutFunction function, string identity = DefaultIdentity)
     {
         CheckTableInOutContract(function);
+        if (AlreadyRegisteredByReference(_tableInOutFunctions, identity, function.SchemaPath, function.Name, function))
+        {
+            return;
+        }
+
         Add(_tableInOutFunctions, identity, function.SchemaPath, function.Name, function);
     }
+
+    /// <summary>(identity bucket, function instance) pairs registered through
+    /// <see cref="RegisterTable"/> — public even when a table also names them as its scan. A scan
+    /// only <see cref="RegisterCatalogTable"/> added is table-only unless
+    /// <see cref="CatalogTable.ExposeScan"/>.</summary>
+    private readonly HashSet<(string Identity, object Function)> _publicFunctions = new(BucketReferenceComparer.Instance);
+
+    private sealed class BucketReferenceComparer : IEqualityComparer<(string Identity, object Function)>
+    {
+        public static readonly BucketReferenceComparer Instance = new();
+
+        public bool Equals((string Identity, object Function) x, (string Identity, object Function) y) =>
+            string.Equals(x.Identity, y.Identity, StringComparison.Ordinal) && ReferenceEquals(x.Function, y.Function);
+
+        public int GetHashCode((string Identity, object Function) obj) =>
+            HashCode.Combine(StringComparer.Ordinal.GetHashCode(obj.Identity), RuntimeHelpers.GetHashCode(obj.Function));
+    }
+
+    /// <summary>Protocol 3.3 <c>FunctionInfo.visibility</c> for every function listed under
+    /// <paramref name="identity"/>: <see cref="FunctionVisibility.TableOnly"/> for the write
+    /// functions of the tables that attach serves, and for their scans unless a table naming the
+    /// scan sets <see cref="CatalogTable.ExposeScan"/> or the scan was registered as an ordinary
+    /// function; <see langword="null"/> (public) for everything else.</summary>
+    internal Func<object, string?> VisibilityResolver(string identity)
+    {
+        var tableOnly = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var scans = new Dictionary<object, bool>(ReferenceEqualityComparer.Instance); // -> exposed by some table
+        foreach (var table in CatalogTablesFor(identity))
+        {
+            foreach (var write in new object?[] { table.InsertFunction, table.UpdateFunction, table.DeleteFunction })
+            {
+                if (write is not null)
+                {
+                    tableOnly.Add(write);
+                }
+            }
+
+            if (table.ScanFunction is { } scan)
+            {
+                scans[scan] = (scans.TryGetValue(scan, out var exposed) && exposed) || table.ExposeScan;
+            }
+        }
+
+        foreach (var (scan, exposed) in scans)
+        {
+            if (!exposed && !IsPublicRegistration(identity, scan))
+            {
+                tableOnly.Add(scan);
+            }
+        }
+
+        return function => tableOnly.Contains(function) ? FunctionVisibility.TableOnly : null;
+    }
+
+    private bool IsPublicRegistration(string identity, object function) =>
+        _publicFunctions.Contains((identity, function))
+        || ((identity == DefaultIdentity || FallsBackToDefault(identity)) && _publicFunctions.Contains((DefaultIdentity, function)));
 
     /// <summary>Refuses, at registration, a table-in-out function the client cannot drive, rather
     /// than failing the first query that calls it: continued output on the one connection a
@@ -698,25 +776,24 @@ public sealed class CatalogRegistry
         _tables[(identity, PathKey(table.EffectiveSchemaPath), table.Name)] = table;
         ContentsChanged();
 
+        // Protocol 3.3: every function the table names is listed (DuckDB takes the table's scan and
+        // write capabilities only from the function listing), but registering it here does not make
+        // it public — VisibilityResolver lists it table-only unless ExposeScan or RegisterTable.
         if (table.ScanFunction is { } scan && !AlreadyRegisteredByReference(_tableFunctions, identity, scan.SchemaPath, scan.Name, scan))
         {
-            RegisterTable(scan, identity);
+            Add(_tableFunctions, identity, scan.SchemaPath, scan.Name, scan);
         }
 
-        if (table.InsertFunction is { } insert)
+        foreach (var write in new[] { table.InsertFunction, table.UpdateFunction, table.DeleteFunction })
         {
-            RegisterTableInOut(insert, identity);
+            if (write is not null)
+            {
+                RegisterTableInOut(write, identity);
+            }
         }
 
-        if (table.UpdateFunction is { } update)
-        {
-            RegisterTableInOut(update, identity);
-        }
-
-        if (table.DeleteFunction is { } delete)
-        {
-            RegisterTableInOut(delete, identity);
-        }
+        // The listing's visibility depends on the tables, not only on the registered functions.
+        FunctionsChanged();
     }
 
     /// <summary>A row-id column is a DuckDB <i>virtual</i> column, which DuckDB only requests from a

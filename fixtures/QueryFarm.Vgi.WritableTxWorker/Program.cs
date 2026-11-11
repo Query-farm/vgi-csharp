@@ -54,6 +54,9 @@ var labels = new CatalogTable
     Constraints = ConstraintRecord.For(["main"], "labels").NotNull("id").PrimaryKey("id").Build(),
     ScanFunction = new TxScanFunction("labels_scan", labelColumns, (state, _) => state.Labels.OrderBy(row => row.Id).Select(row =>
         (IReadOnlyDictionary<string, object?>)new Dictionary<string, object?> { ["id"] = row.Id, ["label"] = row.Label })),
+    // Fixture contract (protocol 3.3): labels_scan is public and callable; items_scan and
+    // items_update stay table_only (the default).
+    ExposeScan = true,
 };
 
 var worker = new Worker()

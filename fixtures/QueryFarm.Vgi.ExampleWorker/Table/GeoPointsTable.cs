@@ -76,6 +76,7 @@ public static class GeoPointsTable
             SchemaName = SchemaName,
             Comment = "Point geometries with spatial bounding-box statistics",
             ScanFunction = new StaticRowsFunction("geo_points", SchemaName, data),
+            ExposeScan = true,
             Columns = schema,
             Constraints =
             [

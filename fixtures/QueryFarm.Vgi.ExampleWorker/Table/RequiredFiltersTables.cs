@@ -160,6 +160,7 @@ public static class RequiredFiltersTables
             Comment = "required_filters: single top-level required path on 'a'",
             RequiredFilters = [[["a"]]],
             ScanFunction = new StaticRowsFunction("rff_simple_scan", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -175,6 +176,7 @@ public static class RequiredFiltersTables
             SchemaName = SchemaName,
             Comment = "required_filters: control table with no requirements",
             ScanFunction = new StaticRowsFunction("rff_none_scan", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -206,6 +208,7 @@ public static class RequiredFiltersTables
             Comment = "required_filters: mixed top-level + struct subfield requirements ('top', 's.a')",
             RequiredFilters = [[["top"]], [["s", "a"]]],
             ScanFunction = new StaticRowsFunction("rff_multi_scan", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -222,6 +225,7 @@ public static class RequiredFiltersTables
             Comment = "required_filters: struct-subfield required paths ('s.a', 's.b')",
             RequiredFilters = [[["s", "a"]], [["s", "b"]]],
             ScanFunction = new StaticRowsFunction("rff_struct_scan", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -241,6 +245,7 @@ public static class RequiredFiltersTables
             Comment = "required_filters: 3-deep nested struct subfield requirement ('wrapper.mid.leaf')",
             RequiredFilters = [[["wrapper", "mid", "leaf"]]],
             ScanFunction = new StaticRowsFunction("rff_nested_scan", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -257,6 +262,7 @@ public static class RequiredFiltersTables
         Comment = "required_filters: OR-group — a filter on 'a' OR 'b' satisfies the requirement",
         RequiredFilters = [[["a"], ["b"]]],
         ScanFunction = Simple.ScanFunction,
+        ExposeScan = true,
     };
 
     private static CatalogTable BuildRowid()
@@ -306,6 +312,7 @@ public static class RequiredFiltersTables
             RequiredFilters = [[["bbox", "xmin"]], [["bbox", "xmax"]], [["bbox", "ymin"]], [["bbox", "ymax"]]],
             RowIdColumn = "row_id",
             ScanFunction = new RffRowidScanFunction(schema, data),
+            ExposeScan = true,
         };
     }
 

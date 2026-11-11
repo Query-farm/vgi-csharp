@@ -104,6 +104,7 @@ public static class DataSchemaTables
             },
             StatisticsCacheMaxAgeSeconds = 3600,
             ScanFunction = new StaticRowsFunction("departments", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -144,6 +145,7 @@ public static class DataSchemaTables
             DefinitionRevision = FixtureConstraints.Revision,
             Comment = "Employee table with FK to departments",
             ScanFunction = new StaticRowsFunction("employees", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -179,6 +181,7 @@ public static class DataSchemaTables
             DefinitionRevision = FixtureConstraints.Revision,
             Comment = "Projects with composite PK and FK to departments",
             ScanFunction = new StaticRowsFunction("projects", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -248,6 +251,7 @@ public static class DataSchemaTables
             },
             StatisticsCacheMaxAgeSeconds = 3600,
             ScanFunction = new StaticRowsFunction("products", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -294,6 +298,7 @@ public static class DataSchemaTables
         },
         StatisticsCacheMaxAgeSeconds = 3600,
         ScanFunction = sequenceFunction,
+        ExposeScan = true,
         ScanArguments = [100L],
     };
 
@@ -321,6 +326,7 @@ public static class DataSchemaTables
         },
         StatisticsCacheMaxAgeSeconds = 0,
         ScanFunction = sequenceFunction,
+        ExposeScan = true,
         ScanArguments = [100L],
     };
 
@@ -385,6 +391,7 @@ public static class DataSchemaTables
             },
             StatisticsCacheMaxAgeSeconds = 3600,
             ScanFunction = new StaticRowsFunction("colors", SchemaName, data),
+            ExposeScan = true,
         };
     }
 
@@ -411,6 +418,7 @@ public static class DataSchemaTables
         Comment = "Function-backed table over the no-arg ten_thousand function",
         Columns = new Schema([new Field("n", Int64Type.Default, nullable: false)], metadata: null),
         ScanFunction = tenThousandFunction,
+        ExposeScan = true,
     };
 
     /// <summary>Same underlying shared <paramref name="tenThousandFunction"/> as
@@ -455,5 +463,6 @@ public static class DataSchemaTables
         CardinalityMax = 10_000,
         Columns = new Schema([new Field("n", Int64Type.Default, nullable: false)], metadata: null),
         ScanFunction = tenThousandFunction,
+        ExposeScan = true,
     };
 }

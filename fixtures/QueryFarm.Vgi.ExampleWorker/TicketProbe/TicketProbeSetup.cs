@@ -59,6 +59,7 @@ public static class TicketProbeSetup
             SchemaName = "main",
             Comment = "The options this attach was made with",
             ScanFunction = new TicketProbeFunction(),
+            ExposeScan = true,
         }, identity: CatalogName);
         return worker;
     }
