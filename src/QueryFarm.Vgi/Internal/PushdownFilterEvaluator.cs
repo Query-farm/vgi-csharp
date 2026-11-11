@@ -33,7 +33,8 @@ public static class PushdownFilterEvaluator
             return Evaluate(predicate.Expression, filters, row) is true;
         }
         catch (Exception exception) when (predicate.Mode == "advisory" &&
-            exception is NotSupportedException or InvalidCastException or OverflowException or DivideByZeroException)
+            exception is NotSupportedException or InvalidCastException or OverflowException or DivideByZeroException or
+                FormatException)
         {
             return true;
         }
@@ -229,7 +230,7 @@ public static class PushdownFilterEvaluator
             if (ns == "duckdb.spatial" && name == "intersects_extent" && version == 1 &&
                 arguments is [byte[] left, byte[] right])
             {
-                return ExpressionFilterEvaluator.SpatialIntersectsExtent(left, right);
+                return WkbExtent.Intersects(left, right);
             }
 
             throw new NotSupportedException($"Unsupported extension filter function '{ns}/{name}@{version}'.");

@@ -200,8 +200,9 @@ Each raw interface is a small, direct implementation surface (see any fixture un
 `fixtures/QueryFarm.Vgi.ExampleWorker/` for real examples); `ScalarFn` is the one convenience base
 class with attribute-driven parameter binding (`[Param]`, `[ConstParam]`, `[Setting]`,
 `[OutputLength]` — see "Your first worker" above). Projection/filter pushdown (including genuine
-expression/spatial-predicate pushdown, evaluated via an embedded DuckDB engine — see
-`Internal/ExpressionFilterEvaluator.cs`), ORDER BY/TABLESAMPLE hints, settings, secrets, splits, and
+expression pushdown, evaluated via an embedded DuckDB engine — see
+`Internal/ExpressionFilterEvaluator.cs` — and `duckdb.spatial/intersects_extent@1`, evaluated
+natively to match DuckDB core's `&&` — see `Internal/WkbExtent.cs`), ORDER BY/TABLESAMPLE hints, settings, secrets, splits, and
 cross-process state storage are all handled by the framework, not something each function
 reimplements.
 
