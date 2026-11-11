@@ -122,8 +122,10 @@ public sealed class CatalogTable
     /// (the default, and the only behavior before this flag existed) — the C++ extension then uses
     /// it directly and never calls <c>catalog_table_scan_branches_get</c>/logs
     /// <c>vgi.scan_function.inlined</c> (see <c>table/inlined_scan_function.test</c>). Set
-    /// <see langword="false"/> for a table that should exercise the legacy per-bind RPC lookup path
-    /// instead — <see cref="ScanFunction"/> stays listed (callable only with <see cref="ExposeScan"/>) and
+    /// <see langword="false"/> for a table that should exercise the per-bind
+    /// <c>catalog_table_scan_branches_get</c> lookup instead (since protocol 3.3 the only scan
+    /// discovery RPC; the single-function <c>catalog_table_scan_function_get</c> was removed) —
+    /// <see cref="ScanFunction"/> stays listed (callable only with <see cref="ExposeScan"/>) and
     /// <see cref="Protocol.IVgiService.CatalogTableScanBranchesGetAsync"/> still answers for it (a
     /// single synthesized branch wrapping the same function), it's just no longer inlined onto this
     /// table's own <see cref="Protocol.TableInfo"/>.</summary>
@@ -177,6 +179,15 @@ public sealed class CatalogTable
     /// the ENFORCED constraints (reject a NULL in a NOT NULL column, refuse to change a key, ...).</summary>
     public IReadOnlyDictionary<string, string> WriteResultModes { get; init; } =
         new Dictionary<string, string>();
+
+    /// <summary>Fixed positional call arguments baked into the inline descriptor of each write
+    /// function (<see cref="InsertFunction"/>, <see cref="UpdateFunction"/>,
+    /// <see cref="DeleteFunction"/>), the write-side counterpart of <see cref="ScanArguments"/>: a
+    /// write function shared by several tables reads which table it writes from them. The function
+    /// declares them first in its <see cref="ITableInOutFunction.ArgumentsSchema"/>, before its
+    /// <see cref="TableArgFields.Table"/> field, and reads them with
+    /// <see cref="Arguments.TableArguments.Positional"/>. Empty (the default) means none.</summary>
+    public IReadOnlyList<object?> WriteArguments { get; init; } = [];
 
     public ITableInOutFunction? InsertFunction { get; init; }
 

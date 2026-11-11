@@ -51,6 +51,9 @@ var worker = new Worker()
     .RegisterCatalogTable(itemsNoReturning)
     .RegisterCatalogTable(itemsInsertOnly)
     .RegisterCatalogTable(itemsBrokenReturning)
+    // CREATE TABLE [IF NOT EXISTS | OR REPLACE] ... [AS SELECT], DROP TABLE: created tables next to
+    // the fixed ones (simple_writable/ctas*.test; protocol 3.3 catalog_table_create `created`).
+    .AttachTables(new CreatedTables())
     // A writable catalog: like vgi-python's simple_writable fixture it does not advertise
     // catalog_contents, so the client keeps loading it per schema
     // (simple_writable/catalog_contents.test).

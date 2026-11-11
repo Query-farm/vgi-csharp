@@ -41,7 +41,7 @@ public abstract class OneShotFunction : ITableFunction
     }
 }
 
-/// <summary><c>reset()</c>: initial rows back, pending changes and events cleared.</summary>
+/// <summary><c>reset()</c>: initial rows back, pending changes, events and write calls cleared.</summary>
 public sealed class ResetFunction : OneShotFunction
 {
     public override string Name => "reset";
@@ -60,6 +60,8 @@ public sealed class ResetFunction : OneShotFunction
             partition.Pending.Clear();
             partition.Events.Clear();
             partition.Seq = 0;
+            partition.Writes.Clear();
+            partition.WriteSeq = 0;
             return 0;
         });
         return [new Dictionary<string, object?> { ["ok"] = true }];
@@ -133,7 +135,9 @@ public sealed class EventsFunction : OneShotFunction
 /// <summary>
 /// The scan of <c>items</c> (with its <c>rowid</c> virtual column, whose value is <c>id</c>) or of
 /// <c>labels</c>. Projection pushdown, which a row-id column requires. On a transactional attach a
-/// scan inside a transaction sees that transaction's staged changes.
+/// scan inside a transaction sees that transaction's staged changes. A scan reads its rows once,
+/// when it starts (a snapshot), so <c>INSERT INTO items SELECT ... FROM items</c> and a MERGE never
+/// see rows their own write calls add.
 /// </summary>
 public sealed class TxScanFunction(string name, Schema columns, Func<Partition, string?, IEnumerable<IReadOnlyDictionary<string, object?>>> rows)
     : ITableFunction

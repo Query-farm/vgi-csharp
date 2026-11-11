@@ -385,6 +385,19 @@ public sealed class CatalogRegistry
             }
         }
 
+        if (AttachTablesFor(identity) is { } attachTables)
+        {
+            foreach (var write in attachTables.WriteFunctions)
+            {
+                tableOnly.Add(write);
+            }
+
+            foreach (var scan in attachTables.ScanFunctions)
+            {
+                scans.TryAdd(scan, false);
+            }
+        }
+
         foreach (var (scan, exposed) in scans)
         {
             if (!exposed && !IsPublicRegistration(identity, scan))
@@ -794,6 +807,69 @@ public sealed class CatalogRegistry
 
         // The listing's visibility depends on the tables, not only on the registered functions.
         FunctionsChanged();
+    }
+
+    private readonly Dictionary<string, AttachTables> _attachTables = new(StringComparer.Ordinal);
+
+    /// <summary>Registers the run-time tables of an identity's attaches (<see cref="Worker.AttachTables"/>):
+    /// the functions they may name are registered under <paramref name="identity"/> and listed
+    /// <see cref="FunctionVisibility.TableOnly"/> (unless also registered as ordinary functions).</summary>
+    public void RegisterAttachTables(AttachTables tables, string identity = DefaultIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(tables);
+        _attachTables[identity] = tables;
+        foreach (var scan in tables.ScanFunctions)
+        {
+            if (!AlreadyRegisteredByReference(_tableFunctions, identity, scan.SchemaPath, scan.Name, scan))
+            {
+                Add(_tableFunctions, identity, scan.SchemaPath, scan.Name, scan);
+            }
+        }
+
+        foreach (var write in tables.WriteFunctions)
+        {
+            RegisterTableInOut(write, identity);
+        }
+
+        ContentsChanged();
+        FunctionsChanged();
+    }
+
+    /// <summary>The <see cref="AttachTables"/> serving <paramref name="identity"/> (its own, else the
+    /// default bucket's), or <see langword="null"/>.</summary>
+    internal AttachTables? AttachTablesFor(string identity) =>
+        _attachTables.GetValueOrDefault(identity)
+        ?? (FallsBackToDefault(identity) ? _attachTables.GetValueOrDefault(DefaultIdentity) : null);
+
+    /// <summary>Refuses a created table the SDK could not serve: one naming a function its
+    /// <see cref="AttachTables"/> does not declare (nothing would resolve the call), one declaring
+    /// constraints (the attach did not negotiate their profiles), or a row id over a scan without
+    /// projection pushdown.</summary>
+    internal static CatalogTable ValidateAttachTable(AttachTables owner, CatalogTable table)
+    {
+        var name = $"{string.Join('.', table.EffectiveSchemaPath)}.{table.Name}";
+        if (table.Constraints.Count > 0)
+        {
+            throw new InvalidOperationException($"Created table '{name}': AttachTables tables cannot declare constraints.");
+        }
+
+        if (table.ScanFunction is { } scan && !owner.ScanFunctions.Any(f => ReferenceEquals(f, scan)))
+        {
+            throw new InvalidOperationException(
+                $"Created table '{name}' names scan function '{scan.Name}', which its AttachTables does not declare in ScanFunctions.");
+        }
+
+        foreach (var write in new[] { table.InsertFunction, table.UpdateFunction, table.DeleteFunction })
+        {
+            if (write is not null && !owner.WriteFunctions.Any(f => ReferenceEquals(f, write)))
+            {
+                throw new InvalidOperationException(
+                    $"Created table '{name}' names write function '{write.Name}', which its AttachTables does not declare in WriteFunctions.");
+            }
+        }
+
+        ValidateRowIdColumn(table);
+        return table;
     }
 
     /// <summary>A row-id column is a DuckDB <i>virtual</i> column, which DuckDB only requests from a

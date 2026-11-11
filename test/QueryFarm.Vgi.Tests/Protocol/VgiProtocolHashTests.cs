@@ -12,7 +12,7 @@ namespace QueryFarm.Vgi.Tests.Protocol;
 public sealed class VgiProtocolHashTests
 {
     /// <summary>
-    /// The <c>vgi.v3</c> protocol hash the current vgi-python reference reports: 85 methods, over
+    /// The <c>vgi.v3</c> protocol hash the current vgi-python reference reports: 84 methods, over
     /// method names, types and params/result/header schemas (WIRE_PROTOCOL.md §14).
     /// </summary>
     /// <remarks>
@@ -20,7 +20,7 @@ public sealed class VgiProtocolHashTests
     /// (3.3.0) does — a new value here means the protocol changed, so take it from the reference,
     /// never from this port's own output.
     /// </remarks>
-    public const string ReferenceVgiV3Hash = "171ac8263bf22ffdd5dd4ac2c3d3c4e1dc186a7ceba45d386f324af8c9c6fced";
+    public const string ReferenceVgiV3Hash = "ad10c6b137db8cd0054c8c3d80b0f50946382d52bbd549beaad209e00c180f08";
 
     [Fact]
     public void HostsTheReferenceVgiV3Surface()
@@ -39,7 +39,6 @@ public sealed class VgiProtocolHashTests
         { "catalog_create", s => s.CatalogCreateAsync(new CatalogCreateRequest()) },
         { "catalog_drop", s => s.CatalogDropAsync("x") },
         { "catalog_dependencies", s => s.CatalogDependenciesAsync([], null) },
-        { "catalog_table_scan_function_get", s => s.CatalogTableScanFunctionGetAsync([], ["main"], "t", null, null, null) },
         { "catalog_index_create", s => s.CatalogIndexCreateAsync(new IndexCreateRequest()) },
         { "catalog_index_drop", s => s.CatalogIndexDropAsync([], ["main"], "i", false, false, null) },
         { "catalog_index_option_definitions", s => s.CatalogIndexOptionDefinitionsAsync([], [], "ART", null) },

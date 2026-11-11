@@ -46,8 +46,9 @@ public static class TxAttach
 }
 
 /// <summary>
-/// begin mints the id and logs it; commit applies the transaction's staged rows, or — when one
-/// has a negative qty — discards them and fails the COMMIT; rollback discards them.
+/// begin mints the id and logs it; commit applies the transaction's staged inserts, updates and
+/// deletes, or — when a staged (inserted or updated) row has a negative qty — discards them and
+/// fails the COMMIT; rollback discards them.
 /// </summary>
 public sealed class TxHooks : TransactionHooks
 {
@@ -72,14 +73,14 @@ public sealed class TxHooks : TransactionHooks
             var state = attach.PartitionOf(doc);
             var staged = state.Pending.GetValueOrDefault(tx) ?? [];
             state.Pending.Remove(tx);
-            var bad = staged.Values.OrderBy(row => row.Id).FirstOrDefault(row => row.Qty < 0);
+            var bad = staged.Values.OfType<ItemRow>().OrderBy(row => row.Id).FirstOrDefault(row => row.Qty < 0);
             if (bad is not null)
             {
                 state.AddEvent("commit", tx, ok: false);
                 return $"txfix: commit refused: qty {bad.Qty} for id {bad.Id}";
             }
 
-            state.Items = [.. state.Items.Select(row => staged.GetValueOrDefault(row.Id) ?? row)];
+            state.Apply(staged);
             state.AddEvent("commit", tx, ok: true);
             return null;
         });

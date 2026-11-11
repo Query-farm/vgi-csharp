@@ -14,3 +14,29 @@
 - `QueryFarm.Vgi.Catalog.FunctionVisibility` (`Public`, `TableOnly`) constants.
 - Registering the same function instance twice (`RegisterTable`/`RegisterTableInOut`, or a write
   function shared by several tables) now lists it once.
+- **Protocol 3.3 write path** (still 3.3.0; regenerated from vgi-python 2bce3e0):
+  - `catalog_table_scan_function_get` is gone (`IVgiService.CatalogTableScanFunctionGetAsync`
+    removed). `catalog_table_scan_branches_get` is the only scan-discovery RPC; this SDK always
+    answered it, so table scans are unchanged.
+  - `catalog_table_create` replies `created: bool` (`TableCreateResponse`;
+    `IVgiService.CatalogTableCreateAsync` now returns `Task<TableCreateResponse>`): true when the
+    call created the table, false when `IF NOT EXISTS` found an existing one, so
+    `CREATE TABLE IF NOT EXISTS ... AS SELECT` no longer appends into it. In-memory catalogs
+    report it.
+  - The write-options batch carries only `result_mode`. `WriteRequest.OnConflict` /
+    `OnConflictColumns` are deprecated and always `"throw"` / empty: DuckDB rewrites every
+    `INSERT ... ON CONFLICT` / `INSERT OR REPLACE` into a MERGE, which reaches the worker as
+    ordinary insert/update/delete write calls (one per MERGE action).
+- New `Worker.AttachTables(AttachTables)` (`QueryFarm.Vgi.Catalog.AttachTables`,
+  `AttachTablesContext`, `TableCreateContext`, `TableDropContext`): serve tables an attach creates
+  at run time (`CREATE TABLE`, CTAS, `DROP TABLE`) next to declared `CatalogTable`s. The SDK asks
+  `Tables(...)` whenever it lists or looks up tables, routes `catalog_table_create` (returning
+  `created`) and `catalog_table_drop` for undeclared names to it, and lists the functions it
+  declares (`ScanFunctions`, `WriteFunctions`) `table_only`.
+- New `CatalogTable.WriteArguments`: fixed positional arguments baked into the insert/update/delete
+  descriptors (the write-side `ScanArguments`), so one write function can serve several tables.
+- Fixtures: the `txfix` worker implements the new contract (vgi `docs/writable_tx_fixtures.md`):
+  `items_insert` / `items_delete` next to `items_update`, all with a finalize stage that records
+  the call in the new `writes()` function; `items.qty BIGINT DEFAULT 0`; staged inserts and
+  deletes with read-your-writes on the transactional attach; snapshot scans. The
+  `simple_writable` worker serves created tables (CTAS) through `AttachTables`.

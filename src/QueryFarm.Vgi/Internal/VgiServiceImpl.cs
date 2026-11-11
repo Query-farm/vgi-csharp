@@ -407,7 +407,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         byte[] attachOpaqueData, List<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(attachOpaqueData);
-        var table = catalog.FindCatalogTable(identity, schemaPath, name);
+        var table = FindTable(identity, attachOpaqueData, schemaPath, name, transactionOpaqueData, ctx);
         if (table is null || table.Statistics.Count == 0)
         {
             return Task.FromResult<byte[]?>(null);
@@ -1481,20 +1481,69 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return Task.CompletedTask;
     }
 
-    public Task CatalogTableCreateAsync(TableCreateRequest request, ICallContext? ctx = null)
+    /// <summary>Protocol 3.3: the reply's <c>created</c> is <see langword="true"/> when this call
+    /// created the table and <see langword="false"/> when <c>IF NOT EXISTS</c> found an existing
+    /// one. Served by an in-memory catalog, or by the identity's <see cref="Catalog.AttachTables"/>
+    /// for a name that is not a declared table; otherwise the catalog is read-only.</summary>
+    public Task<TableCreateResponse> CatalogTableCreateAsync(TableCreateRequest request, ICallContext? ctx = null)
     {
-        var memory = MemoryOrReadOnly(request.AttachOpaqueData, "catalog_table_create");
-        ColumnMetadata.ValidateIpc(request.Columns);
-        ColumnExpressions.ValidateIpc(request.Columns, request.SchemaPath, false);
-        memory.CreateTable(request);
-        return Task.CompletedTask;
+        bool created;
+        if (catalog.InMemory.Find(request.AttachOpaqueData) is { } memory)
+        {
+            ColumnMetadata.ValidateIpc(request.Columns);
+            ColumnExpressions.ValidateIpc(request.Columns, request.SchemaPath, false);
+            created = memory.CreateTable(request);
+        }
+        else
+        {
+            var identity = DecodeIdentity(request.AttachOpaqueData);
+            var owner = catalog.AttachTablesFor(identity) ?? throw new CatalogReadOnlyException("catalog_table_create");
+            ColumnMetadata.ValidateIpc(request.Columns);
+            ColumnExpressions.ValidateIpc(request.Columns, request.SchemaPath, false);
+            if (catalog.FindCatalogTable(identity, request.SchemaPath, request.Name) is not null)
+            {
+                created = request.OnConflict switch
+                {
+                    OnConflict.Ignore => false,
+                    _ => throw new InvalidOperationException(
+                        $"Table with name {request.Name} already exists, and is declared by the worker: it cannot be replaced."),
+                };
+            }
+            else
+            {
+                created = owner.CreateTable(new TableCreateContext { Request = request, CallContext = ctx });
+            }
+        }
+
+        return Task.FromResult(new TableCreateResponse { Created = created });
     }
 
     public Task CatalogTableDropAsync(
         byte[] attachOpaqueData, List<string> schemaPath, string name, bool ignoreNotFound, bool cascade,
         byte[]? transactionOpaqueData, ICallContext? ctx = null)
     {
-        MemoryOrReadOnly(attachOpaqueData, "catalog_table_drop").DropTable(schemaPath, name, ignoreNotFound);
+        if (catalog.InMemory.Find(attachOpaqueData) is { } memory)
+        {
+            memory.DropTable(schemaPath, name, ignoreNotFound);
+            return Task.CompletedTask;
+        }
+
+        var identity = DecodeIdentity(attachOpaqueData);
+        if (catalog.AttachTablesFor(identity) is not { } owner || catalog.FindCatalogTable(identity, schemaPath, name) is not null)
+        {
+            throw new CatalogReadOnlyException("catalog_table_drop");
+        }
+
+        owner.DropTable(new TableDropContext
+        {
+            AttachOpaqueData = attachOpaqueData,
+            SchemaPath = schemaPath,
+            Name = name,
+            IgnoreNotFound = ignoreNotFound,
+            Cascade = cascade,
+            TransactionOpaqueData = transactionOpaqueData ?? [],
+            CallContext = ctx,
+        });
         return Task.CompletedTask;
     }
 
@@ -1619,7 +1668,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var schemaPaths = catalog.SchemaPathsFor(identity);
 
         var items = schemaPaths
-            .Select(path => BuildSchemaInfo(identity, path))
+            .Select(path => BuildSchemaInfo(identity, attachOpaqueData, path))
             .Select(EmbeddedIpc.Encode)
             .ToList();
 
@@ -1642,7 +1691,8 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         // An in-memory catalog's contents are private to the attach and change with every DDL, so
         // its snapshot is composed fresh on every call instead of cached per identity.
-        Task<CatalogContentsResult> Build() => catalog.InMemory.Find(attachOpaqueData) is null
+        // So are an identity's with run-time (AttachTables) tables.
+        Task<CatalogContentsResult> Build() => catalog.InMemory.Find(attachOpaqueData) is null && catalog.AttachTablesFor(identity) is null
             ? CatalogContentsSnapshotAsync(identity, attachOpaqueData, ctx)
             : CatalogContentsComposer.ComposeAsync(this, attachOpaqueData, ctx);
         var handler = catalog.CatalogContentsHandlerFor(identity);
@@ -1723,7 +1773,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return Task.FromResult(new ItemsResponse());
         }
 
-        return Task.FromResult(new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildSchemaInfo(identity, path))] });
+        return Task.FromResult(new ItemsResponse { Items = [EmbeddedIpc.Encode(BuildSchemaInfo(identity, attachOpaqueData, path))] });
     }
 
     /// <summary>Zero-or-one-item lookup for a single table by <c>(schemaName, name)</c>. Only ever
@@ -1754,7 +1804,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var identity = DecodeIdentity(attachOpaqueData);
-        var table = catalog.FindCatalogTable(identity, schemaPath, name);
+        var table = FindTable(identity, attachOpaqueData, schemaPath, name, transactionOpaqueData, ctx);
         if (table is null)
         {
             return Task.FromResult(new ItemsResponse());
@@ -1798,7 +1848,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var identity = DecodeIdentity(attachOpaqueData);
-        var table = catalog.FindCatalogTable(identity, schemaPath, name)
+        var table = FindTable(identity, attachOpaqueData, schemaPath, name, transactionOpaqueData, ctx)
             ?? throw new VgiNotFoundException($"Unknown table: '{string.Join('.', schemaPath)}.{name}'.");
 
         List<ScanBranch> branches;
@@ -1925,8 +1975,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var identity = DecodeIdentity(attachOpaqueData);
-        var items = catalog.CatalogTablesFor(identity)
-            .Where(table => CatalogRegistry.PathsEqual(table.EffectiveSchemaPath, path))
+        var items = TablesFor(identity, attachOpaqueData, path, transactionOpaqueData, ctx)
             .Select(table => BuildTableInfo(table, ConstraintsOf(identity)))
             .Select(EmbeddedIpc.Encode)
             .ToList();
@@ -2549,7 +2598,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static Dictionary<string, TValue> SortedMap<TValue>(IEnumerable<KeyValuePair<string, TValue>> map) =>
         map.OrderBy(entry => entry.Key, StringComparer.Ordinal).ToDictionary(entry => entry.Key, entry => entry.Value);
 
-    private SchemaInfo BuildSchemaInfo(string identity, IReadOnlyList<string> path)
+    private SchemaInfo BuildSchemaInfo(string identity, byte[] attachOpaqueData, IReadOnlyList<string> path)
     {
         var (comment, tags) = catalog.SchemaMetadataFor(identity, path);
 
@@ -2560,7 +2609,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Path = path.ToList(),
             EstimatedObjectCount = SortedMap(new Dictionary<string, long>
             {
-                ["table"] = catalog.CatalogTablesFor(identity).Count(t => CatalogRegistry.PathsEqual(t.EffectiveSchemaPath, path)),
+                ["table"] = TablesFor(identity, attachOpaqueData, path, null, null).Count(),
                 ["view"] = catalog.CatalogViewsFor(identity).Count(v => CatalogRegistry.PathsEqual(v.EffectiveSchemaPath, path)),
                 ["scalar_function"] = catalog.ScalarFunctionsFor(identity).Count(f => CatalogRegistry.PathsEqual(f.SchemaPath, path)),
                 ["table_function"] =
@@ -2625,6 +2674,49 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return SchemaIpc.WriteSchemaOnly(columns);
     }
 
+    /// <summary>A declared table of <paramref name="identity"/>, else one the attach created
+    /// (<see cref="Catalog.AttachTables"/>).</summary>
+    private CatalogTable? FindTable(
+        string identity, byte[] attachOpaqueData, IReadOnlyList<string> schemaPath, string name, byte[]? transactionOpaqueData, ICallContext? ctx) =>
+        catalog.FindCatalogTable(identity, schemaPath, name)
+        ?? CreatedTables(identity, attachOpaqueData, schemaPath, transactionOpaqueData, ctx)
+            .FirstOrDefault(table => string.Equals(table.Name, name, StringComparison.Ordinal));
+
+    /// <summary>The tables of schema <paramref name="schemaPath"/> an attach serves: the declared
+    /// ones, then those it created that no declared table shadows.</summary>
+    private List<CatalogTable> TablesFor(
+        string identity, byte[] attachOpaqueData, IReadOnlyList<string> schemaPath, byte[]? transactionOpaqueData, ICallContext? ctx)
+    {
+        var tables = catalog.CatalogTablesFor(identity)
+            .Where(table => CatalogRegistry.PathsEqual(table.EffectiveSchemaPath, schemaPath))
+            .ToList();
+        var declared = tables.Select(table => table.Name).ToHashSet(StringComparer.Ordinal);
+        tables.AddRange(CreatedTables(identity, attachOpaqueData, schemaPath, transactionOpaqueData, ctx)
+            .Where(table => !declared.Contains(table.Name)));
+        return tables;
+    }
+
+    /// <summary>The attach's run-time tables in <paramref name="schemaPath"/>, validated.</summary>
+    private List<CatalogTable> CreatedTables(
+        string identity, byte[] attachOpaqueData, IReadOnlyList<string> schemaPath, byte[]? transactionOpaqueData, ICallContext? ctx)
+    {
+        if (catalog.AttachTablesFor(identity) is not { } owner)
+        {
+            return [];
+        }
+
+        return owner.Tables(new AttachTablesContext
+        {
+            AttachOpaqueData = attachOpaqueData,
+            SchemaPath = schemaPath,
+            TransactionOpaqueData = transactionOpaqueData ?? [],
+            CallContext = ctx,
+        })
+            .Where(table => CatalogRegistry.PathsEqual(table.EffectiveSchemaPath, schemaPath))
+            .Select(table => CatalogRegistry.ValidateAttachTable(owner, table))
+            .ToList();
+    }
+
     /// <summary>A lookup of the constraint records another declarative table of
     /// <paramref name="identity"/> serves, for FOREIGN KEY target checks.</summary>
     private TableServing.ConstraintLookup ConstraintsOf(string identity) =>
@@ -2673,9 +2765,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             ScanFunction = table.ScanFunction is { } scan && table.InlineScanFunction
                 ? BuildInlineScanFunction(scan.Name, scan.SchemaPath, table.ScanArguments, table.ScanNamedArguments)
                 : null,
-            InsertFunction = table.InsertFunction is { } insert ? BuildInlineScanFunction(insert.Name, insert.SchemaPath) : null,
-            UpdateFunction = table.UpdateFunction is { } update ? BuildInlineScanFunction(update.Name, update.SchemaPath) : null,
-            DeleteFunction = table.DeleteFunction is { } delete ? BuildInlineScanFunction(delete.Name, delete.SchemaPath) : null,
+            InsertFunction = table.InsertFunction is { } insert ? BuildInlineScanFunction(insert.Name, insert.SchemaPath, table.WriteArguments) : null,
+            UpdateFunction = table.UpdateFunction is { } update ? BuildInlineScanFunction(update.Name, update.SchemaPath, table.WriteArguments) : null,
+            DeleteFunction = table.DeleteFunction is { } delete ? BuildInlineScanFunction(delete.Name, delete.SchemaPath, table.WriteArguments) : null,
             CardinalityEstimate = table.CardinalityEstimate,
             CardinalityMax = table.CardinalityMax,
             ColumnStatistics = null,

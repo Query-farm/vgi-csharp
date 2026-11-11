@@ -377,19 +377,45 @@ public sealed class WritableTxApiTests
     [Fact]
     public void WriteRequestDecodesWriteOptions()
     {
-        var options = EmbeddedIpc.Encode(new WriteOptions { ResultMode = "rows", OnConflict = "nothing", OnConflictColumns = ["id"] });
-        var arguments = new QueryFarm.Vgi.Arguments.TableArguments([], new Dictionary<string, IArrowArray>
-        {
-            ["write_options"] = new BinaryArray.Builder().Append(options.AsSpan()).Build(),
-        });
-        var request = WriteRequest.From(arguments);
-        Assert.Equal((WriteResultMode.Rows, "nothing"), (request.ResultMode, request.OnConflict));
-        Assert.Equal(["id"], request.OnConflictColumns);
+        var options = EmbeddedIpc.Encode(new WriteOptions { ResultMode = "rows" });
+        Assert.Equal(["result_mode"], SchemaOf(options));
+        var request = WriteRequest.From(WriteOptionsArgument(options));
+        Assert.Equal(WriteResultMode.Rows, request.ResultMode);
+#pragma warning disable CS0618 // the deprecated accessors keep their fixed values
+        Assert.Equal(("throw", 0), (request.OnConflict, request.OnConflictColumns.Count));
+#pragma warning restore CS0618
+
+        // A pre-3.3 peer's batch still carries on_conflict / on_conflict_columns: ignored.
+        var legacy = EmbeddedIpc.Encode(new LegacyWriteOptions { ResultMode = "changes", OnConflict = "nothing", OnConflictColumns = ["id"] });
+        Assert.Equal(["result_mode", "on_conflict", "on_conflict_columns"], SchemaOf(legacy));
+        Assert.Equal(WriteResultMode.Changes, WriteRequest.From(WriteOptionsArgument(legacy)).ResultMode);
 
         Assert.Equal(WriteResultMode.Count, WriteRequest.From(TableArgCodec.Decode([])).ResultMode);
         Assert.True(WriteResultMode.Supports(WriteResultMode.Changes, WriteResultMode.Rows));
         Assert.False(WriteResultMode.Supports(WriteResultMode.Count, WriteResultMode.Rows));
         Assert.Throws<ArgumentException>(() => WriteResultMode.Validate(new Dictionary<string, string> { ["upsert"] = "count" }));
+    }
+
+    private static QueryFarm.Vgi.Arguments.TableArguments WriteOptionsArgument(byte[] options) =>
+        new([], new Dictionary<string, IArrowArray>
+        {
+            ["write_options"] = new BinaryArray.Builder().Append(options.AsSpan()).Build(),
+        });
+
+    private static List<string> SchemaOf(byte[] ipc)
+    {
+        using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(new MemoryStream(ipc));
+        return reader.Schema.FieldsList.Select(f => f.Name).ToList();
+    }
+
+    /// <summary>The write-options batch before protocol 3.3.</summary>
+    private sealed class LegacyWriteOptions
+    {
+        public string ResultMode { get; set; } = "count";
+
+        public string OnConflict { get; set; } = "throw";
+
+        public List<string> OnConflictColumns { get; set; } = [];
     }
 
     // ------------------------------------------------------------------ attach options / data

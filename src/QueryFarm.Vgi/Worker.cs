@@ -704,6 +704,16 @@ public sealed class Worker
         return this;
     }
 
+    /// <summary>Serves tables the attaches of <paramref name="identity"/> create at run time
+    /// (<c>CREATE TABLE</c>, <c>CREATE TABLE ... AS SELECT</c>, <c>DROP TABLE</c>) next to the
+    /// declared ones — see <see cref="Catalog.AttachTables"/>. One per identity; a later call
+    /// replaces it.</summary>
+    public Worker AttachTables(Catalog.AttachTables tables, string identity = CatalogRegistry.DefaultIdentity)
+    {
+        _catalog.RegisterAttachTables(tables, identity);
+        return this;
+    }
+
     /// <summary>Registers a real catalog view.</summary>
     public Worker RegisterView(CatalogView view, string identity = CatalogRegistry.DefaultIdentity)
     {

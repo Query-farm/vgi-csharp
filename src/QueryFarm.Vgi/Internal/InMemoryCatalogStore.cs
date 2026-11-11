@@ -204,7 +204,10 @@ internal sealed class InMemoryCatalogState
     /// not claim them. Arrow nullability is derived from the records (an unnamed field is served
     /// nullable).
     /// </summary>
-    public void CreateTable(TableCreateRequest request)
+    /// <returns><see langword="true"/> when this call created the table (or replaced one);
+    /// <see langword="false"/> when <c>IF NOT EXISTS</c> found an existing one (protocol 3.3
+    /// <c>created</c>).</returns>
+    public bool CreateTable(TableCreateRequest request)
     {
         if (request.Comment is not null || request.Tags is not null || request.Options is not null || request.Layout is not null)
         {
@@ -237,7 +240,7 @@ internal sealed class InMemoryCatalogState
             var schema = RequireSchema(request.SchemaPath);
             if (schema.Tables.ContainsKey(request.Name) && !Replaces("Table", request.Name, request.OnConflict))
             {
-                return;
+                return false;
             }
 
             IReadOnlyList<byte[]> constraints = [];
@@ -259,6 +262,7 @@ internal sealed class InMemoryCatalogState
                 DefinitionRevision = null,
             });
             _version++;
+            return true;
         }
     }
 

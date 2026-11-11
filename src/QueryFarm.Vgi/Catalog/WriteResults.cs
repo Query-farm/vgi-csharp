@@ -83,10 +83,15 @@ public sealed class WriteRequest
     /// <summary>One of <see cref="WriteResultMode"/>; <see cref="WriteResultMode.Count"/> when absent.</summary>
     public string ResultMode { get; init; } = WriteResultMode.Count;
 
-    /// <summary><c>throw</c> (the default), or the <c>INSERT ... ON CONFLICT</c> action requested.</summary>
+    /// <summary>Always <c>throw</c>. Protocol 3.3 removed <c>on_conflict</c> from the write
+    /// options: DuckDB rewrites every <c>INSERT ... ON CONFLICT</c> (and <c>INSERT OR REPLACE</c>)
+    /// into a MERGE, which the extension runs as ordinary insert/update/delete write calls, so a
+    /// write function never sees a conflict clause.</summary>
+    [Obsolete("Protocol 3.3 removed on_conflict from the write options; it is always \"throw\". INSERT ... ON CONFLICT reaches the worker as MERGE write calls.")]
     public string OnConflict { get; init; } = "throw";
 
-    /// <summary>The <c>ON CONFLICT (...)</c> target columns; empty when none.</summary>
+    /// <summary>Always empty (see <see cref="OnConflict"/>).</summary>
+    [Obsolete("Protocol 3.3 removed on_conflict_columns from the write options; it is always empty.")]
     public IReadOnlyList<string> OnConflictColumns { get; init; } = [];
 
     /// <summary>Decodes the write function's arguments (<see cref="TableInOut.TableInOutBindParams.Arguments"/>
@@ -102,12 +107,7 @@ public sealed class WriteRequest
             throw new InvalidOperationException($"Unknown write result mode '{decoded.ResultMode}'.");
         }
 
-        return new WriteRequest
-        {
-            ResultMode = decoded.ResultMode,
-            OnConflict = decoded.OnConflict,
-            OnConflictColumns = decoded.OnConflictColumns.ToList(),
-        };
+        return new WriteRequest { ResultMode = decoded.ResultMode };
     }
 }
 

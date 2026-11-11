@@ -2,7 +2,9 @@
 // (vgi docs/writable_tx_fixtures.md). Built only with QueryFarm.Vgi's public API: attach options
 // (AttachOptions: declared, and read back in every function and hook, the secret `token`
 // included), per-attach transactions (AttachContext.SupportsTransactions), transaction hooks
-// (TransactionHooks) and the writable-table helpers (WriteResults / WriteRequest).
+// (TransactionHooks) and the writable-table helpers (WriteResults / WriteRequest). items is
+// INSERT/UPDATE/DELETE-able (items_insert / items_update / items_delete, all table_only, all with a
+// finalize stage that records the call in writes()); labels is read-only.
 //
 // IMPORTANT: stdout is the wire channel — never Console.WriteLine here; use Console.Error only.
 //
@@ -43,8 +45,17 @@ var items = new CatalogTable
             ["qty"] = row.Qty,
             ["rowid"] = (long)row.Id,
         })),
+    // qty BIGINT DEFAULT 0: DuckDB fills it in for an omitted column before items_insert sees the row.
+    ColumnDefaults = new Dictionary<string, string> { ["qty"] = "0" },
+    InsertFunction = new ItemsInsertFunction(itemUserColumns),
     UpdateFunction = new ItemsUpdateFunction(itemUserColumns),
-    WriteResultModes = new Dictionary<string, string> { [WriteOperation.Update] = WriteResultMode.Changes },
+    DeleteFunction = new ItemsDeleteFunction(itemUserColumns),
+    WriteResultModes = new Dictionary<string, string>
+    {
+        [WriteOperation.Insert] = WriteResultMode.Changes,
+        [WriteOperation.Update] = WriteResultMode.Changes,
+        [WriteOperation.Delete] = WriteResultMode.Changes,
+    },
 };
 
 var labels = new CatalogTable
@@ -71,6 +82,7 @@ var worker = new Worker()
     .RegisterTable(new WhoAmIFunction())
     .RegisterTable(new CurrentTxFunction())
     .RegisterTable(new EventsFunction())
+    .RegisterTable(new WritesFunction())
     .RegisterTableInOut(new TagTxFunction());
 
 await worker.RunFromArgsAsync(args);

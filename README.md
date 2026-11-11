@@ -404,6 +404,23 @@ without it. A writable table that also carries `Constraints` makes its attach ne
 constraints (e.g. refuse to change a key). A write function whose processor awaits I/O can
 implement `IAsyncTableInOutProcessor` (and a scan, `IAsyncTableFunctionProducer`).
 
+The extension opens one write call per INSERT, UPDATE or DELETE statement and streams every batch
+of the statement into it; a write function that declares `HasFinalize` gets a finalize stage after
+the last batch (on the same processor), e.g. to commit or record the call. `MERGE` and
+`INSERT ... ON CONFLICT` / `INSERT OR REPLACE` (which DuckDB rewrites into a MERGE) are emulated
+with the table's ordinary write functions, one write call per MERGE action: they need a row id,
+are atomic only on a transactional attach, and the write options never carry a conflict clause
+(protocol 3.3 removed `on_conflict`; `WriteRequest.OnConflict` is deprecated).
+
+**Created tables.** `CREATE TABLE`, `CREATE TABLE ... AS SELECT` and `DROP TABLE` reach a
+declarative catalog through `Worker.AttachTables(...)`: an `AttachTables` lists the attach's
+run-time tables (`Tables`), creates them (`CreateTable`, returning protocol 3.3's `created`:
+false when `IF NOT EXISTS` found the table, so CTAS inserts nothing) and drops them. Its tables
+name functions it declares in `ScanFunctions` / `WriteFunctions` (listed `table_only`); one shared
+function serves every created table, told which by `CatalogTable.ScanArguments` /
+`CatalogTable.WriteArguments`. `fixtures/QueryFarm.Vgi.SimpleWritableWorker/CreatedTables.cs` is
+a complete example.
+
 ### Transactions
 
 DuckDB opens a worker transaction for every SQL transaction (autocommit statements included) on an
