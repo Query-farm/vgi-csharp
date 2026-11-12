@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.26.0 (2026-11-11)
 
 - **Protocol 3.3.0** (`Worker.DefaultProtocolVersion`). Requires the matching VGI DuckDB
   extension (wire 3.3.x); 3.2 clients and workers are incompatible. Regenerated protocol types:
