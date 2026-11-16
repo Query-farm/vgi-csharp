@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.26.1 (2026-11-16)
+
+- The example worker serves the `contract` schema for the vgi extension's cross-SDK conformance
+  files (a table_only scan with a row id, a table_only scan named `range`, a finalize-only INSERT
+  count with an enforced NOT NULL, and decimal32/64/128 columns).
+
 ## 0.26.0 (2026-11-11)
 
 - **Protocol 3.3.0** (`Worker.DefaultProtocolVersion`). Requires the matching VGI DuckDB
