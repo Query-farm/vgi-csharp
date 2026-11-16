@@ -19,6 +19,7 @@ using QueryFarm.Vgi.ExampleWorker.Buffering;
 using QueryFarm.Vgi.ExampleWorker.Cache;
 using QueryFarm.Vgi.ExampleWorker.CatalogContents;
 using QueryFarm.Vgi.ExampleWorker.Conformance;
+using QueryFarm.Vgi.ExampleWorker.Contract;
 using QueryFarm.Vgi.ExampleWorker.CopyFormats;
 using QueryFarm.Vgi.ExampleWorker.NarrowBind;
 using QueryFarm.Vgi.ExampleWorker.ProjectionRepro;
@@ -428,6 +429,16 @@ foreach (var table in DataSchemaTables.All(sequenceFunction, tenThousandFunction
     .Concat(CacheDataTables.All(cacheableNumbersFunction, cacheRevalidatableFunction, cacheFilteredFunction, secretCacheNonceFunction))
     .Concat(RequiredFiltersTables.All).Concat(MultiBranchTables.All).Concat(PlannedDaysTables.All).Concat(VersionedTimeTravelTables.All)
     .Concat(TimeTravelPushdownTables.All).Append(CacheVersionedTable.Table).Append(GeoPointsTable.Table))
+{
+    worker.RegisterCatalogTable(table);
+}
+
+// The cross-SDK example.contract schema (vgi visibility/example_table_only.test,
+// write_contract/example_insert_finalize.test, write_contract/example_decimal_width.test): table_only
+// scans (one named `range`), a count-only INSERT with finalize and a worker-enforced NOT NULL, and
+// decimal32/64/128 INSERT round-trips — see Contract/ContractTables.cs. No RegisterSchema: the
+// schema must carry no comment (table/database_tags.test).
+foreach (var table in ContractTables.All)
 {
     worker.RegisterCatalogTable(table);
 }
