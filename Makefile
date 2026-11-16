@@ -115,6 +115,9 @@ CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) $(VGI_ENGINE_EXPEC
 	--allow-skip 'require spatial' \
 	--allow-skip 'require-env VGI_DOCKER_IMAGE' \
 	--allow-skip 'require-env VGI_DOCKER_TCP_IMAGE' \
+	--allow-skip 'require-env VGI_DOCKER_TX_IMAGE' \
+	--allow-skip 'require-env VGI_VISIBILITY_WORKER' \
+	--allow-skip 'require-env VGI_WRITE_CONTRACT_WORKER' \
 	--allow-skip 'require-env VGI_DATABASE_BUN_WORKER' \
 	--allow-skip 'require-env VGI_DATABASE_PYTHON_WORKER' \
 	--allow-skip 'require-env VGI_DATABASE_RUST_WORKER' \
