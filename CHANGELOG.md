@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Filter decoding no longer rejects comparisons between parameterised Arrow types as "not
+  bind-compatible". Apache.Arrow's `TimestampType` (and time, duration, interval, fixed-size binary,
+  nested types) compare by reference, so the column's and the literal's separately built
+  `timestamp[us, tz=UTC]` never matched and every `ts >= TIMESTAMPTZ '...'` pushed to a worker
+  failed. Types now compare structurally; a timestamp matches on unit and time-zone awareness.
+- The example worker serves `data.planned_events` (vgi `scan_planning_predicates*.test`,
+  `table/comments.test`): a filtered-planning table with DATE, TIMESTAMPTZ, VARCHAR, BIGINT, DOUBLE
+  and BOOLEAN columns that prunes days on `event_date`/`ts` statistics and records each planning
+  call's days and described filters in `planned_events_last_plan.json`, as vgi-python's fixture
+  does.
+- `ci/run-integration.sh` and `scripts/run_tests.sh` set `VGI_TEST_BRANCH_DIR`, so the
+  `catalog/scan_planning_*.test` files run instead of skipping. The shared suite is pinned to vgi
+  `91f8d63`.
+
 ## 0.26.1 (2026-11-16)
 
 - The example worker serves the `contract` schema for the vgi extension's cross-SDK conformance

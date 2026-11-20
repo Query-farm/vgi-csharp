@@ -54,6 +54,39 @@ public class PushdownFilterTests
     }
 
     [Fact]
+    public void Snapshot_Comparison_BindsSeparatelyBuiltTimestampTypes()
+    {
+        // Apache.Arrow's TimestampType has reference equality; the column and the literal payload are
+        // two instances of timestamp[us, tz=UTC] (vgi scan_planning_predicates.test, ts >= TIMESTAMPTZ).
+        var schema = new Schema([new Field("ts", new TimestampType(TimeUnit.Microsecond, "UTC"), true)], null);
+        var expression = $"{{\"node\":\"comparison\",\"op\":\"ge\",\"left\":{Column("ts", 0)},\"right\":{Literal(0)}}}";
+        var cutoff = new DateTimeOffset(2026, 10, 3, 5, 0, 0, TimeSpan.Zero);
+        var literal = new TimestampArray.Builder(TimeUnit.Microsecond, "UTC").Append(cutoff).Build();
+
+        var decoded = Decode(Filter(Snapshot(Predicate("ts", "required", expression)),
+            (new Field("value_0", new TimestampType(TimeUnit.Microsecond, "UTC"), true), literal)), outputSchema: schema);
+
+        Assert.NotNull(decoded);
+        Dictionary<string, QueryFarm.Vgi.Catalog.ColumnStatisticsInput> Day(int hours) => new()
+        {
+            ["ts"] = new() { Min = cutoff.AddHours(hours - 9), Max = cutoff.AddHours(hours), HasNotNull = true },
+        };
+        Assert.True(ScanPlanningEvaluator.MayMatch(decoded, Day(1)));
+        Assert.False(ScanPlanningEvaluator.MayMatch(decoded, Day(-1)));
+    }
+
+    [Fact]
+    public void Snapshot_Comparison_RejectsNaiveTimestampAgainstTimestampTz()
+    {
+        var schema = new Schema([new Field("ts", new TimestampType(TimeUnit.Microsecond, "UTC"), true)], null);
+        var expression = $"{{\"node\":\"comparison\",\"op\":\"ge\",\"left\":{Column("ts", 0)},\"right\":{Literal(0)}}}";
+        var literal = new TimestampArray.Builder(TimeUnit.Microsecond).Append(DateTimeOffset.UnixEpoch).Build();
+
+        Assert.Throws<InvalidDataException>(() => Decode(Filter(Snapshot(Predicate("ts", "required", expression)),
+            (new Field("value_0", new TimestampType(TimeUnit.Microsecond, (string?)null), true), literal)), outputSchema: schema));
+    }
+
+    [Fact]
     public void Snapshot_ArbitrarilyNestedFieldRef_IsEvaluated()
     {
         var nested = $"{{\"node\":\"field_ref\",\"expression\":{{\"node\":\"field_ref\",\"expression\":{Column("outer", 0)},\"field_index\":0,\"field_name\":\"middle\"}},\"field_index\":0,\"field_name\":\"leaf\"}}";

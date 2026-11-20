@@ -517,7 +517,43 @@ public static partial class PushdownFilterCodec
         left = LogicalValueType(left);
         right = LogicalValueType(right);
         return left is not null && right is not null &&
-            (left.Equals(right) || IsNumericType(left) && IsNumericType(right));
+            (SameLogicalType(left, right) || IsNumericType(left) && IsNumericType(right));
+    }
+
+    /// <summary>Structural type equality. Apache.Arrow's parameterised types (timestamp, time,
+    /// duration, interval, fixed-size binary, nested) do not override <see cref="object.Equals(object)"/>,
+    /// so two separately built <c>timestamp[us, tz=UTC]</c> instances compare unequal by reference, which
+    /// rejected every <c>ts &gt;= TIMESTAMPTZ '...'</c> predicate as "not bind-compatible". A TIMESTAMPTZ
+    /// is an instant whatever its zone label, so timestamps match on unit and on whether both carry a
+    /// time zone.</summary>
+    private static bool SameLogicalType(IArrowType left, IArrowType right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left.TypeId != right.TypeId)
+        {
+            return false;
+        }
+
+        return (left, right) switch
+        {
+            (TimestampType a, TimestampType b) => a.Unit == b.Unit && a.IsTimeZoneAware == b.IsTimeZoneAware,
+            (Time32Type a, Time32Type b) => a.Unit == b.Unit,
+            (Time64Type a, Time64Type b) => a.Unit == b.Unit,
+            (DurationType a, DurationType b) => a.Unit == b.Unit,
+            (IntervalType a, IntervalType b) => a.Unit == b.Unit,
+            (FixedSizeBinaryType a, FixedSizeBinaryType b) => a.ByteWidth == b.ByteWidth,
+            (DictionaryType a, DictionaryType b) => SameLogicalType(a.ValueType, b.ValueType),
+            (UnionType, UnionType) => left.Equals(right),
+            (NestedType a, NestedType b) => a.Fields.Count == b.Fields.Count &&
+                a.Fields.Zip(b.Fields).All(pair => pair.First.Name == pair.Second.Name &&
+                    SameLogicalType(pair.First.DataType, pair.Second.DataType)),
+            // Every remaining type with this TypeId is unparameterised (or numeric, handled above).
+            _ => true,
+        };
     }
 
     private static IArrowType? LogicalValueType(IArrowType? type) =>
