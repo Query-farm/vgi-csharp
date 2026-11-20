@@ -20,7 +20,7 @@ env:
   VGI_REF: 007edd820e32808d00116a3658349a69c0987354
   VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
   # TODO(release-wave): unreleased vgi-rpc-csharp (protocol-3.4 branch), built from source.
-  VGI_RPC_CSHARP_REF: 3e3597e6ca6e97286effd812f022b462e4633b26
+  VGI_RPC_CSHARP_REF: 67ffca7262136b889a52a46c4053127c6682caa6
   VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
 
 jobs:
