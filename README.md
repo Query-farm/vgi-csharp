@@ -27,7 +27,7 @@ Built on [`vgi-rpc-csharp`](https://github.com/Query-farm/vgi-rpc-csharp); targe
 The package selects its patched Arrow assemblies automatically, including in transitive consumers;
 no manual exclusions for DuckDB.NET's optional official Arrow assemblies are required.
 
-This branch uses VGI wire 3.3.0 under `vgi.v3` and requires a native VGI client speaking wire 3.3.x. Upgrade clients and workers together; wire 2.x and 3.0.x-3.2.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
+This branch uses VGI wire 3.4.0 under `vgi.v3` and requires a native VGI client speaking wire 3.4.x. Upgrade clients and workers together; wire 2.x and 3.0.x-3.3.x clients are incompatible. See [catalog metadata and publication](docs/catalog_publication.md).
 
 > **Qualification:** the DuckDB 2.0 HTTP lane passed 351 canonical SQLLogic files,
 > with 28 explicit environment or capability skips; writable-catalog files are excluded from this HTTP count.

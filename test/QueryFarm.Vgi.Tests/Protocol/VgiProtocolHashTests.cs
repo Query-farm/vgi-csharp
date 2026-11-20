@@ -17,7 +17,7 @@ public sealed class VgiProtocolHashTests
     /// </summary>
     /// <remarks>
     /// The one place this value is written down. It changes only when vgi.v3's protocol version
-    /// (3.3.0) does — a new value here means the protocol changed, so take it from the reference,
+    /// (3.4.0) does — a new value here means the protocol changed, so take it from the reference,
     /// never from this port's own output.
     /// </remarks>
     public const string ReferenceVgiV3Hash = "ad10c6b137db8cd0054c8c3d80b0f50946382d52bbd549beaad209e00c180f08";
@@ -28,7 +28,7 @@ public sealed class VgiProtocolHashTests
         var server = new Worker().CatalogName("test_catalog").DefaultSchema("main")
             .NewRpcServer(Worker.ServerTransport.Stdio);
         Assert.Equal("vgi.v3", VgiProtocol.Name);
-        Assert.Equal("3.3.0", Worker.DefaultProtocolVersion);
+        Assert.Equal("3.4.0", Worker.DefaultProtocolVersion);
         Assert.Equal(VgiProtocol.Name, server.ProtocolName);
         Assert.Equal(ReferenceVgiV3Hash, server.ProtocolHash);
     }

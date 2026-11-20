@@ -59,9 +59,12 @@ public sealed class Worker
     /// <see cref="Protocol.ScanBranch"/> (see <see cref="Catalog.CatalogTable.PlanScanBranches"/>). 3.3.0 added
     /// <c>FunctionInfo.visibility</c>: a table's scan and write functions are listed
     /// <c>"table_only"</c> (absent from <c>duckdb_functions()</c>, not callable) unless
-    /// <see cref="Catalog.CatalogTable.ExposeScan"/> (see <see cref="Catalog.FunctionVisibility"/>).</para>
+    /// <see cref="Catalog.CatalogTable.ExposeScan"/> (see <see cref="Catalog.FunctionVisibility"/>).
+    /// 3.4.0 changes no vgi.v3 schema: it moves client uploads to vgi-rpc's upload-URL protocol v2
+    /// (<c>VGI-Upload-URL-Support: 2</c>, sized and hashed <c>__upload_url__</c> entries) and makes
+    /// <c>vgi_rpc.location.sha256</c> mandatory on pointers.</para>
     /// </summary>
-    public const string DefaultProtocolVersion = "3.3.0";
+    public const string DefaultProtocolVersion = "3.4.0";
 
     private readonly CatalogRegistry _catalog = new();
     public Worker CatalogSnapshot(Catalog.Snapshots.CatalogSnapshotPolicy policy) { _catalog.SnapshotPolicy = policy; return this; }

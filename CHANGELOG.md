@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Protocol 3.4.0** (`Worker.DefaultProtocolVersion`). Requires the matching VGI DuckDB
+  extension (wire 3.4.x); 3.3 clients and workers are incompatible. No vgi.v3 schema changes: 3.4
+  moves client uploads to vgi-rpc's upload-URL protocol v2 (`VGI-Upload-URL-Support: 2`) and
+  makes `vgi_rpc.location.sha256` mandatory on pointers. Built against an unreleased
+  vgi-rpc-csharp (`protocol-3.4` branch) until the release wave.
+
 ## 0.26.1 (2026-11-16)
 
 - The example worker serves the `contract` schema for the vgi extension's cross-SDK conformance
