@@ -7,6 +7,19 @@
   moves client uploads to vgi-rpc's upload-URL protocol v2 (`VGI-Upload-URL-Support: 2`) and
   makes `vgi_rpc.location.sha256` mandatory on pointers. Built against an unreleased
   vgi-rpc-csharp (`protocol-3.4` branch) until the release wave.
+- Filter decoding no longer rejects comparisons between parameterised Arrow types as "not
+  bind-compatible". Apache.Arrow's `TimestampType` (and time, duration, interval, fixed-size binary,
+  nested types) compare by reference, so the column's and the literal's separately built
+  `timestamp[us, tz=UTC]` never matched and every `ts >= TIMESTAMPTZ '...'` pushed to a worker
+  failed. Types now compare structurally; a timestamp matches on unit and time-zone awareness.
+- The example worker serves `data.planned_events` (vgi `scan_planning_predicates*.test`,
+  `table/comments.test`): a filtered-planning table with DATE, TIMESTAMPTZ, VARCHAR, BIGINT, DOUBLE
+  and BOOLEAN columns that prunes days on `event_date`/`ts` statistics and records each planning
+  call's days and described filters in `planned_events_last_plan.json`, as vgi-python's fixture
+  does.
+- `ci/run-integration.sh` and `scripts/run_tests.sh` set `VGI_TEST_BRANCH_DIR`, so the
+  `catalog/scan_planning_*.test` files run instead of skipping. The shared suite pin (vgi
+  protocol-3.4 `007edd8`) includes those tests.
 
 ## 0.26.1 (2026-11-16)
 

@@ -102,8 +102,8 @@ test_integration_http:
 # no longer gated: ExampleWorker serves all six contents_* fixture catalogs (see
 # fixtures/QueryFarm.Vgi.ExampleWorker/CatalogContents/CatalogContentsSetup.cs).
 #
-# C# runs 323 today (358 discovered, 35 expected skips).
-CSHARP_MIN_EXECUTED ?= 318
+# C# runs 393 today (443 discovered, 50 expected skips) against vgi 91f8d63.
+CSHARP_MIN_EXECUTED ?= 385
 # Engine-gated native tests (vgi CLAUDE.md, docs/upstream-duckdb-build.md): which side of each
 # VGI_ENGINE_* split skips depends on the DuckDB the extension was built against, so take both the
 # variables and the expected skip reasons from VGI_DIR's own Makefile instead of hard-coding them.
@@ -125,7 +125,6 @@ CSHARP_COVERAGE_GATE := --min-executed $(CSHARP_MIN_EXECUTED) $(VGI_ENGINE_EXPEC
 	--allow-skip 'require-env VGI_TEST_ICEBERG' \
 	--allow-skip 'require-env VGI_TEST_COMPANION_TARGET' \
 	--allow-skip 'require-env VGI_TEST_BEARER_TOKEN' \
-	--allow-skip 'require-env VGI_TEST_BRANCH_DIR' \
 	--allow-skip 'require-env VGI_HTTP_TRANSPORT' \
 	--allow-skip 'require-env VGI_HTTP_DISABLE_ZSTD' \
 	--allow-skip 'require-env VGI_HTTP_NO_COMPRESSION' \
@@ -158,7 +157,7 @@ test_integration_gated: build
 	    VGI_ATTACH_OPTIONS_REQUIRED_WORKER="launch:$(CSHARP_EXAMPLE_BIN)" \
 	    VGI_BAD_ENUM_WORKER="$(CSHARP_BAD_ENUM_BIN)" \
 	    VGI_WRITABLE_TX_FIXTURES=1 VGI_WRITABLE_TX_WORKER="launch:$(CSHARP_WRITABLE_TX_BIN)" \
-	    VGI_TXFIX_STATE_DIR="$$(mktemp -d)" \
+	    VGI_TXFIX_STATE_DIR="$$(mktemp -d)" VGI_TEST_BRANCH_DIR="$$(mktemp -d)" \
 	    VGI_REQUIRE_LAUNCHER_TRANSPORT=1 VGI_SECRET_LOOKUP_FIXTURES=1 \
 	    python3 scripts/run_tests.py -j 6 $(CSHARP_COVERAGE_GATE) \
 	        --test-config "$(abspath $(VGI_DIR))/test/configs/no_error_skip.json" \

@@ -128,6 +128,13 @@ export VGI_WRITABLE_TX_FIXTURES=1
 export VGI_TXFIX_STATE_DIR="$STAGE/txfix-state"
 rm -rf "$VGI_TXFIX_STATE_DIR"
 
+# The scan-planning fixtures (data.planned_days*, data.planned_events, multi-branch tables) read
+# the parquet/csv files the tests write under $VGI_TEST_BRANCH_DIR, and the worker resolves the same
+# variable, so both sides must see one path. Without it every catalog/scan_planning_*.test skips on
+# its require-env gate. A private directory per lane keeps concurrent lanes apart.
+export VGI_TEST_BRANCH_DIR="${VGI_TEST_BRANCH_DIR:-$STAGE/branches}"
+mkdir -p "$VGI_TEST_BRANCH_DIR"
+
 # Starts "$1 --http" in the background on an ephemeral port; sets STARTED_PID and STARTED_PORT.
 start_http_worker() {
   local bin="$1" log="$2"

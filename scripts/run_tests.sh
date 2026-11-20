@@ -62,6 +62,11 @@ fi
 
 CACHE="/tmp/vgi-csharp-test-cache"
 mkdir -p "$CACHE"
+# The scan-planning fixtures read the files the tests write under $VGI_TEST_BRANCH_DIR; the worker
+# (including the HTTP server started below) and unittest must see the same path, or every
+# catalog/scan_planning_*.test skips on its require-env gate.
+export VGI_TEST_BRANCH_DIR="${VGI_TEST_BRANCH_DIR:-$CACHE/branches}"
+mkdir -p "$VGI_TEST_BRANCH_DIR"
 
 BUILD=1
 if [[ "${1:-}" == "--no-build" ]]; then BUILD=0; shift; fi
