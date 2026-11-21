@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using QueryFarm.Vgi.Aggregate;
 using QueryFarm.Vgi.Buffering;
 using QueryFarm.Vgi.Catalog;
@@ -1134,6 +1135,13 @@ public sealed class Worker
 
         var builder = WebApplication.CreateSlimBuilder(WorkerHostOptions());
         builder.WebHost.UseUrls($"http://{FormatHostForUrl(host)}:{port}");
+        if (OrchardHosted.IsEnabled(HostedEnvironment))
+        {
+            // ASP.NET's per-request log lines carry the full URL, query string included, and a
+            // credential must never reach the logs -- not even one a client wrongly put there.
+            builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.None);
+        }
+
         var app = builder.Build();
         MapHttp(app, prefix, irohBridge);
         await app.StartAsync(cancellationToken).ConfigureAwait(false);

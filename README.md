@@ -629,7 +629,12 @@ request without a valid Pass gets `401` with `WWW-Authenticate: Bearer error="in
 `VGI-Auth-Reason: missing_credential | invalid_credential | expired_credential` and the VGI
 capability headers, never `resource_metadata`. Authentication runs before the request body is
 read, size-checked or decompressed. CORS is open (`Access-Control-Allow-Origin: *`), and the
-`Authorization` header is never logged.
+`Authorization` header is never logged (ASP.NET's per-request URL log lines are off in hosted mode,
+so even a token wrongly sent in the query string stays out of the logs).
+
+The shared, SDK-neutral conformance harness for this mode lives in the extension repository
+(`test/hosted/`); `ci/run-orchard-hosted.sh` runs it against the example worker, which serves
+`main.pass_claims(x)` in hosted mode.
 
 **Function code sees the Pass** as the request's `AuthContext`: `ScalarProcessParams.Auth` in a
 scalar function, `TableInitParams.Ctx.Auth` in a table function. The principal is `sub`, the
