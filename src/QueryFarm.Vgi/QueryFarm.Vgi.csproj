@@ -10,11 +10,14 @@
   <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' == 'true'">
     <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc/QueryFarm.VgiRpc.csproj" />
     <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Http/QueryFarm.VgiRpc.Http.csproj" />
+    <!-- Orchard hosted mode's Pass verifier (JwtAuth.Create(JwtAuthOptions)). -->
+    <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Http.OAuth/QueryFarm.VgiRpc.Http.OAuth.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' != 'true'">
     <PackageReference Include="QueryFarm.Arrow" />
     <PackageReference Include="QueryFarm.VgiRpc" />
     <PackageReference Include="QueryFarm.VgiRpc.Http" />
+    <PackageReference Include="QueryFarm.VgiRpc.Http.OAuth" />
   </ItemGroup>
 
   <ItemGroup>

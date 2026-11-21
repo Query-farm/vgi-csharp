@@ -20,7 +20,7 @@ env:
   VGI_REF: 5b8b7a2a7e4e587e15573ddd62cf1dbcdf6b357e
   VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
   # TODO(release-wave): unreleased vgi-rpc-csharp (protocol-3.4 branch), built from source.
-  VGI_RPC_CSHARP_REF: 67ffca7262136b889a52a46c4053127c6682caa6
+  VGI_RPC_CSHARP_REF: 146c57731edceb8aba5cbac5e98096093486d558  # JwtAuth.Create(JwtAuthOptions) for hosted mode
   VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
 
 jobs:

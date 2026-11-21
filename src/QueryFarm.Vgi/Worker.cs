@@ -804,6 +804,11 @@ public sealed class Worker
     /// called.</para>
     internal RpcServer NewRpcServer(ServerTransport transport, string? serverId = null)
     {
+        if (transport != ServerTransport.Http && OrchardHosted.IsEnabled(HostedEnvironment))
+        {
+            throw OrchardHostedConfigurationException.Refuse(OnlyHttpReason);
+        }
+
         var extra = ValidatedHostedProtocols();
         // Grants, like the rest of Identity, are HTTP-only here: resolved explicitly and passed on,
         // never left to vgi-rpc's own environment default, which would host them on every transport.
@@ -1160,8 +1165,19 @@ public sealed class Worker
     /// </remarks>
     internal RpcServer MapHttp(WebApplication app, string prefix = "", IrohBridgeOptions? irohBridge = null)
     {
+        var hostedConfig = OrchardHosted.IsEnabled(HostedEnvironment) ? ValidateHostedConfiguration(irohBridge is not null) : null;
         var serverId = Guid.NewGuid().ToString("n");
         var rpc = NewRpcServer(ServerTransport.Http, serverId);
+        if (hostedConfig is not null)
+        {
+            // Orchard hosted mode: the Pass gate is the only authenticator, in front of every
+            // path; the VGI endpoints just insist that it ran.
+            OrchardHosted.UseGate(app, prefix, OrchardHosted.CreateAuthenticate(hostedConfig, HostedJwksHttpHandler));
+            app.MapVgiRpc(rpc, prefix: prefix, authenticate: OrchardHosted.RequireVerified);
+            app.MapVgiLandingPage(_catalog.CatalogName, serverId, prefix, authenticate: OrchardHosted.RequireVerified);
+            return rpc;
+        }
+
         var authenticate = _httpAuthenticate;
         var identityBearer = true;
         if (irohBridge is not null)
@@ -1195,6 +1211,20 @@ public sealed class Worker
     public Task RunFromArgsAsync(string[] args, CancellationToken cancellationToken = default)
     {
         ApplyGrantKeyArgs(args);
+        try
+        {
+            if (OrchardHosted.IsEnabled(HostedEnvironment))
+            {
+                ValidateHostedStartup(args);
+            }
+        }
+        catch (OrchardHostedConfigurationException exc)
+        {
+            // Fail closed, like any CLI: an error on stderr and a non-zero exit, before PORT:.
+            Console.Error.WriteLine($"Error: {exc.Message}");
+            Console.Error.Flush();
+            Environment.Exit(1);
+        }
 
         var httpIndex = Array.IndexOf(args, "--http");
         if (httpIndex >= 0)
@@ -1279,6 +1309,77 @@ public sealed class Worker
         }
 
         return RunStdioAsync(cancellationToken);
+    }
+
+    private const string OnlyHttpReason =
+        "only --http is supported; stdio, --unix, --tcp and --iroh-raw-upstream carry no Pass.";
+
+    /// <summary>The handler the hosted-mode JWKS fetch goes through -- a test seam.</summary>
+    internal HttpMessageHandler? HostedJwksHttpHandler { get; set; }
+
+    /// <summary>Where hosted mode reads its environment variables -- a test seam, so in-process
+    /// tests never set <c>VGI_ORCHARD_HOSTED</c> for every other test in the process.</summary>
+    internal Func<string, string?>? HostedEnvironment { get; set; }
+
+    /// <summary>The command-line half of the hosted-mode startup checks: the transport and flags
+    /// <see cref="RunFromArgsAsync"/> was given, then everything
+    /// <see cref="ValidateHostedConfiguration"/> checks.</summary>
+    /// <exception cref="OrchardHostedConfigurationException">The first conflict found.</exception>
+    internal void ValidateHostedStartup(string[] args)
+    {
+        if (!args.Contains("--http", StringComparer.Ordinal)
+            || args.Contains("--unix", StringComparer.Ordinal)
+            || args.Contains("--tcp", StringComparer.Ordinal)
+            || args.Contains("--iroh-raw-upstream", StringComparer.Ordinal))
+        {
+            throw OrchardHostedConfigurationException.Refuse(OnlyHttpReason);
+        }
+
+        _ = ValidateHostedConfiguration(args.Contains("--iroh-issuer", StringComparer.Ordinal));
+    }
+
+    /// <summary>Everything hosted mode refuses to start with, in vgi-python's order: the Pass
+    /// settings, then any other credential the environment or this builder configures, then the
+    /// signing key.</summary>
+    /// <param name="irohBridge">Whether Iroh peer identity is configured.</param>
+    /// <returns>The hosted-mode settings.</returns>
+    /// <exception cref="OrchardHostedConfigurationException">The first conflict found.</exception>
+    internal OrchardHostedConfig ValidateHostedConfiguration(bool irohBridge)
+    {
+        var config = OrchardHosted.ResolveConfig(HostedEnvironment);
+        OrchardHosted.CheckEnvironmentConflicts(HostedEnvironment);
+        if (_httpAuthenticate is not null)
+        {
+            throw OrchardHostedConfigurationException.Refuse(
+                "a custom authenticator is configured (Worker.HttpAuthenticate); hosted workers verify Passes only.");
+        }
+
+        if (_grantKeys is not null || _grantKeyArgs is { Count: > 0 })
+        {
+            throw OrchardHostedConfigurationException.Refuse(
+                $"sealed-grant keys (--grant-key / {GrantKeys.KeysEnvironmentVariable} / Worker.SealedGrants) are configured.");
+        }
+
+        if (_resolveToken is not null)
+        {
+            throw OrchardHostedConfigurationException.Refuse(
+                "the worker supplies a resolveToken hook (Worker.Identity: resolve_token); hosted workers accept Passes only.");
+        }
+
+        if (_mintGrant is not null)
+        {
+            throw OrchardHostedConfigurationException.Refuse(
+                "the worker supplies a mintGrant hook (Worker.Identity: mint_grant / issue_grant); hosted workers accept Passes only.");
+        }
+
+        if (irohBridge)
+        {
+            throw OrchardHostedConfigurationException.Refuse(
+                "peer identity (Iroh: --iroh-issuer) is configured; hosted workers accept Passes only.");
+        }
+
+        OrchardHosted.CheckSigningKey(ResolveSigningKey());
+        return config;
     }
 
     /// <summary>Host options for the HTTP worker: content root at the application's own

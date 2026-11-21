@@ -582,6 +582,64 @@ first 12 hex characters of `sha256(api_key)`. Over HTTP the worker accepts the t
 `vgi-test-alice` and `vgi-test-bob` as fresh logins, so a client can mint grants. It hosts tickets
 when `VGI_SIGNING_KEY` and `VGI_RPC_GRANT_KEYS` are both set.
 
+### Orchard hosted mode (`VGI_ORCHARD_HOSTED=1`)
+
+`VGI_ORCHARD_HOSTED=1` runs the worker as an Orchard *Field Worker*: the hosted base image sets
+it, so a worker's own published image serves on Orchard without code changes. Callers present a
+*Pass*, a short-lived [RFC 9068](https://www.rfc-editor.org/rfc/rfc9068) JWT access token issued
+by the Orchard Front Desk for one canonical Desk Address. The worker verifies every Pass locally
+and accepts no other credential. The design is in the extension repository's
+`docs/location-delegation.md`.
+
+```bash
+VGI_ORCHARD_HOSTED=1 \
+VGI_JWT_ISSUER=https://auth.queryfarm.cloud \
+VGI_JWT_AUDIENCE=https://desk.queryfarm.cloud/d/dep_123 \
+VGI_JWT_JWKS_URI=https://auth.queryfarm.cloud/.well-known/jwks.json \
+VGI_SIGNING_KEY=... \
+./my-worker --http --host 0.0.0.0 --port 8080
+```
+
+**Startup fails closed.** `RunFromArgsAsync` prints an error and exits with status 1 (the
+programmatic `Run*`/HTTP entry points throw `OrchardHostedConfigurationException`) unless all three
+of `VGI_JWT_ISSUER`, `VGI_JWT_AUDIENCE` and `VGI_JWT_JWKS_URI` are set. Unset and empty are both
+errors, and each takes exactly one value: a value containing a comma is refused.
+`VGI_SIGNING_KEY` (or `Worker.SigningKey`) must be configured and at least 32 bytes, because the
+deployment's machines restart and share sessions. It also refuses to start when any other way in
+is configured:
+
+- `VGI_BEARER_TOKENS`, `VGI_OAUTH_RESOURCE`, or a `VGI_PROXY_PROOF_MODE` other than `off`;
+- sealed-grant keys (`SealedGrants(...)`, `--grant-key` or `VGI_RPC_GRANT_KEYS`);
+- an `Identity(resolveToken: ...)` or `Identity(mintGrant: ...)` hook;
+- a custom `HttpAuthenticate(...)` delegate, or Iroh peer identity (`--iroh-issuer`);
+- any transport but `--http` (stdio, `--unix`, `--iroh-raw-upstream`);
+- a `VGI_ORCHARD_HOSTED` value other than `1`/`0`/`true`/`false`/`yes`/`no`/`on`/`off`.
+
+**Verification:** algorithm `ES256` only (`VGI_JWT_ALGORITHMS` overrides; `none` and `HS*` are
+always refused); JOSE header `typ` must be `at+jwt` (case-insensitive, `application/` prefix
+optional); `iss` and `aud` must match exactly, and `aud` must be one value; `exp` is required, and
+`exp`/`nbf` are checked with 60 s of clock skew. The JWKS is cached for at most 10 minutes, or less
+if its `Cache-Control: max-age` is shorter; when that time is up the keys are discarded, and if the
+re-fetch fails requests get a 503 with `Retry-After` until it succeeds. A Pass with an unknown
+`kid` triggers a re-fetch at most once every 60 seconds.
+
+**Every request needs a Pass**, except `HEAD /health` (the Front Desk's liveness probe) and CORS
+preflights. That includes `GET /health`, `OPTIONS /health`, the landing page and unknown paths. A
+request without a valid Pass gets `401` with `WWW-Authenticate: Bearer error="invalid_token"`,
+`VGI-Auth-Reason: missing_credential | invalid_credential | expired_credential` and the VGI
+capability headers, never `resource_metadata`. Authentication runs before the request body is
+read, size-checked or decompressed. CORS is open (`Access-Control-Allow-Origin: *`), and the
+`Authorization` header is never logged.
+
+**Function code sees the Pass** as the request's `AuthContext`: `ScalarProcessParams.Auth` in a
+scalar function, `TableInitParams.Ctx.Auth` in a table function. The principal is `sub`, the
+domain is `"orchard"`, and the claims (`sub`, `kind`, `email`, `email_verified`, `name`, `org_id`,
+`org_name`, `federated_iss`, `federated_sub`, `client_id`, `iat`, `nbf`, `exp`, `jti`) keep their
+JSON types: `email_verified` is a `bool`, `exp` a `long`. A valid Pass means "a member, or a
+Workload, of the workspace that owns this deployment"; anything finer is the worker's decision.
+Code that authorizes by `sub` or `name` must also check `kind`, because a Workload's id and name
+could look like a user's.
+
 ## Protocol overview
 
 VGI uses `vgi_rpc`, an Apache Arrow IPC-based RPC framework, for all client-worker communication —

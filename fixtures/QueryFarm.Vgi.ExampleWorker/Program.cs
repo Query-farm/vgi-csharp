@@ -789,7 +789,28 @@ CatalogContentsSetup.Register(worker);
 // hosted when VGI_SIGNING_KEY and VGI_RPC_GRANT_KEYS are both set, and the test bearers
 // (vgi-test-alice / vgi-test-bob, fresh logins) let a client mint grants.
 TicketProbeSetup.Register(worker);
-worker.HttpAuthenticate(TestBearers.Create(TestBearers.GrantsConfigured(args)));
+// Orchard hosted mode (VGI_ORCHARD_HOSTED=1): the Pass is the only credential, so the test
+// bearers and the identity fixture stay off (hosted mode refuses to start with them), and
+// pass_claims reports the caller's verified Pass. Off, nothing here changes.
+// An unrecognised VGI_ORCHARD_HOSTED value is reported (and refused) by RunFromArgsAsync.
+bool orchardHosted;
+try
+{
+    orchardHosted = OrchardHosted.IsEnabled();
+}
+catch (OrchardHostedConfigurationException)
+{
+    orchardHosted = false;
+}
+
+if (orchardHosted)
+{
+    worker.RegisterScalar(new QueryFarm.Vgi.ExampleWorker.Hosted.PassClaimsFunction());
+}
+else
+{
+    worker.HttpAuthenticate(TestBearers.Create(TestBearers.GrantsConfigured(args)));
+}
 
 // conformance.Secondary.v1 through the ordinary hosting hook -- hosted on every transport after
 // vgi.v3 -- so vgi-rpc's shared hosted-protocols group (`vgi-rpc-test-hosted --expect
@@ -798,7 +819,7 @@ worker.HostedProtocols(() => [new HostedProtocol(typeof(ISecondary), new Seconda
 
 // --identity (HTTP only): vgi_rpc.Identity.v2 with the IDENTITY_CONFORMANCE_FIXTURE.md policy and
 // its spoofable header authentication -- `vgi-rpc-test-hosted --url ... --identity`.
-if (IdentityFixture.Requested(args))
+if (!orchardHosted && IdentityFixture.Requested(args))
 {
     IdentityFixture.OptIn(worker);
 }

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Orchard hosted mode** (`VGI_ORCHARD_HOSTED=1`), the port of vgi-python's: the HTTP worker
+  accepts only Orchard Passes (RFC 9068 `at+jwt`, ES256, verified against `VGI_JWT_JWKS_URI` with a
+  JWKS cache that fails closed) on every request but `HEAD /health` and CORS preflights, and refuses
+  to start with any other credential, a non-HTTP transport, or a missing or short
+  `VGI_SIGNING_KEY`. See the README's "Orchard hosted mode". Scalar functions now see the caller's
+  `AuthContext` as `ScalarProcessParams.Auth`. The example worker serves `pass_claims(x)` in hosted
+  mode only.
 - **Protocol 3.4.0** (`Worker.DefaultProtocolVersion`). Requires the matching VGI DuckDB
   extension (wire 3.4.x); 3.3 clients and workers are incompatible. No vgi.v3 schema changes: 3.4
   moves client uploads to vgi-rpc's upload-URL protocol v2 (`VGI-Upload-URL-Support: 2`) and

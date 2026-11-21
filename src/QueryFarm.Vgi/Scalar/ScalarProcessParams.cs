@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using QueryFarm.VgiRpc.Server;
 
 namespace QueryFarm.Vgi.Scalar;
 
@@ -56,4 +57,11 @@ public sealed class ScalarProcessParams
     /// and read fields with <see cref="QueryFarm.Vgi.Arguments.Secret.GetString"/>.</summary>
     public QueryFarm.Vgi.Arguments.SecretValues SecretValues =>
         _secretValues ??= QueryFarm.Vgi.Arguments.SecretValues.FromResolved(Secrets);
+
+    /// <summary>Who is calling: the authentication of the request this batch arrived on --
+    /// <see cref="AuthContext.Anonymous"/> on stdio/unix and on an HTTP worker without an
+    /// authenticator. Under Orchard hosted mode (<see cref="OrchardHosted"/>) it is the caller's
+    /// Pass: domain <c>orchard</c>, principal <c>sub</c>, and the Pass's claims in their JSON
+    /// types (<c>email_verified</c> a <see cref="bool"/>, <c>exp</c> a <see cref="long"/>).</summary>
+    public AuthContext Auth { get; init; } = AuthContext.Anonymous;
 }

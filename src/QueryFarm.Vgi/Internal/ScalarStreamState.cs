@@ -41,6 +41,7 @@ public sealed class ScalarStreamState(
             Secrets = secrets,
             AttachOpaqueData = attachOpaqueData ?? [],
             DeclaredArgumentsSchema = function.ArgumentsSchema,
+            Auth = ctx?.Auth ?? AuthContext.Anonymous,
         });
         ContinuedOutput.RefuseOutsideExchange(function.Name, function.CacheControlMetadata);
         output.Emit(result, function.CacheControlMetadata);
