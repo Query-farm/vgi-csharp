@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **Protocol 3.4 large values** (vgi `docs/large-values-3.4.md`):
+  - Regenerated protocol types. The six requests that embed `bind_call` (init, cardinality,
+    statistics, dynamic-to-string, plan, projection) carry it as `Nested<BindRequest>`, which holds
+    the received bytes and re-encodes them verbatim; `BindRequest.Arguments` is nullable and
+    `BindRequest.ArgumentsLocation` is new (the last field). Code that built `BindCall =
+    EmbeddedIpc.Encode(bind)` now writes `Nested<BindRequest>.Of(bind)`.
+  - Argument references: a bind that does not set exactly one of `arguments` and
+    `arguments_location` is refused (`invalid_bind_request`); a location is resolved at the
+    turn's entry through vgi-rpc's object cache, so functions keep seeing their arguments. A gone
+    object fails with "this prepared statement's large argument has expired; prepare it again".
+    Split tokens fingerprint a location by its size and SHA-256.
+  - The HTTP worker reads the blob-vendor environment (`VGI_BLOB_VENDOR_URL`,
+    `VGI_BLOB_VENDOR_TOKEN`, `VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES`, `VGI_RPC_MAX_REQUEST_BYTES`,
+    `VGI_RPC_MAX_UPLOAD_BYTES`, `VGI_RPC_MAX_FETCH_BYTES`): large results are vendor pointers,
+    client uploads go through sized vendor grants, and `VGI-Arguments-Ref-Bytes` is advertised
+    (4 MiB, `VGI_ARGUMENTS_REF_BYTES`). Streams expire after 6 h (`token_ttl`). With
+    `VGI_STORAGE_EXTERNALIZE=1`, function-storage values of at least
+    `VGI_STORAGE_EXTERNALIZE_BYTES` live in the vendor (storage envelope v1).
+  - The sealing boundary no longer rewrites `bind_call`: the opened attach and transaction live
+    beside it, so the bytes re-encoded on the wire or into storage are the ones received.
+  - The table-buffering bind context persisted to worker storage is the received `bind_call`
+    (the reference form), sealed, instead of a re-encoded request with `secrets` in the clear.
+  - Streams stay in process memory (single-replica in 3.4): there is no stored `init` state.
+  - The example worker serves the `blob_test` catalog (vgi `docs/testing/blob-test-catalog.md`),
+    including `blob_param_echo`, `blob_param_batches`, `blob_param_streams`, `blob_param_scalar`
+    and the `blob_param_table` table.
 - **Orchard hosted mode** (`VGI_ORCHARD_HOSTED=1`), the port of vgi-python's: the HTTP worker
   accepts only Orchard Passes (RFC 9068 `at+jwt`, ES256, verified against `VGI_JWT_JWKS_URI` with a
   JWKS cache that fails closed) on every request but `HEAD /health` and CORS preflights, and refuses

@@ -17,10 +17,10 @@ env:
   # The suite and linked native runner must come from this same revision.
   # TODO(release-wave): vgi's protocol-3.4 branch (3.4 extension + upload-URL v2 suite); back to a
   # v2.0 commit and VGI_NATIVE_RUNNER_BRANCH v2.0 once the 3.4 extension is released.
-  VGI_REF: 5b8b7a2a7e4e587e15573ddd62cf1dbcdf6b357e
+  VGI_REF: e99683f2af215c5a166697945e796c91d0cc66fe  # BindRequest.arguments_location (the worker decodes it positionally)
   VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
   # TODO(release-wave): unreleased vgi-rpc-csharp (protocol-3.4 branch), built from source.
-  VGI_RPC_CSHARP_REF: 66e4a8d07f8de188d46e7c0a21f07ebd67584d30  # JwtAuth.Create(JwtAuthOptions) for hosted mode
+  VGI_RPC_CSHARP_REF: 884e5a45e5c4a0d1843cdb199b7baf390202993e  # protocol 3.4: StateRef, argument references, Nested<T> hook, blob-vendor client
   # vgi's SDK-neutral Orchard hosted-mode harness (test/hosted/), at or after fce5798.
   VGI_HOSTED_REF: fce57984a7e8ea35f9dcd4a034b5ed37c85ca5c5
   VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
@@ -196,3 +196,50 @@ jobs:
         env:
           VGI_SRC: ${{ github.workspace }}/vgi-upstream
           TRANSPORT: ${{ matrix.transport }}
+
+  # The extension's blob-vendor files (test/sql/external_storage/, the protocol 3.4
+  # argument-reference ones included) against the example worker over HTTP, with vgi-rpc's fake
+  # blob vendor (started by the suite's test/start_fake_blob_vendor.sh through uvx).
+  vendor-lane:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi-rpc-csharp
+          ref: ${{ env.VGI_RPC_CSHARP_REF }}
+          path: _deps/vgi-rpc-csharp
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props', 'global.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"  # scripts/run_tests.py needs 3.12+
+      - run: dotnet build -c Release
+      - name: Checkout pinned vgi test suite
+        uses: actions/checkout@v4
+        with:
+          repository: Query-farm/vgi
+          ref: ${{ env.VGI_REF }}
+          path: vgi-upstream
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fetch matching native integration runner
+        run: >-
+          python3 "$VGI_SRC/scripts/ci_fetch_native_runner.py"
+          --source "$VGI_SRC" --output "$RUNNER_TEMP/vgi-native"
+        env:
+          VGI_SRC: ${{ github.workspace }}/vgi-upstream
+          GH_TOKEN: ${{ github.token }}
+      - name: Run the vendor lane
+        run: ci/run-vendor-lane.sh
+        env:
+          VGI_SRC: ${{ github.workspace }}/vgi-upstream

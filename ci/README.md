@@ -60,6 +60,18 @@ port cannot authenticate an HTTP caller — so there is nowhere to wire that map
 is a product API change and belongs in its own commit; when it lands, set `VGI_HTTP_TRANSPORT=1`
 on the http lane and all five run.
 
+## The vendor lane
+
+`ci/run-vendor-lane.sh` (the `vendor-lane` job) runs the extension's `test/sql/external_storage/`
+files against the example worker over HTTP with vgi-rpc's fake blob vendor, which the suite's
+`test/start_fake_blob_vendor.sh` starts through `uvx`. It drives `scripts/run_tests.py` from the
+pinned vgi checkout with `--server-per-test`, so each file's `# server-env:` switches reach its own
+worker, and runs the files one at a time because they compare the vendor's counters. It covers the
+`blob_test` catalog and the protocol 3.4 argument-reference files. The one expected skip is
+`arguments_ref_state_ref.test` (`require-env VGI_WORKER_INIT_STATE_REF`): C# keeps HTTP streams in
+process memory in 3.4, so there is no stored `init` StateRef. The `fetch_*.test` files test the
+extension's own download client against vgi-python's probe worker and are left out.
+
 ## Guards against a lane that is green without running
 
 A failed `require`/`require-env` is a *skip*, not a failure, so "all tests passed" alone is not
