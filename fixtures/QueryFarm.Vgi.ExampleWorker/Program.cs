@@ -824,6 +824,10 @@ if (!orchardHosted && IdentityFixture.Requested(args))
     IdentityFixture.OptIn(worker);
 }
 
+// The blob_test catalog (vgi docs/testing/blob-test-catalog.md): the blob-vendor lane's fixtures,
+// including the protocol 3.4 argument-reference ones (blob_param_*).
+QueryFarm.Vgi.ExampleWorker.BlobTest.BlobCatalog.Register(worker);
+
 await worker.RunFromArgsAsync(args);
 
 // Static (n, label) data for the "global_table" global-function probe — n: 0,1,2; label tags each
