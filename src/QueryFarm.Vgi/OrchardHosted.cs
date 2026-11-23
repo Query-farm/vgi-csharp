@@ -266,7 +266,8 @@ public static class OrchardHosted
     /// <c>GET /health</c>, the landing page, unknown paths -- not only the mapped VGI routes, and
     /// runs before any endpoint reads, size-checks or decompresses the body.
     /// </summary>
-    internal static void UseGate(IApplicationBuilder app, string prefix, RpcHttpEndpoints.AuthenticateDelegate verify)
+    internal static void UseGate(
+        IApplicationBuilder app, string prefix, RpcHttpEndpoints.AuthenticateDelegate verify, bool externalizationEnabled = false)
     {
         var healthPath = prefix.TrimEnd('/') + "/health";
         app.Use(async (HttpContext context, RequestDelegate next) =>
@@ -275,7 +276,7 @@ public static class OrchardHosted
             var response = context.Response;
             response.OnStarting(() =>
             {
-                StampHeaders(response);
+                StampHeaders(response, externalizationEnabled);
                 return Task.CompletedTask;
             });
 
@@ -334,14 +335,14 @@ public static class OrchardHosted
 
     /// <summary>Open CORS and the VGI capability headers on every response, 401s and 404s
     /// included, so a client holding any answer can read it and tell what the worker supports.</summary>
-    private static void StampHeaders(HttpResponse response)
+    private static void StampHeaders(HttpResponse response, bool externalizationEnabled)
     {
         var headers = response.Headers;
         headers["Access-Control-Allow-Origin"] = "*";
         headers["Access-Control-Expose-Headers"] = s_exposedHeaders;
         AddIfAbsent(headers, "VGI-Supported-Encodings", "zstd, gzip");
         AddIfAbsent(headers, RpcHttpEndpoints.AcceptMaxResponseBytesSupportHeader, "true");
-        AddIfAbsent(headers, "VGI-Externalization-Enabled", "false");
+        AddIfAbsent(headers, "VGI-Externalization-Enabled", externalizationEnabled ? "true" : "false");
     }
 
     private static void AddIfAbsent(IHeaderDictionary headers, string name, string value)

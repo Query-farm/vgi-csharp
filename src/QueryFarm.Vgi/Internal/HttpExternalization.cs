@@ -26,6 +26,10 @@ internal static class HttpExternalization
     /// <summary>The default advertised value: 4 MiB.</summary>
     public const long DefaultArgumentsRefBytes = 4L * 1024 * 1024;
 
+    /// <summary>The hosted-mode request cap when <c>VGI_RPC_MAX_REQUEST_BYTES</c> is unset: 32 MiB
+    /// (vgi-python <c>HOSTED_DEFAULT_MAX_REQUEST_BYTES</c>).</summary>
+    public const long HostedDefaultMaxRequestBytes = 32L * 1024 * 1024;
+
     /// <summary>Maximum stream duration (the 3.4 <c>token_ttl</c>, 6 h), passed explicitly.</summary>
     public static readonly TimeSpan TokenTtl = TimeSpan.FromSeconds(21600);
 
@@ -36,9 +40,17 @@ internal static class HttpExternalization
     /// otherwise.
     /// </summary>
     /// <exception cref="ArgumentException">A malformed or contradictory value: the worker refuses to start.</exception>
-    public static ExternalizationOptions? FromEnvironment(Func<string, string?>? environment = null)
+    /// <param name="environment">Variable lookup; defaults to the process environment.</param>
+    /// <param name="hosted">Orchard hosted mode: <c>VGI_RPC_MAX_REQUEST_BYTES</c> defaults to
+    /// <see cref="HostedDefaultMaxRequestBytes"/>, as vgi-python's hosted mode does.</param>
+    public static ExternalizationOptions? FromEnvironment(Func<string, string?>? environment = null, bool hosted = false)
     {
-        var env = environment ?? Environment.GetEnvironmentVariable;
+        var read = environment ?? Environment.GetEnvironmentVariable;
+        Func<string, string?> env = hosted
+            ? name => name == QueryFarm.VgiRpc.External.BlobVendorEnvironment.MaxRequestBytes && string.IsNullOrWhiteSpace(read(name))
+                ? HostedDefaultMaxRequestBytes.ToString(CultureInfo.InvariantCulture)
+                : read(name)
+            : read;
         var options = ExternalizationOptions.FromEnvironment(env);
         if (options?.UploadUrlProvider is null || options.EffectiveObjectStore is null
             || (env(DisableArgumentsRefVariable)?.Trim().ToLowerInvariant() is "1" or "true" or "yes"))

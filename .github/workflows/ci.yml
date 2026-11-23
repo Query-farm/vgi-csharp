@@ -243,3 +243,12 @@ jobs:
         run: ci/run-vendor-lane.sh
         env:
           VGI_SRC: ${{ github.workspace }}/vgi-upstream
+      # Orchard hosted mode with the vendor (OrchardHostedVendorTests): grants bound to the Pass
+      # principal, results externalized. It skips without the fake vendor, so give it one.
+      - name: Hosted mode against the fake vendor
+        run: |
+          uv venv -q "$RUNNER_TEMP/fake-vendor"
+          uv pip install -q -p "$RUNNER_TEMP/fake-vendor" \
+            "vgi-rpc[http,external] @ git+https://github.com/Query-farm/vgi-rpc-python@6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852"
+          VGI_RPC_FAKE_VENDOR_BIN="$RUNNER_TEMP/fake-vendor/bin/vgi-rpc-fake-vendor" \
+            dotnet test test/QueryFarm.Vgi.Tests -c Release --no-build --filter "FullyQualifiedName~OrchardHostedVendorTests"

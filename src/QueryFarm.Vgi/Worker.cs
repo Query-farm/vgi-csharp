@@ -1180,8 +1180,16 @@ public sealed class Worker
         {
             // Orchard hosted mode: the Pass gate is the only authenticator, in front of every
             // path; the VGI endpoints just insist that it ran.
-            OrchardHosted.UseGate(app, prefix, OrchardHosted.CreateAuthenticate(hostedConfig, HostedJwksHttpHandler));
-            app.MapVgiRpc(rpc, prefix: prefix, authenticate: OrchardHosted.RequireVerified, tokenTtl: Internal.HttpExternalization.TokenTtl);
+            // Blob-vendor externalization and argument references as on any HTTP worker. Every
+            // request carries a verified Pass, so a grant's ref is sealed for, and only opens for,
+            // that Pass's principal (domain orchard, principal sub).
+            var hostedExternalization = Internal.HttpExternalization.FromEnvironment(HostedEnvironment, hosted: true);
+            OrchardHosted.UseGate(
+                app, prefix, OrchardHosted.CreateAuthenticate(hostedConfig, HostedJwksHttpHandler),
+                externalizationEnabled: hostedExternalization?.External?.Storage is not null);
+            app.MapVgiRpc(
+                rpc, prefix: prefix, authenticate: OrchardHosted.RequireVerified,
+                externalization: hostedExternalization, tokenTtl: Internal.HttpExternalization.TokenTtl);
             app.MapVgiLandingPage(_catalog.CatalogName, serverId, prefix, authenticate: OrchardHosted.RequireVerified);
             return rpc;
         }

@@ -17,7 +17,9 @@
     `VGI_BLOB_VENDOR_TOKEN`, `VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES`, `VGI_RPC_MAX_REQUEST_BYTES`,
     `VGI_RPC_MAX_UPLOAD_BYTES`, `VGI_RPC_MAX_FETCH_BYTES`): large results are vendor pointers,
     client uploads go through sized vendor grants, and `VGI-Arguments-Ref-Bytes` is advertised
-    (4 MiB, `VGI_ARGUMENTS_REF_BYTES`). Streams expire after 6 h (`token_ttl`). With
+    (4 MiB, `VGI_ARGUMENTS_REF_BYTES`), in Orchard hosted mode too, where grants and argument
+    references bind to the Pass's principal and `VGI_RPC_MAX_REQUEST_BYTES` defaults to 32 MiB
+    (as in vgi-python). Streams expire after 6 h (`token_ttl`). With
     `VGI_STORAGE_EXTERNALIZE=1`, function-storage values of at least
     `VGI_STORAGE_EXTERNALIZE_BYTES` live in the vendor (storage envelope v1).
   - The sealing boundary no longer rewrites `bind_call`: the opened attach and transaction live
