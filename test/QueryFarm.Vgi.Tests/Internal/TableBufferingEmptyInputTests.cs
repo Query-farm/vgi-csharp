@@ -53,9 +53,9 @@ public class TableBufferingEmptyInputTests
 
         // What init(phase=TABLE_BUFFERING) persists -- the extension now runs that init itself on
         // empty input, since no Sink thread ever did.
-        new FunctionStorage(executionId).WriteSingle(
-            "__system__", "bind_context",
-            EmbeddedIpc.Encode(new BindRequest { FunctionName = function.Name, FunctionType = FunctionType.TableBuffering }));
+        service.WriteBindContext(
+            executionId,
+            EmbeddedIpc.Encode(new BindRequest { Arguments = [], FunctionName = function.Name, FunctionType = FunctionType.TableBuffering }));
 
         var result = await service.TableBufferingCombineAsync(new TableBufferingCombineRequest
         {

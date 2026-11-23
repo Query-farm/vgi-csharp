@@ -15,8 +15,9 @@ public class ProjectionExpressionsTests
         new("wide", Int64Type.Default, true, new Dictionary<string, string> { ["requested"] = "retained" });
     private static TableFunctionProjectionRequest Proposal(List<string> owner) => new()
     {
-        BindCall = EmbeddedIpc.Encode(new BindRequest
+        BindCall = Nested<BindRequest>.Of(new BindRequest
         {
+            Arguments = [],
             FunctionName = "projection_sequence",
             FunctionType = FunctionType.Table,
             SchemaPath = owner
@@ -192,6 +193,7 @@ public class ProjectionExpressionsTests
         var service = new VgiServiceImpl(catalog);
         var request = new BindRequest
         {
+            Arguments = [],
             FunctionName = "per_bind_promise",
             FunctionType = FunctionType.Table,
             SchemaPath = ["main"]

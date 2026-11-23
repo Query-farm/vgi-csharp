@@ -103,7 +103,7 @@ public sealed class ContinuedOutputTransportTests
         };
         var init = new InitRequest
         {
-            BindCall = EmbeddedIpc.Encode(bind),
+            BindCall = Nested<BindRequest>.Of(bind),
             Phase = VgiInitPhase.Input,
             ExecutionId = Guid.NewGuid().ToByteArray(),
         };

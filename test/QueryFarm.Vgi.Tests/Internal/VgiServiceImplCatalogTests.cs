@@ -191,6 +191,7 @@ public class VgiServiceImplCatalogTests
         var service = new VgiServiceImpl(registry);
         var bind = new BindRequest
         {
+            Arguments = [],
             FunctionName = "distributed",
             FunctionType = FunctionType.Table,
             SchemaPath = ["main"],
@@ -198,7 +199,7 @@ public class VgiServiceImplCatalogTests
 
         var response = await service.TableFunctionPlanAsync(new TableFunctionPlanRequest
         {
-            BindCall = EmbeddedIpc.Encode(bind),
+            BindCall = Nested<BindRequest>.Of(bind),
         });
 
         Assert.Equal(["worker-a", "worker-b"], response.Locations);
@@ -357,7 +358,7 @@ public class TableBufferingFinalizeInitSchemaTests
 
         var initRequest = new InitRequest
         {
-            BindCall = EmbeddedIpc.Encode(bindRequest),
+            BindCall = Nested<BindRequest>.Of(bindRequest),
             Phase = VgiInitPhase.TableBufferingFinalize,
             ProjectionIds = [0],
             ExecutionId = Guid.NewGuid().ToByteArray(),
@@ -398,7 +399,7 @@ public class TableBufferingFinalizeInitSchemaTests
 
         var initRequest = new InitRequest
         {
-            BindCall = EmbeddedIpc.Encode(bindRequest),
+            BindCall = Nested<BindRequest>.Of(bindRequest),
             Phase = VgiInitPhase.TableBufferingFinalize,
             ProjectionIds = null,
             ExecutionId = Guid.NewGuid().ToByteArray(),

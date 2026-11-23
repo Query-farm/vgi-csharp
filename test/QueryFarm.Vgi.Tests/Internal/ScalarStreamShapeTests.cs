@@ -66,7 +66,7 @@ public class ScalarStreamShapeTests
             AttachOpaqueData = attach,
         };
 
-        var stream = await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(bindRequest) });
+        var stream = await service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.Of(bindRequest) });
 
         Assert.NotNull(stream.InputSchema);
         Assert.Equal(["value"], stream.InputSchema!.FieldsList.Select(f => f.Name));
@@ -90,7 +90,7 @@ public class ScalarStreamShapeTests
             AttachOpaqueData = attach,
         };
 
-        var stream = await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(bindRequest) });
+        var stream = await service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.Of(bindRequest) });
 
         var readsAsProducer = stream.InputSchema is not { FieldsList.Count: > 0 };
         Assert.False(readsAsProducer);

@@ -107,7 +107,7 @@ public sealed class AttachSecretOptionsTests : IDisposable
         var bind = new BindRequest { FunctionName = function.Name, FunctionType = FunctionType.Table, Arguments = [], AttachOpaqueData = attach };
 
         await service.BindAsync(bind);
-        await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(bind) });
+        await service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.Of(bind) });
 
         Assert.Equal((Token, Token), (function.BindToken, function.InitToken));
     }
@@ -124,7 +124,7 @@ public sealed class AttachSecretOptionsTests : IDisposable
         var sealedAttach = (await service.CatalogAttachAsync(new CatalogAttachRequest { Name = "c", Options = Options(Token) })).AttachOpaqueData;
         Assert.False(Contains(sealedAttach, Token));
         var bind = new BindRequest { FunctionName = function.Name, FunctionType = FunctionType.Table, Arguments = [], AttachOpaqueData = sealedAttach };
-        await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(bind) });
+        await service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.Of(bind) });
 
         Assert.Equal(Token, function.InitToken);
         Assert.False(Contains(function.InitAttach!, Token));

@@ -67,7 +67,7 @@ public class TableInOutProcessorCleanupTests
     }
 
     private static Task<RpcStream<StreamState>> InitAsync(VgiServiceImpl service, byte[] bindCall, byte[] executionId, VgiInitPhase phase) =>
-        service.InitAsync(new InitRequest { BindCall = bindCall, Phase = phase, ExecutionId = executionId });
+        service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.FromBytes(bindCall), Phase = phase, ExecutionId = executionId });
 
     private static Task TurnAsync(RpcStream<StreamState> stream, long x)
     {

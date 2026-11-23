@@ -31,7 +31,7 @@ public sealed class CacheIdentityFixtureTests
             AttachOpaqueData = attach.AttachOpaqueData,
         };
         ICallContext? context = principal is null ? null : new Context(new AuthContext("bearer", authenticated, principal));
-        var stream = await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(bind) }, context);
+        var stream = await service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.Of(bind) }, context);
 
         using var output = new OutputCollector(stream.OutputSchema);
         await Assert.IsAssignableFrom<ProducerState>(stream.State).ProduceAsync(output, null, TestContext.Current.CancellationToken);

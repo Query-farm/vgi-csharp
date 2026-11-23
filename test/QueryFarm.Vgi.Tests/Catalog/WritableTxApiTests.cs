@@ -147,7 +147,7 @@ public sealed class WritableTxApiTests
 
         // The proxy opens a request in place, so each call gets its own (sealed) request.
         await service.BindAsync(BindFor(inOut.Name, attached.AttachOpaqueData, sealedTx));
-        await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(BindFor(inOut.Name, attached.AttachOpaqueData, sealedTx)), Phase = VgiInitPhase.Input, ExecutionId = Guid.NewGuid().ToByteArray() });
+        await service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.Of(BindFor(inOut.Name, attached.AttachOpaqueData, sealedTx)), Phase = VgiInitPhase.Input, ExecutionId = Guid.NewGuid().ToByteArray() });
         await service.CatalogTransactionCommitAsync(attached.AttachOpaqueData, sealedTx);
 
         Assert.Equal(minted, inOut.BindTx);
@@ -174,7 +174,7 @@ public sealed class WritableTxApiTests
 
         await service.InitAsync(new InitRequest
         {
-            BindCall = EmbeddedIpc.Encode(BindFor(inOut.Name, sealedAttach, [])),
+            BindCall = Nested<BindRequest>.Of(BindFor(inOut.Name, sealedAttach, [])),
             Phase = VgiInitPhase.Input,
             ExecutionId = Guid.NewGuid().ToByteArray(),
         });
@@ -197,7 +197,7 @@ public sealed class WritableTxApiTests
         var bound = await service.BindAsync(bind);
         await service.InitAsync(new InitRequest
         {
-            BindCall = EmbeddedIpc.Encode(bind),
+            BindCall = Nested<BindRequest>.Of(bind),
             Phase = VgiInitPhase.Input,
             ExecutionId = Guid.NewGuid().ToByteArray(),
             OutputSchema = bound.OutputSchema,

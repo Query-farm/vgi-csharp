@@ -63,8 +63,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     /// instead.</summary>
     private const long CatalogVersion = 1;
 
-    public Task<BindResponse> BindAsync(BindRequest request, ICallContext? ctx = null)
+    public async Task<BindResponse> BindAsync(BindRequest request, ICallContext? ctx = null)
     {
+        // Protocol 3.4: exactly one of arguments / arguments_location, resolved here at the turn's
+        // entry so every reader below sees the arguments themselves.
+        await BindArguments.ResolveAsync(request, ctx).ConfigureAwait(false);
         var identity = DecodeIdentity(request.AttachOpaqueData);
         var schemaPath = EffectiveSchemaPath(request.SchemaPath);
 
@@ -82,9 +85,9 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 : BindScalar(identity, schemaPath, request);
 
             var profiles = request.FunctionType == FunctionType.Table
-                ? catalog.FindTable(identity, schemaPath, request.FunctionName, TableArgCodec.Decode(request.Arguments))?.ProjectionExpressionProfiles.ToList() ?? [] : [];
+                ? catalog.FindTable(identity, schemaPath, request.FunctionName, TableArgCodec.Decode(request.ResolvedArguments))?.ProjectionExpressionProfiles.ToList() ?? [] : [];
             ProjectionExpressions.ValidateOffer(profiles);
-            return Task.FromResult(new BindResponse
+            return new BindResponse
             {
                 ProjectionExpressionProfiles = profiles,
                 Repeatability = repeatability,
@@ -93,89 +96,89 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
                 LookupSecretTypes = [],
                 LookupScopes = [],
                 LookupNames = [],
-            });
+            };
         }
         catch (SecretScopeRequestException ex)
         {
-            return Task.FromResult(new BindResponse
+            return new BindResponse
             {
                 OutputSchema = SchemaIpc.WriteSchemaOnly(new Apache.Arrow.Schema([], null)),
                 OpaqueData = null,
                 LookupSecretTypes = ex.Lookups.Select(l => l.SecretType).ToList(),
                 LookupScopes = ex.Lookups.Select(l => l.Scope ?? "").ToList(),
                 LookupNames = ex.Lookups.Select(l => l.SecretName ?? "").ToList(),
-            });
+            };
         }
     }
 
-    public Task<RpcStream<StreamState>> InitAsync(InitRequest request, ICallContext? ctx = null)
+    public async Task<RpcStream<StreamState>> InitAsync(InitRequest request, ICallContext? ctx = null)
     {
-        var bindRequest = EmbeddedIpc.Decode<BindRequest>(request.BindCall);
+        var bindRequest = await BindCalls.OpenAsync(request, request.BindCall, ctx).ConfigureAwait(false);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
         var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
         var name = bindRequest.FunctionName;
 
         if (bindRequest.FunctionType != FunctionType.Table)
         {
-            return Task.FromResult(InitScalar(identity, schemaPath, bindRequest));
+            return InitScalar(identity, schemaPath, bindRequest);
         }
 
-        if (catalog.FindTable(identity, schemaPath, name, TableArgCodec.Decode(bindRequest.Arguments)) is { } table)
+        if (catalog.FindTable(identity, schemaPath, name, TableArgCodec.Decode(bindRequest.ResolvedArguments)) is { } table)
         {
-            return Task.FromResult(InitTable(table, bindRequest, request, ctx));
+            return InitTable(table, bindRequest, request, ctx);
         }
 
         if (catalog.FindTableInOut(identity, schemaPath, name, DecodeInputSchema(bindRequest.InputSchema)) is { } tableInOut)
         {
-            return Task.FromResult(InitTableInOut(tableInOut, bindRequest, request));
+            return InitTableInOut(tableInOut, bindRequest, request);
         }
 
         if (catalog.FindTableBuffering(identity, schemaPath, name) is { } buffering)
         {
-            return Task.FromResult(InitTableBuffering(buffering, bindRequest, request));
+            return InitTableBuffering(buffering, bindRequest, request);
         }
 
         throw new VgiNotFoundException($"Unknown table function '{string.Join('.', schemaPath)}.{name}' (identity '{identity}').");
     }
 
     /// <summary>Validate a pure optional proposal before publishing replacement bind state.</summary>
-    public Task<TableFunctionProjectionResponse> TableFunctionProjectionAsync(byte[] request, ICallContext? ctx = null)
+    public async Task<TableFunctionProjectionResponse> TableFunctionProjectionAsync(byte[] request, ICallContext? ctx = null)
     {
         var proposal = ProjectionExpressions.DecodeRequest(request);
-        var bind = ProjectionExpressions.ValidateRequest(proposal);
+        var bind = await BindArguments.ResolveAsync(ProjectionExpressions.ValidateRequest(proposal), ctx).ConfigureAwait(false);
         var identity = DecodeIdentity(bind.AttachOpaqueData);
-        var function = catalog.FindTable(identity, EffectiveSchemaPath(bind.SchemaPath), bind.FunctionName, TableArgCodec.Decode(bind.Arguments))
+        var function = catalog.FindTable(identity, EffectiveSchemaPath(bind.SchemaPath), bind.FunctionName, TableArgCodec.Decode(bind.ResolvedArguments))
             ?? throw new ArgumentException("Projection requires an ordinary table function.");
         var result = function.Projection(proposal);
         ProjectionExpressions.ValidateResponse(proposal, result);
-        return Task.FromResult(result);
+        return result;
     }
 
     /// <summary>Scan planning (splits). Only ever called by the C++ client when the target table
     /// function's catalog metadata advertises <c>supports_splits=true</c> — see
     /// <see cref="ITableFunction.Plan"/>'s doc comment for the gate this relies on.</summary>
-    public Task<TableFunctionPlanResult> TableFunctionPlanAsync(TableFunctionPlanRequest request, ICallContext? ctx = null)
+    public async Task<TableFunctionPlanResult> TableFunctionPlanAsync(TableFunctionPlanRequest request, ICallContext? ctx = null)
     {
-        if (request.BindCall is not { Length: > 0 } bindCallBytes)
+        if (request.BindCall.Length == 0)
         {
-            return Task.FromResult(DefaultSingleSplitPlan());
+            return DefaultSingleSplitPlan();
         }
 
-        var bindRequest = EmbeddedIpc.Decode<BindRequest>(bindCallBytes);
+        var bindRequest = await BindCalls.OpenAsync(request, request.BindCall, ctx).ConfigureAwait(false);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
         var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
 
-        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function || !function.SupportsSplits)
+        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.ResolvedArguments)) is not { } function || !function.SupportsSplits)
         {
-            return Task.FromResult(DefaultSingleSplitPlan());
+            return DefaultSingleSplitPlan();
         }
 
-        var arguments = TableArgCodec.Decode(bindRequest.Arguments);
+        var arguments = TableArgCodec.Decode(bindRequest.ResolvedArguments);
         var inputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes ? SchemaIpc.ReadSchemaOnly(schemaBytes) : null;
         var bindParams = new TableBindParams
         {
             FunctionName = bindRequest.FunctionName,
-            ArgumentsBytes = bindRequest.Arguments,
+            ArgumentsBytes = bindRequest.ResolvedArguments,
             Arguments = arguments,
             ArgumentNames = bindRequest.ArgumentNames,
             Settings = bindRequest.Settings,
@@ -219,11 +222,11 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         if (planResult.Splits.Count == 0)
         {
-            return Task.FromResult(response);
+            return response;
         }
 
         var fingerprint = SplitToken.BindFingerprint(
-            EffectiveSchemaPath(bindRequest.SchemaPath), bindRequest.FunctionName, bindRequest.Arguments, bindRequest.Settings);
+            EffectiveSchemaPath(bindRequest.SchemaPath), bindRequest.FunctionName, bindRequest.ResolvedArguments, bindRequest.Settings);
         var anchor = SplitToken.Anchor(catalogVersion);
 
         var blobs = new List<byte[]>(planResult.Splits.Count);
@@ -251,7 +254,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         response.Splits = blobs;
-        return Task.FromResult(response);
+        return response;
     }
 
     /// <summary>The not-split-capable answer: a single split standing for the whole scan, its
@@ -270,27 +273,27 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     }
 
     /// <summary>Best-effort cardinality estimate — see <see cref="ITableFunction.Cardinality"/>.</summary>
-    public Task<TableFunctionCardinalityResult> TableFunctionCardinalityAsync(TableFunctionCardinalityRequest request, ICallContext? ctx = null)
+    public async Task<TableFunctionCardinalityResult> TableFunctionCardinalityAsync(TableFunctionCardinalityRequest request, ICallContext? ctx = null)
     {
-        if (request.BindCall is not { Length: > 0 } bindCallBytes)
+        if (request.BindCall.Length == 0)
         {
-            return Task.FromResult(new TableFunctionCardinalityResult());
+            return new TableFunctionCardinalityResult();
         }
 
-        var bindRequest = EmbeddedIpc.Decode<BindRequest>(bindCallBytes);
+        var bindRequest = await BindCalls.OpenAsync(request, request.BindCall, ctx).ConfigureAwait(false);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
         var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
 
-        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
+        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.ResolvedArguments)) is not { } function)
         {
-            return Task.FromResult(new TableFunctionCardinalityResult());
+            return new TableFunctionCardinalityResult();
         }
 
         var bindParams = new TableBindParams
         {
             FunctionName = bindRequest.FunctionName,
-            ArgumentsBytes = bindRequest.Arguments,
-            Arguments = TableArgCodec.Decode(bindRequest.Arguments),
+            ArgumentsBytes = bindRequest.ResolvedArguments,
+            Arguments = TableArgCodec.Decode(bindRequest.ResolvedArguments),
             ArgumentNames = bindRequest.ArgumentNames,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
@@ -302,31 +305,31 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         };
 
         var estimate = function.Cardinality(bindParams);
-        return Task.FromResult(new TableFunctionCardinalityResult { Estimate = estimate, Max = estimate });
+        return new TableFunctionCardinalityResult { Estimate = estimate, Max = estimate };
     }
 
     /// <summary>Per-output-column statistics — see <see cref="ITableFunction.Statistics"/>.</summary>
-    public Task<byte[]?> TableFunctionStatisticsAsync(TableFunctionStatisticsRequest request, ICallContext? ctx = null)
+    public async Task<byte[]?> TableFunctionStatisticsAsync(TableFunctionStatisticsRequest request, ICallContext? ctx = null)
     {
-        if (request.BindCall is not { Length: > 0 } bindCallBytes)
+        if (request.BindCall.Length == 0)
         {
-            return Task.FromResult<byte[]?>(null);
+            return null;
         }
 
-        var bindRequest = EmbeddedIpc.Decode<BindRequest>(bindCallBytes);
+        var bindRequest = await BindCalls.OpenAsync(request, request.BindCall, ctx).ConfigureAwait(false);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
         var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
 
-        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
+        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.ResolvedArguments)) is not { } function)
         {
-            return Task.FromResult<byte[]?>(null);
+            return null;
         }
 
         var bindParams = new TableBindParams
         {
             FunctionName = bindRequest.FunctionName,
-            ArgumentsBytes = bindRequest.Arguments,
-            Arguments = TableArgCodec.Decode(bindRequest.Arguments),
+            ArgumentsBytes = bindRequest.ResolvedArguments,
+            Arguments = TableArgCodec.Decode(bindRequest.ResolvedArguments),
             ArgumentNames = bindRequest.ArgumentNames,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
@@ -340,7 +343,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         var stats = function.Statistics(bindParams);
         if (stats is null || stats.Count == 0)
         {
-            return Task.FromResult<byte[]?>(null);
+            return null;
         }
 
         var outputSchema = function.ResolveOutputSchema(bindParams);
@@ -353,33 +356,33 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             }
         }
 
-        return Task.FromResult<byte[]?>(rows.Count == 0 ? null : ColumnStatisticsCodec.Encode(rows));
+        return rows.Count == 0 ? null : ColumnStatisticsCodec.Encode(rows);
     }
 
     /// <summary>Per-parallel-scan-thread EXPLAIN ANALYZE diagnostics — see
     /// <see cref="ITableFunction.DynamicToString"/>.</summary>
-    public Task<TableFunctionDynamicToStringResult> TableFunctionDynamicToStringAsync(
+    public async Task<TableFunctionDynamicToStringResult> TableFunctionDynamicToStringAsync(
         TableFunctionDynamicToStringRequest request, ICallContext? ctx = null)
     {
-        if (request.BindCall is not { Length: > 0 } bindCallBytes)
+        if (request.BindCall.Length == 0)
         {
-            return Task.FromResult(new TableFunctionDynamicToStringResult());
+            return new TableFunctionDynamicToStringResult();
         }
 
-        var bindRequest = EmbeddedIpc.Decode<BindRequest>(bindCallBytes);
+        var bindRequest = await BindCalls.OpenAsync(request, request.BindCall, ctx).ConfigureAwait(false);
         var identity = DecodeIdentity(bindRequest.AttachOpaqueData);
         var schemaPath = EffectiveSchemaPath(bindRequest.SchemaPath);
 
-        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.Arguments)) is not { } function)
+        if (catalog.FindTable(identity, schemaPath, bindRequest.FunctionName, TableArgCodec.Decode(bindRequest.ResolvedArguments)) is not { } function)
         {
-            return Task.FromResult(new TableFunctionDynamicToStringResult());
+            return new TableFunctionDynamicToStringResult();
         }
 
         var bindParams = new TableBindParams
         {
             FunctionName = bindRequest.FunctionName,
-            ArgumentsBytes = bindRequest.Arguments,
-            Arguments = TableArgCodec.Decode(bindRequest.Arguments),
+            ArgumentsBytes = bindRequest.ResolvedArguments,
+            Arguments = TableArgCodec.Decode(bindRequest.ResolvedArguments),
             ArgumentNames = bindRequest.ArgumentNames,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
@@ -398,7 +401,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             result.Values.Add(value);
         }
 
-        return Task.FromResult(result);
+        return result;
     }
 
     /// <summary>Per-column statistics for a real catalog table — see
@@ -440,7 +443,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         }
 
         var fingerprint = SplitToken.BindFingerprint(
-            EffectiveSchemaPath(bindRequest.SchemaPath), bindRequest.FunctionName, bindRequest.Arguments, bindRequest.Settings);
+            EffectiveSchemaPath(bindRequest.SchemaPath), bindRequest.FunctionName, bindRequest.ResolvedArguments, bindRequest.Settings);
         var anchor = SplitToken.Anchor(CatalogVersion);
 
         var payloads = new List<byte[]>(tokens.Count);
@@ -452,14 +455,14 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return payloads;
     }
 
-    public Task<TableBufferingProcessResult> TableBufferingProcessAsync(TableBufferingProcessRequest request, ICallContext? ctx = null)
+    public async Task<TableBufferingProcessResult> TableBufferingProcessAsync(TableBufferingProcessRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
         var schemaPath = EffectiveSchemaPath(request.SchemaPath);
         var function = ResolveTableBuffering(identity, schemaPath, request.FunctionName);
 
         var storage = new FunctionStorage(request.ExecutionId);
-        var bindContext = ReadBindContext(storage);
+        var bindContext = await ReadBindContextAsync(storage, request.ExecutionId, ctx).ConfigureAwait(false);
 
         var stateId = function.Process(RecordBatchIpc.Read(request.InputBatch), new TableBufferingProcessParams
         {
@@ -476,17 +479,17 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Ctx = ctx,
         });
 
-        return Task.FromResult(new TableBufferingProcessResult { StateId = stateId });
+        return new TableBufferingProcessResult { StateId = stateId };
     }
 
-    public Task<TableBufferingCombineResult> TableBufferingCombineAsync(TableBufferingCombineRequest request, ICallContext? ctx = null)
+    public async Task<TableBufferingCombineResult> TableBufferingCombineAsync(TableBufferingCombineRequest request, ICallContext? ctx = null)
     {
         var identity = DecodeIdentity(request.AttachOpaqueData);
         var schemaPath = EffectiveSchemaPath(request.SchemaPath);
         var function = ResolveTableBuffering(identity, schemaPath, request.FunctionName);
 
         var storage = new FunctionStorage(request.ExecutionId);
-        var bindContext = ReadBindContext(storage);
+        var bindContext = await ReadBindContextAsync(storage, request.ExecutionId, ctx).ConfigureAwait(false);
 
         var finalizeStateIds = function.Combine(request.StateIds, new TableBufferingCombineParams
         {
@@ -503,7 +506,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             Ctx = ctx,
         });
 
-        return Task.FromResult(new TableBufferingCombineResult { FinalizeStateIds = finalizeStateIds.ToList() });
+        return new TableBufferingCombineResult { FinalizeStateIds = finalizeStateIds.ToList() };
     }
 
     public Task<TableBufferingDestructorResult> TableBufferingDestructorAsync(TableBufferingDestructorRequest request, ICallContext? ctx = null)
@@ -694,13 +697,13 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private Apache.Arrow.Schema BindScalar(string identity, IReadOnlyList<string> schemaPath, BindRequest request)
     {
         var inputSchema = DecodeInputSchema(request.InputSchema);
-        var function = ResolveScalar(identity, schemaPath, request.FunctionName, request.Arguments, inputSchema);
-        ArgumentConstraints.EnforceConstants(function.ArgumentsSchema, request.Arguments);
+        var function = ResolveScalar(identity, schemaPath, request.FunctionName, request.ResolvedArguments, inputSchema);
+        ArgumentConstraints.EnforceConstants(function.ArgumentsSchema, request.ResolvedArguments);
 
         function.Bind(new ScalarBindParams
         {
             FunctionName = request.FunctionName,
-            Arguments = request.Arguments,
+            Arguments = request.ResolvedArguments,
             Settings = request.Settings,
             Secrets = request.Secrets,
             AttachOpaqueData = request.AttachOpaqueData ?? [],
@@ -718,7 +721,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         repeatability = BindRepeatability.Unknown;
         var name = request.FunctionName;
 
-        if (catalog.FindTable(identity, schemaPath, name, TableArgCodec.Decode(request.Arguments)) is { } table)
+        if (catalog.FindTable(identity, schemaPath, name, TableArgCodec.Decode(request.ResolvedArguments)) is { } table)
         {
             return BindTable(table, request, out repeatability);
         }
@@ -752,13 +755,13 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     {
         RequirePlainTableNoInputSchema(function.Name, request.InputSchema);
 
-        var arguments = TableArgCodec.Decode(request.Arguments);
+        var arguments = TableArgCodec.Decode(request.ResolvedArguments);
         var inputSchema = request.InputSchema is { Length: > 0 } bytes ? SchemaIpc.ReadSchemaOnly(bytes) : null;
 
         var bindParams = new TableBindParams
         {
             FunctionName = request.FunctionName,
-            ArgumentsBytes = request.Arguments,
+            ArgumentsBytes = request.ResolvedArguments,
             Arguments = arguments,
             Settings = request.Settings,
             Secrets = new SecretsAccessor(request.Secrets, request.ResolvedSecretsProvided),
@@ -866,7 +869,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
     private static TableInOutBindParams DecodeTableInOutBindParams(BindRequest request)
     {
-        var arguments = TableArgCodec.Decode(request.Arguments);
+        var arguments = TableArgCodec.Decode(request.ResolvedArguments);
         var inputSchema = request.InputSchema is { Length: > 0 } bytes
             ? SchemaIpc.ReadSchemaOnly(bytes)
             : new Apache.Arrow.Schema([], null);
@@ -874,7 +877,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         return new TableInOutBindParams
         {
             FunctionName = request.FunctionName,
-            ArgumentsBytes = request.Arguments,
+            ArgumentsBytes = request.ResolvedArguments,
             Arguments = arguments,
             Settings = request.Settings,
             Secrets = new SecretsAccessor(request.Secrets, request.ResolvedSecretsProvided),
@@ -889,7 +892,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private RpcStream<StreamState> InitScalar(string identity, IReadOnlyList<string> schemaPath, BindRequest bindRequest)
     {
         var inputSchema = DecodeInputSchema(bindRequest.InputSchema);
-        var function = ResolveScalar(identity, schemaPath, bindRequest.FunctionName, bindRequest.Arguments, inputSchema);
+        var function = ResolveScalar(identity, schemaPath, bindRequest.FunctionName, bindRequest.ResolvedArguments, inputSchema);
         var outputSchema = function.ResolveOutputSchema(inputSchema);
 
         var header = new GlobalInitResponse
@@ -899,7 +902,7 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             MaxWorkers = 1,
         };
 
-        var state = new ScalarStreamState(function, outputSchema, bindRequest.Arguments, bindRequest.Settings, bindRequest.Secrets, bindRequest.AttachOpaqueData);
+        var state = new ScalarStreamState(function, outputSchema, bindRequest.ResolvedArguments, bindRequest.Settings, bindRequest.Secrets, bindRequest.AttachOpaqueData);
 
         // InputSchema MUST be the bound argument-column schema, never null: a scalar call is an
         // EXCHANGE stream (DuckDB pushes one batch of argument columns per turn), and the wire
@@ -925,12 +928,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
         // running as an ordinary producer while the caller is left feeding input rows nobody reads.
         RequirePlainTableNoInitPhase(function.Name, request.Phase);
 
-        var arguments = TableArgCodec.Decode(bindRequest.Arguments);
+        var arguments = TableArgCodec.Decode(bindRequest.ResolvedArguments);
         var inputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes ? SchemaIpc.ReadSchemaOnly(schemaBytes) : null;
         var bindParams = new TableBindParams
         {
             FunctionName = bindRequest.FunctionName,
-            ArgumentsBytes = bindRequest.Arguments,
+            ArgumentsBytes = bindRequest.ResolvedArguments,
             Arguments = arguments,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
@@ -1018,14 +1021,14 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             RequireTableInOutInputSchema(function.Name, bindRequest.InputSchema);
         }
 
-        var arguments = TableArgCodec.Decode(bindRequest.Arguments);
+        var arguments = TableArgCodec.Decode(bindRequest.ResolvedArguments);
         var inputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes
             ? SchemaIpc.ReadSchemaOnly(schemaBytes)
             : new Apache.Arrow.Schema([], null);
         var bindParams = new TableInOutBindParams
         {
             FunctionName = bindRequest.FunctionName,
-            ArgumentsBytes = bindRequest.Arguments,
+            ArgumentsBytes = bindRequest.ResolvedArguments,
             Arguments = arguments,
             Settings = bindRequest.Settings,
             Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
@@ -1116,14 +1119,14 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
 
         if (request.Phase == VgiInitPhase.TableBufferingFinalize)
         {
-            var arguments = TableArgCodec.Decode(bindRequest.Arguments);
+            var arguments = TableArgCodec.Decode(bindRequest.ResolvedArguments);
             var inputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes
                 ? SchemaIpc.ReadSchemaOnly(schemaBytes)
                 : new Apache.Arrow.Schema([], null);
             var bindParams = new TableInOutBindParams
             {
                 FunctionName = bindRequest.FunctionName,
-                ArgumentsBytes = bindRequest.Arguments,
+                ArgumentsBytes = bindRequest.ResolvedArguments,
                 Arguments = arguments,
                 Settings = bindRequest.Settings,
                 Secrets = new SecretsAccessor(bindRequest.Secrets, bindRequest.ResolvedSecretsProvided),
@@ -1164,11 +1167,12 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
             return new RpcStream<StreamState>(finalizeParams.ProjectedSchema, finalizeState, InputSchema: null, Header: finalizeHeader);
         }
 
-        // phase == TableBuffering (Sink-init): persist the bind context (this call's `bind_call`
-        // DOES carry the full BindRequest bytes) so the standalone table_buffering_process/combine
-        // unary RPCs — which carry neither arguments nor settings on the wire — can recover them
-        // regardless of which pooled worker process ends up serving those calls.
-        new FunctionStorage(executionId).WriteSingle(BindContextNamespace, BindContextKey, EmbeddedIpc.Encode(bindRequest));
+        // phase == TableBuffering (Sink-init): persist the bind context so the standalone
+        // table_buffering_process/combine unary RPCs — which carry neither arguments nor settings on
+        // the wire — can recover them regardless of which pooled worker process serves those calls.
+        // What is stored is the received `bind_call` bytes (the reference form: an externalized
+        // argument stays a location, protocol 3.4), sealed, because they carry `secrets`.
+        WriteBindContext(executionId, request.BindCall.Bytes.ToArray());
 
         var sinkBindParams = DecodeTableInOutBindParams(bindRequest);
         var sinkOutputSchema = function.ResolveOutputSchema(sinkBindParams);
@@ -2281,20 +2285,29 @@ public sealed class VgiServiceImpl(CatalogRegistry catalog) : IVgiService
     private static string SubstreamKey(InitRequest request, byte[] executionId) =>
         request.SubstreamId is { Length: > 0 } substreamId ? Convert.ToHexString(substreamId) : Convert.ToHexString(executionId);
 
+    /// <summary>Persists a table-buffering execution's bind context: the received <c>bind_call</c>
+    /// bytes, sealed (<see cref="BindContextSealing"/>).</summary>
+    internal void WriteBindContext(byte[] executionId, byte[] bindCall) =>
+        new FunctionStorage(executionId).WriteSingle(
+            BindContextNamespace, BindContextKey, BindContextSealing.Seal(ResolveSecretOptionsRoot(), executionId, bindCall));
+
     private const string BindContextNamespace = "__system__";
     private const string BindContextKey = "bind_context";
 
     /// <summary>Recovers a table-buffering execution's bind-time arguments/settings from durable
     /// storage — see <see cref="TableBufferingProcessParams"/>'s doc comment for why the standalone
     /// process/combine unary RPCs can't just decode them off their own wire request.</summary>
-    private static (Arguments.TableArguments Arguments, byte[]? Settings, byte[]? Secrets, CopyToContext? CopyTo, Apache.Arrow.Schema? InputSchema) ReadBindContext(FunctionStorage storage)
+    private async Task<(Arguments.TableArguments Arguments, byte[]? Settings, byte[]? Secrets, CopyToContext? CopyTo, Apache.Arrow.Schema? InputSchema)> ReadBindContextAsync(
+        FunctionStorage storage, byte[] executionId, ICallContext? ctx)
     {
         var bytes = storage.ReadSingle(BindContextNamespace, BindContextKey)
             ?? throw new InvalidOperationException(
                 "table_buffering_process/combine called before init(phase=TABLE_BUFFERING) established this execution's bind context.");
-        var bindRequest = EmbeddedIpc.Decode<BindRequest>(bytes);
+        // The reference form: an externalized argument resolves here, through the object cache.
+        var bindRequest = await BindArguments.ResolveAsync(
+            EmbeddedIpc.Decode<BindRequest>(BindContextSealing.Open(ResolveSecretOptionsRoot(), executionId, bytes)), ctx).ConfigureAwait(false);
         var inputSchema = bindRequest.InputSchema is { Length: > 0 } schemaBytes ? SchemaIpc.ReadSchemaOnly(schemaBytes) : null;
-        return (TableArgCodec.Decode(bindRequest.Arguments), bindRequest.Settings, bindRequest.Secrets, bindRequest.CopyTo, inputSchema);
+        return (TableArgCodec.Decode(bindRequest.ResolvedArguments), bindRequest.Settings, bindRequest.Secrets, bindRequest.CopyTo, inputSchema);
     }
 
     private static FunctionInfo BuildFunctionInfo(IScalarFunction function) => new()

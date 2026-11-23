@@ -82,7 +82,8 @@ public static class ProjectionExpressions
         Size((long)request.BindCall.Length + request.BindResult.Length + request.ResultSchema.Length +
              request.Expressions.Sum(b => (long)b.Length));
         Size(EmbeddedIpc.Encode(request).Length);
-        var bind = EmbeddedIpc.Decode<BindRequest>(request.BindCall);
+        // The handler's own copy: the caller resolves its arguments in place (protocol 3.4).
+        var bind = request.BindCall.DecodeCopy();
         var source = ReadBind(request.BindResult);
         ValidateOffer(source.ProjectionExpressionProfiles);
         if (bind.FunctionType != FunctionType.Table || bind.InputSchema is not null || bind.SchemaPath is null)

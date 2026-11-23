@@ -142,7 +142,7 @@ public sealed class TransactionStorageTests
             TransactionOpaqueData = txId,
         };
 
-        await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(bindRequest) });
+        await service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.Of(bindRequest) });
 
         Assert.Equal(txId, function.LastInitTransactionOpaqueData);
     }

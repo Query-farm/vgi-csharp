@@ -170,7 +170,7 @@ public class PartitionedFixtureReaderTests
             AttachOpaqueData = attach.AttachOpaqueData,
         };
 
-        var stream = await service.InitAsync(new InitRequest { BindCall = EmbeddedIpc.Encode(bindRequest) });
+        var stream = await service.InitAsync(new InitRequest { BindCall = Nested<BindRequest>.Of(bindRequest) });
 
         Assert.Equal(readers, Assert.IsType<GlobalInitResponse>(stream.Header).MaxWorkers);
     }

@@ -62,6 +62,7 @@ public sealed class ErrorCodeTests
         var inputSchema = new Schema([new Field("value", StringType.Default, nullable: true)], metadata: null);
         var error = await CallFailingAsync(client => client.BindAsync(new BindRequest
         {
+            Arguments = [],
             FunctionName = "double",
             FunctionType = FunctionType.Scalar,
             InputSchema = SchemaIpc.WriteSchemaOnly(inputSchema),
@@ -100,6 +101,7 @@ public sealed class ErrorCodeTests
     {
         var error = await CallFailingAsync(client => client.BindAsync(new BindRequest
         {
+            Arguments = [],
             FunctionName = "no_such_function",
             FunctionType = FunctionType.Table,
         }));

@@ -89,7 +89,7 @@ public class FunctionShapeDispatchGuardTests
             var bindRequest = MakePlainTableBindRequest("sequence", attach);
             var initRequest = new InitRequest
             {
-                BindCall = EmbeddedIpc.Encode(bindRequest),
+                BindCall = Nested<BindRequest>.Of(bindRequest),
                 Phase = VgiInitPhase.Input,
             };
 
@@ -110,7 +110,7 @@ public class FunctionShapeDispatchGuardTests
             Assert.Equal(OutputSchema.FieldsList.Count, SchemaIpc.ReadSchemaOnly(bindResponse.OutputSchema).FieldsList.Count);
 
             var bindRequest = MakePlainTableBindRequest("sequence", attach);
-            var initRequest = new InitRequest { BindCall = EmbeddedIpc.Encode(bindRequest) };
+            var initRequest = new InitRequest { BindCall = Nested<BindRequest>.Of(bindRequest) };
             var stream = await service.InitAsync(initRequest);
             Assert.Equal("n", Assert.Single(stream.OutputSchema.FieldsList).Name);
         }
@@ -148,7 +148,7 @@ public class FunctionShapeDispatchGuardTests
             var bindRequest = MakeTableInOutBindRequest("echo", attach, inputSchema: null);
             var initRequest = new InitRequest
             {
-                BindCall = EmbeddedIpc.Encode(bindRequest),
+                BindCall = Nested<BindRequest>.Of(bindRequest),
                 Phase = null,
             };
 
@@ -171,7 +171,7 @@ public class FunctionShapeDispatchGuardTests
 
             var initRequest = new InitRequest
             {
-                BindCall = EmbeddedIpc.Encode(MakeTableInOutBindRequest("echo", attach, StubInputSchema)),
+                BindCall = Nested<BindRequest>.Of(MakeTableInOutBindRequest("echo", attach, StubInputSchema)),
                 Phase = VgiInitPhase.Input,
             };
             var stream = await service.InitAsync(initRequest);
@@ -196,7 +196,7 @@ public class FunctionShapeDispatchGuardTests
 
             var inputInitRequest = new InitRequest
             {
-                BindCall = EmbeddedIpc.Encode(bindRequest),
+                BindCall = Nested<BindRequest>.Of(bindRequest),
                 Phase = VgiInitPhase.Input,
                 ExecutionId = executionId,
             };
@@ -204,7 +204,7 @@ public class FunctionShapeDispatchGuardTests
 
             var finalizeInitRequest = new InitRequest
             {
-                BindCall = EmbeddedIpc.Encode(bindRequest),
+                BindCall = Nested<BindRequest>.Of(bindRequest),
                 Phase = VgiInitPhase.Finalize,
                 ExecutionId = executionId,
             };

@@ -123,7 +123,8 @@ internal sealed class ValueError(string message) : Exception(message), IRpcError
 /// the contract, including ones added later, without a list to keep in step: it opens any
 /// parameter named <c>attachOpaqueData</c> / <c>transactionOpaqueData</c>, any request property
 /// <c>AttachOpaqueData</c> / <c>TransactionOpaqueData</c>, and the same two inside an embedded
-/// <c>BindCall</c>; it seals <see cref="CatalogAttachResult.AttachOpaqueData"/> and
+/// <c>BindCall</c> (into a per-call overlay, <see cref="BindCalls"/>, leaving the wrapper's bytes
+/// untouched); it seals <see cref="CatalogAttachResult.AttachOpaqueData"/> and
 /// <see cref="TransactionBeginResponse.TransactionOpaqueData"/>. The transaction value is bound to
 /// the sealed attach the same call carries.</para>
 /// <para>Installed on HTTP, the authenticating transport. An empty or absent value is "not
@@ -225,7 +226,7 @@ public class OpaqueSealingProxy : DispatchProxy
         var (attachProperty, transactionProperty, bindCallProperty) = s_shapes.GetOrAdd(request.GetType(), static type => (
             Property(type, "AttachOpaqueData"),
             Property(type, "TransactionOpaqueData"),
-            Property(type, "BindCall")));
+            type.GetProperty("BindCall", BindingFlags.Public | BindingFlags.Instance) is { PropertyType: var t } p && t == typeof(Nested<BindRequest>) ? p : null));
 
         if (attachProperty is not null || transactionProperty is not null)
         {
@@ -241,11 +242,15 @@ public class OpaqueSealingProxy : DispatchProxy
             }
         }
 
-        if (bindCallProperty?.GetValue(request) is byte[] { Length: > 0 } bindCall)
+        // Wrapper rule 11 (vgi docs/large-values-3.4.md §3.3): the opened attach and transaction
+        // live in a per-call overlay beside the bind_call wrapper (BindCalls), never written back
+        // into it, so re-encoding the request emits the received bytes with their sealed envelopes,
+        // and plaintext never reaches the wire or storage.
+        if (bindCallProperty?.GetValue(request) is Nested<BindRequest> { Length: > 0 } bindCall)
         {
-            var bind = EmbeddedIpc.Decode<BindRequest>(bindCall);
-            OpenRequest(bind, auth);
-            bindCallProperty.SetValue(request, EmbeddedIpc.Encode(bind));
+            var opened = bindCall.DecodeCopy();
+            OpenRequest(opened, auth);
+            BindCalls.SetOpened(request, opened);
         }
     }
 
