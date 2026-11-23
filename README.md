@@ -466,6 +466,18 @@ shares the same `(argv, cwd, VGI_RPC_*-env)` identity, rather than cold-spawned 
 line must go to `Console.Error`, never plain `Console.WriteLine` — a stray stdout write corrupts
 the Arrow IPC stream.
 
+### Large values over HTTP (blob vendor, protocol 3.4)
+
+The HTTP worker reads its externalization from the environment. With `VGI_BLOB_VENDOR_URL` and
+`VGI_BLOB_VENDOR_TOKEN`, results of at least `VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES` become vendor
+pointers, requests over `VGI_RPC_MAX_REQUEST_BYTES` go up through sized vendor grants
+(`VGI_RPC_MAX_UPLOAD_BYTES` caps them), and the worker advertises `VGI-Arguments-Ref-Bytes` (4 MiB,
+`VGI_ARGUMENTS_REF_BYTES`): a large bind argument is uploaded once per query and every request
+then carries a small reference, which the worker resolves at each call's entry. Functions see
+their arguments as before. With `VGI_STORAGE_EXTERNALIZE=1`, function-storage values of at least
+`VGI_STORAGE_EXTERNALIZE_BYTES` live in the vendor too. HTTP streams stay in process memory, so run
+one replica per worker URL.
+
 ### Hosting additional protocols
 
 A worker can host further application protocols beside `vgi.v3` — a reporting protocol, a shared

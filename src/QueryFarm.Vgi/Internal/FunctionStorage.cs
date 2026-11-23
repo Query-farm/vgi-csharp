@@ -21,6 +21,10 @@ public sealed class FunctionStorage(byte[] executionId) : IFunctionStorage
 {
     private readonly string _root = RootFor(executionId);
 
+    // With VGI_STORAGE_EXTERNALIZE and a blob vendor, every value is enveloped and large ones live
+    // in the vendor (StorageEnvelope); otherwise values are stored as given.
+    private byte[] Encode(byte[] value) => StorageEnvelope.Encode(value, executionId);
+
     public void Append(string ns, string key, byte[] value)
     {
         var dir = LogDir(ns, key);
@@ -32,7 +36,7 @@ public sealed class FunctionStorage(byte[] executionId) : IFunctionStorage
         var name = $"{DateTime.UtcNow.Ticks:D20}_{Guid.NewGuid():N}.bin";
         var finalPath = Path.Combine(dir, name);
         var tmpPath = finalPath + ".tmp";
-        File.WriteAllBytes(tmpPath, value);
+        File.WriteAllBytes(tmpPath, Encode(value));
         File.Move(tmpPath, finalPath);
     }
 
@@ -46,7 +50,7 @@ public sealed class FunctionStorage(byte[] executionId) : IFunctionStorage
 
         return Directory.GetFiles(dir, "*.bin")
             .OrderBy(path => path, StringComparer.Ordinal)
-            .Select(File.ReadAllBytes)
+            .Select(path => StorageEnvelope.Decode(File.ReadAllBytes(path)))
             .ToList();
     }
 
@@ -64,7 +68,7 @@ public sealed class FunctionStorage(byte[] executionId) : IFunctionStorage
         // overwritten mid-write), throwing FileNotFoundException instead of just losing the race
         // harmlessly — the way Append's already-unique (tick + guid) temp name does.
         var tmpPath = $"{finalPath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllBytes(tmpPath, value);
+        File.WriteAllBytes(tmpPath, Encode(value));
         MoveWithRetryOnSharingViolation(tmpPath, finalPath);
     }
 
@@ -100,7 +104,7 @@ public sealed class FunctionStorage(byte[] executionId) : IFunctionStorage
     public byte[]? ReadSingle(string ns, string key)
     {
         var path = Path.Combine(SingleDir(ns), SanitizeKey(key) + ".bin");
-        return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        return File.Exists(path) ? StorageEnvelope.Decode(File.ReadAllBytes(path)) : null;
     }
 
     /// <summary>Removes the single value stored for <paramref name="ns"/>/<paramref name="key"/>, if
@@ -131,6 +135,7 @@ public sealed class FunctionStorage(byte[] executionId) : IFunctionStorage
     /// mid-read); this is cleanup, not a correctness requirement.</summary>
     public static void DeleteAll(byte[] executionId)
     {
+        StorageEnvelope.DeleteExecution(executionId);
         var root = RootFor(executionId);
         if (!Directory.Exists(root))
         {
