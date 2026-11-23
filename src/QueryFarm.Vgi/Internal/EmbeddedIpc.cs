@@ -105,12 +105,23 @@ public static class EmbeddedIpc
         using var row = reader.ReadNextRecordBatch()
             ?? throw new InvalidOperationException($"Embedded record for '{typeof(T)}' had no data batch.");
 
-        var values = ValueCodec.ExtractRow(row, layout.PositionalCount == layout.ClrTypes.Length
-            ? layout.ClrTypes
-            : layout.ClrTypes[..layout.PositionalCount]);
+        // Positional fields the sender's schema predates (a trailing nullable one, e.g. protocol 3.4's
+        // appended BindRequest.arguments_location from a pre-3.4 snapshot) are left absent, as the
+        // reference's dataclass defaults leave them; a missing required field is a clear error.
+        var present = Math.Min(layout.PositionalCount, row.ColumnCount);
+        for (var i = present; i < layout.PositionalCount; i++)
+        {
+            if (!layout.Schema.GetFieldByIndex(i).IsNullable)
+            {
+                throw new InvalidOperationException(
+                    $"Embedded record for '{typeof(T).Name}' has {row.ColumnCount} columns and lacks the required field '{layout.Schema.GetFieldByIndex(i).Name}'.");
+            }
+        }
+
+        var values = ValueCodec.ExtractRow(row, layout.ClrTypes[..present]);
 
         var instance = new T();
-        for (var i = 0; i < layout.PositionalCount; i++)
+        for (var i = 0; i < present; i++)
         {
             layout.Properties[i].SetValue(instance, values[i]);
         }

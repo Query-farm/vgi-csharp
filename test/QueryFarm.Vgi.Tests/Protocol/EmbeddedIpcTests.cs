@@ -225,4 +225,33 @@ public class EmbeddedIpcTests
         var decodedForeignKey = EmbeddedIpc.Decode<ForeignKeyInfo>(EmbeddedIpc.Encode(foreignKey));
         Assert.Equal(["warehouse", "silver"], decodedForeignKey.ReferencedSchemaPath);
     }
+
+    /// <summary>A bind request from a sender that predates protocol 3.4's appended
+    /// <c>arguments_location</c> decodes with it absent; a batch missing a required field is a
+    /// clear error.</summary>
+    [Fact]
+    public void Decode_ToleratesAnAbsentTrailingNullableField()
+    {
+        var full = EmbeddedIpc.Encode(new BindRequest { FunctionName = "f", Arguments = [1], FunctionType = FunctionType.Table });
+
+        var decoded = EmbeddedIpc.Decode<BindRequest>(DropColumns(full, 1));
+        Assert.Equal("f", decoded.FunctionName);
+        Assert.Equal([1], decoded.Arguments);
+        Assert.Null(decoded.ArgumentsLocation);
+
+        var schemaWidth = SchemaDerivation.InnerSchemaFor(typeof(BindRequest)).FieldsList.Count;
+        var error = Assert.Throws<InvalidOperationException>(() => EmbeddedIpc.Decode<BindRequest>(DropColumns(full, schemaWidth - 2)));
+        Assert.Contains("lacks the required field 'function_type'", error.Message, StringComparison.Ordinal);
+    }
+
+    private static byte[] DropColumns(byte[] ipc, int drop)
+    {
+        using var reader = new Apache.Arrow.Ipc.ArrowStreamReader(new MemoryStream(ipc));
+        using var batch = reader.ReadNextRecordBatch();
+        var keep = batch.ColumnCount - drop;
+        var trimmed = new Apache.Arrow.RecordBatch(
+            new Apache.Arrow.Schema(batch.Schema.FieldsList.Take(keep).ToList(), null),
+            Enumerable.Range(0, keep).Select(batch.Column).ToList(), batch.Length);
+        return RecordBatchIpc.Write(trimmed);
+    }
 }
