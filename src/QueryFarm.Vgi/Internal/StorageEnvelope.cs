@@ -197,16 +197,19 @@ internal static class StorageEnvelope
         public Task DeleteScopeAsync(BlobScope scope) => client.DeleteScopeAsync(scope);
     }
 
-    /// <summary>Function-storage blobs in the operator's S3 bucket under <c>&lt;prefix&gt;fs/</c>. The
-    /// object id is derived from the scope and idempotency key, so a retried write reuses the object.
-    /// Reads are verified against the reference's size and SHA-256. The worker never deletes
-    /// (direct-storage contract v1, §6): clean-up is the bucket's lifecycle rule on <c>fs/</c>.</summary>
+    /// <summary>Function-storage blobs in the operator's S3 bucket under
+    /// <c>&lt;prefix&gt;fs/&lt;scope&gt;/&lt;id&gt;</c>, the scope hashing the blob scope and the id
+    /// (<c>fs.&lt;scope&gt;.&lt;hash&gt;</c>) the scope and idempotency key, so a retried write reuses the
+    /// object. Reads are verified against the reference's size and SHA-256. Deleting an execution's
+    /// blobs is best effort (direct-storage contract v1, Addendum A); a 2-day lifecycle rule on
+    /// <c>fs/</c> is the backstop.</summary>
     private sealed class S3Blobs(QueryFarm.VgiRpc.S3.S3Storage storage) : IEnvelopeBlobs
     {
         public async Task<BlobRef> PutAsync(byte[] data, BlobScope scope, string idempotencyKey)
         {
-            var id = "fs." + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{scope.Shard}\0{scope.ExecutionId}\0{idempotencyKey}")));
-            await storage.PutKeyAsync(storage.FunctionStorageKey(id), data, "application/octet-stream", null, CancellationToken.None).ConfigureAwait(false);
+            var dir = ScopeDir(scope);
+            var id = $"fs.{dir}.{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{scope.Shard}\0{scope.ExecutionId}\0{idempotencyKey}")))[..32]}";
+            await storage.PutKeyAsync(Key(id), data, "application/octet-stream", null, CancellationToken.None).ConfigureAwait(false);
             return new BlobRef(id, data.LongLength, Convert.ToHexStringLower(SHA256.HashData(data)));
         }
 
@@ -215,7 +218,7 @@ internal static class StorageEnvelope
             byte[] data;
             try
             {
-                data = await storage.GetAsync(storage.FunctionStorageKey(reference.ObjectId), reference.Size, CancellationToken.None).ConfigureAwait(false);
+                data = await storage.GetAsync(Key(reference.ObjectId), reference.Size, CancellationToken.None).ConfigureAwait(false);
             }
             catch (ObjectMissingException)
             {
@@ -232,6 +235,14 @@ internal static class StorageEnvelope
                 : throw new BlobVendorException($"blob {reference.ObjectId} sha256 mismatch", code: BlobVendorException.Sha256MismatchCode);
         }
 
-        public Task DeleteScopeAsync(BlobScope scope) => Task.CompletedTask;
+        public Task DeleteScopeAsync(BlobScope scope) => storage.DeletePrefixAsync(storage.FunctionStorageKey(ScopeDir(scope) + "/"));
+
+        private static string ScopeDir(BlobScope scope) =>
+            Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{scope.Shard}\0{scope.ExecutionId}")))[..32];
+
+        private string Key(string id) =>
+            id.StartsWith("fs.", StringComparison.Ordinal) && id.IndexOf('.', 3) is var dot and > 3
+                ? storage.FunctionStorageKey($"{id[3..dot]}/{id}")
+                : storage.FunctionStorageKey(id);
     }
 }

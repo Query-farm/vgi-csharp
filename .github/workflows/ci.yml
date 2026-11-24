@@ -20,7 +20,7 @@ env:
   # S3/GCS storage (S3StorageEnvironment, VGI_STORAGE_BACKEND) and the storage stall timeouts. When
   # it is published, delete the checkout steps and VgiRpcCSharpRoot and bump
   # Directory.Packages.props.
-  VGI_RPC_CSHARP_REF: 5a5689100f1d42f1714176e4757d548dec9badae
+  VGI_RPC_CSHARP_REF: 9314034a5cbe59ddc08674201bd028a54fd20aeb
   VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
   # vgi's SDK-neutral Orchard hosted-mode harness (test/hosted/), at or after fce5798.
   VGI_HOSTED_REF: fce57984a7e8ea35f9dcd4a034b5ed37c85ca5c5

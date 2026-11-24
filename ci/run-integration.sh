@@ -168,7 +168,7 @@ if [ "$TRANSPORT" = s3 ]; then
   s3_aws s3 mb s3://vgi-lane >/dev/null
   export VGI_STORAGE_BACKEND=s3 VGI_STORAGE_S3_BUCKET=vgi-lane VGI_STORAGE_S3_PREFIX=lane/ \
     VGI_STORAGE_S3_ENDPOINT="$S3_ENDPOINT" VGI_STORAGE_S3_ACCESS_KEY_ID=vgilane \
-    VGI_STORAGE_S3_SECRET_ACCESS_KEY=vgilanesecret123 VGI_STORAGE_S3_VERIFY=1 \
+    VGI_STORAGE_S3_SECRET_ACCESS_KEY=vgilanesecret123 VGI_STORAGE_S3_VERIFY=1 VGI_STORAGE_ALLOW_PLAIN_HTTP=1 \
     VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES=4096 VGI_RPC_MAX_REQUEST_BYTES=32768 VGI_RPC_MAX_UPLOAD_BYTES=268435456 \
     VGI_STORAGE_EXTERNALIZE=1 VGI_STORAGE_EXTERNALIZE_BYTES=4096 VGI_TEST_ALLOW_LOOPBACK_EXTERNAL_LOCATIONS=1
 fi
@@ -315,7 +315,7 @@ fi
 # The s3 lane's skip detector: storage that was never used reads as green (the suite passes with
 # everything inline), so require externalized results in the bucket.
 if [ "$TRANSPORT" = s3 ]; then
-  for area in rpc obj fs; do
+  for area in rpc fs; do
     n=$({ s3_aws s3 ls --recursive "s3://vgi-lane/lane/$area/" || true; } | wc -l)
     echo "s3 lane: $n objects under lane/$area/"
     if [ "$area" = rpc ] && [ "$n" -eq 0 ]; then
