@@ -12,10 +12,10 @@ permissions:
 
 env:
   # The suite and linked native runner must come from this same revision.
-  # vgi's protocol-3.4 branch (3.4 extension + upload-URL v2 suite) until the 3.4 extension ships
-  # on v2.0 (after the worker fleet); then a v2.0 commit and VGI_NATIVE_RUNNER_BRANCH v2.0.
-  VGI_REF: e99683f2af215c5a166697945e796c91d0cc66fe  # BindRequest.arguments_location (the worker decodes it positionally)
-  VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
+  # ebf28ea is the published 3.4 extension (vgi v2.0); its suite expects PROTOCOL_VERSIONS_V1
+  # refusals (protocol_version/version_mismatch.test).
+  VGI_REF: ebf28ead2703ab2b0f3ec818aa9a63a99bd8863f
+  VGI_NATIVE_RUNNER_BRANCH: v2.0
   # TODO(release-wave): unreleased vgi-rpc-csharp (protocol-3.4 branch), built from source: direct
   # S3/GCS storage (S3StorageEnvironment, VGI_STORAGE_BACKEND) and the storage stall timeouts. When
   # it is published, delete the checkout steps and VgiRpcCSharpRoot and bump
