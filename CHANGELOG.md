@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.27.0 (2026-11-23)
 
 - **Protocol 3.4 large values** (vgi `docs/large-values-3.4.md`):
   - Regenerated protocol types. The six requests that embed `bind_call` (init, cardinality,
@@ -40,8 +40,7 @@
 - **Protocol 3.4.0** (`Worker.DefaultProtocolVersion`). Requires the matching VGI DuckDB
   extension (wire 3.4.x); 3.3 clients and workers are incompatible. No vgi.v3 schema changes: 3.4
   moves client uploads to vgi-rpc's upload-URL protocol v2 (`VGI-Upload-URL-Support: 2`) and
-  makes `vgi_rpc.location.sha256` mandatory on pointers. Built against an unreleased
-  vgi-rpc-csharp (`protocol-3.4` branch) until the release wave.
+  makes `vgi_rpc.location.sha256` mandatory on pointers. Requires QueryFarm.VgiRpc 0.19.0.
 - Filter decoding no longer rejects comparisons between parameterised Arrow types as "not
   bind-compatible". Apache.Arrow's `TimestampType` (and time, duration, interval, fixed-size binary,
   nested types) compare by reference, so the column's and the literal's separately built
