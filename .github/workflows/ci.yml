@@ -2,28 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [main, protocol-3.4]  # TODO(release-wave): drop protocol-3.4
+    branches: [main]
   pull_request:
 
-# TODO(release-wave): protocol 3.4 builds against an UNRELEASED vgi-rpc-csharp, checked out at a
-# pinned commit of its protocol-3.4 branch and referenced as source (Directory.Build.props'
-# VgiRpcCSharpRoot). When vgi-rpc-csharp is published, delete the checkout steps and
-# VgiRpcCSharpRoot, and bump Directory.Packages.props to the released version.
 permissions:
   contents: read
   actions: read
 
 env:
   # The suite and linked native runner must come from this same revision.
-  # TODO(release-wave): vgi's protocol-3.4 branch (3.4 extension + upload-URL v2 suite); back to a
-  # v2.0 commit and VGI_NATIVE_RUNNER_BRANCH v2.0 once the 3.4 extension is released.
+  # vgi's protocol-3.4 branch (3.4 extension + upload-URL v2 suite) until the 3.4 extension ships
+  # on v2.0 (after the worker fleet); then a v2.0 commit and VGI_NATIVE_RUNNER_BRANCH v2.0.
   VGI_REF: e99683f2af215c5a166697945e796c91d0cc66fe  # BindRequest.arguments_location (the worker decodes it positionally)
   VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
-  # TODO(release-wave): unreleased vgi-rpc-csharp (protocol-3.4 branch), built from source.
-  VGI_RPC_CSHARP_REF: 884e5a45e5c4a0d1843cdb199b7baf390202993e  # protocol 3.4: StateRef, argument references, Nested<T> hook, blob-vendor client
   # vgi's SDK-neutral Orchard hosted-mode harness (test/hosted/), at or after fce5798.
   VGI_HOSTED_REF: fce57984a7e8ea35f9dcd4a034b5ed37c85ca5c5
-  VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
 
 jobs:
   build-test:
@@ -34,12 +27,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -62,12 +49,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -89,16 +70,9 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/checkout@v4
         with:
           repository: Query-farm/vgi-rpc-python
-          ref: protocol-3.4  # TODO(release-wave): back to main once 3.4 is released
           path: _conformance/vgi-rpc
       - uses: actions/setup-dotnet@v4
         with:
@@ -118,12 +92,6 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - name: Checkout the pinned hosted-mode harness
         uses: actions/checkout@v4
         with:
@@ -158,12 +126,6 @@ jobs:
         transport: [launch, http]
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -205,12 +167,6 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -249,6 +205,6 @@ jobs:
         run: |
           uv venv -q "$RUNNER_TEMP/fake-vendor"
           uv pip install -q -p "$RUNNER_TEMP/fake-vendor" \
-            "vgi-rpc[http,external] @ git+https://github.com/Query-farm/vgi-rpc-python@6a21ee3b2fb21d9c348c9b615fd97dce8e0bb852"
+            "vgi-rpc[http,external]==0.57.0"
           VGI_RPC_FAKE_VENDOR_BIN="$RUNNER_TEMP/fake-vendor/bin/vgi-rpc-fake-vendor" \
             dotnet test test/QueryFarm.Vgi.Tests -c Release --no-build --filter "FullyQualifiedName~OrchardHostedVendorTests"
