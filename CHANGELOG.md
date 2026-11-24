@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Protocol version negotiation** (`PROTOCOL_VERSIONS_V1`, vgi-rpc-csharp
+  protocol-3.4): HTTP workers send `VGI-Protocol-Versions: vgi.v3=3.4-3.4` on
+  every response, hosted-mode 401s included, and refuse out-of-window requests
+  with `protocol_version_unsupported`. `Worker.ProtocolVersionRange("3.3-3.4")`
+  widens the window; the example worker reads `VGI_TEST_PROTOCOL_RANGE`.
 - **Direct storage (contract v1).** `VGI_STORAGE_BACKEND` = `vendor` | `s3` | `gcs` | `none`
   (inferred from `VGI_BLOB_VENDOR_URL` / `VGI_STORAGE_S3_BUCKET` / `VGI_STORAGE_GCS_BUCKET`; more
   than one set refuses to start). With `s3` or `gcs` an HTTP worker externalizes results, vends

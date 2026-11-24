@@ -201,6 +201,8 @@ public sealed class OrchardHostedTests : IAsyncLifetime
         Assert.NotEmpty(Header(response, "VGI-Supported-Encodings"));
         Assert.Equal("true", Header(response, RpcHttpEndpoints.AcceptMaxResponseBytesSupportHeader));
         Assert.Equal("*", Header(response, "Access-Control-Allow-Origin"));
+        // PROTOCOL_VERSIONS_V1.md §4.1: the gate's 401s advertise too.
+        Assert.StartsWith("vgi.v3=3.4-3.4", Header(response, "VGI-Protocol-Versions"), StringComparison.Ordinal);
         if (reason.Length > 0)
         {
             Assert.Equal(reason, Header(response, "VGI-Auth-Reason"));

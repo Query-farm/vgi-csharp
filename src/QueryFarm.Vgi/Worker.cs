@@ -70,6 +70,7 @@ public sealed class Worker
     private readonly CatalogRegistry _catalog = new();
     public Worker CatalogSnapshot(Catalog.Snapshots.CatalogSnapshotPolicy policy) { _catalog.SnapshotPolicy = policy; return this; }
     private string _protocolVersion = DefaultProtocolVersion;
+    private string? _protocolVersionRange;
     private Func<IEnumerable<HostedProtocol>>? _hostedProtocols;
     private IdentityImpl.TokenResolver? _resolveToken;
     private IdentityImpl.GrantMinter? _mintGrant;
@@ -331,6 +332,17 @@ public sealed class Worker
     public Worker ProtocolVersion(string version)
     {
         _protocolVersion = version;
+        return this;
+    }
+
+    /// <summary>Widens the <c>major.minor</c> window of <c>vgi.v3</c> this worker accepts and
+    /// advertises in <c>VGI-Protocol-Versions</c> (PROTOCOL_VERSIONS_V1.md §5), as <c>MIN-MAX</c>
+    /// (<c>"3.3-3.4"</c>). Default: exactly the declared version's <c>major.minor</c>. For test
+    /// fixtures that impersonate an older or wider server; a malformed range fails at serve time.</summary>
+    public Worker ProtocolVersionRange(string range)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(range);
+        _protocolVersionRange = range;
         return this;
     }
 
@@ -846,7 +858,10 @@ public sealed class Worker
             return new RpcServer(
                 typeof(IVgiService), service, serverId: serverId,
                 expectedProtocolVersion: _protocolVersion, identity: identity, additionalProtocols: extra,
-                grantKeys: grantKeys, grantKeysFromEnvironment: false);
+                grantKeys: grantKeys, grantKeysFromEnvironment: false,
+                protocolVersionRanges: _protocolVersionRange is { } range
+                    ? new Dictionary<string, string> { [Protocol.VgiProtocol.Name] = range }
+                    : null);
         }
         catch (ArgumentException exc) when (extra.Count > 0)
         {
@@ -1176,6 +1191,9 @@ public sealed class Worker
         var hostedConfig = OrchardHosted.IsEnabled(HostedEnvironment) ? ValidateHostedConfiguration(irohBridge is not null) : null;
         var serverId = Guid.NewGuid().ToString("n");
         var rpc = NewRpcServer(ServerTransport.Http, serverId);
+        // First in the pipeline, so the Pass gate's 401s and the peer-snapshot middleware's
+        // answers advertise VGI-Protocol-Versions too (PROTOCOL_VERSIONS_V1.md §4.1).
+        app.UseVgiRpcProtocolVersions(rpc);
         if (hostedConfig is not null)
         {
             // Orchard hosted mode: the Pass gate is the only authenticator, in front of every

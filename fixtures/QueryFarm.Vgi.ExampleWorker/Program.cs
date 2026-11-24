@@ -828,6 +828,12 @@ if (!orchardHosted && IdentityFixture.Requested(args))
 // including the protocol 3.4 argument-reference ones (blob_param_*).
 QueryFarm.Vgi.ExampleWorker.BlobTest.BlobCatalog.Register(worker);
 
+// PROTOCOL_VERSIONS_V1 fixture switch: widen (or move) the advertised vgi.v3 window.
+if (Environment.GetEnvironmentVariable("VGI_TEST_PROTOCOL_RANGE") is { Length: > 0 } protocolRange)
+{
+    worker.ProtocolVersionRange(protocolRange);
+}
+
 await worker.RunFromArgsAsync(args);
 
 // Static (n, label) data for the "global_table" global-function probe — n: 0,1,2; label tags each
