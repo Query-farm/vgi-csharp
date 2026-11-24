@@ -1191,9 +1191,10 @@ public sealed class Worker
         var hostedConfig = OrchardHosted.IsEnabled(HostedEnvironment) ? ValidateHostedConfiguration(irohBridge is not null) : null;
         var serverId = Guid.NewGuid().ToString("n");
         var rpc = NewRpcServer(ServerTransport.Http, serverId);
-        // First in the pipeline, so the Pass gate's 401s and the peer-snapshot middleware's
-        // answers advertise VGI-Protocol-Versions too (PROTOCOL_VERSIONS_V1.md §4.1).
-        app.UseVgiRpcProtocolVersions(rpc);
+        // First in the pipeline, so the Pass gate's 401s (which the extension reads to start OAuth)
+        // and the peer-snapshot middleware's answers carry the same capability headers as a 200 --
+        // upload URLs, argument refs, request/upload caps, VGI-Protocol-Versions.
+        app.UseVgiRpcCapabilityHeaders(rpc);
         if (hostedConfig is not null)
         {
             // Orchard hosted mode: the Pass gate is the only authenticator, in front of every

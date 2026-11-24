@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Orchard hosted mode 401s carry the full capability header set** (`VGI-Upload-URL-Support`,
+  `VGI-Arguments-Ref-Bytes`, `VGI-Max-Request-Bytes`, `VGI-Max-Upload-Bytes`, `VGI-Protocol-Versions`, ...),
+  the same as a 200; the extension reads them to start OAuth.
 - **Protocol version negotiation** (`PROTOCOL_VERSIONS_V1`, vgi-rpc-csharp
   protocol-3.4): HTTP workers send `VGI-Protocol-Versions: vgi.v3=3.4-3.4` on
   every response, hosted-mode 401s included, and refuse out-of-window requests

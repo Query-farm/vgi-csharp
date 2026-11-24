@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Apache.Arrow;
 using Microsoft.AspNetCore.Builder;
+using QueryFarm.VgiRpc.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -87,6 +88,27 @@ public sealed class OrchardHostedVendorTests
             using var anonymous = await http.SendAsync(new HttpRequestMessage(HttpMethod.Options, new Uri(url, "/health")), TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
             Assert.Equal("true", Header(anonymous, "VGI-Externalization-Enabled"));
+
+            // The extension starts OAuth from a 401, so the 401 must carry the full capability set
+            // -- the same values as the authorized answer -- on the probe and on an RPC alike.
+            using var anonymousRpc = await http.SendAsync(
+                new HttpRequestMessage(HttpMethod.Post, new Uri(url, "/vgi.v3/catalog_catalogs")) { Content = new ByteArrayContent([]) },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymousRpc.StatusCode);
+            string[] capabilities =
+            [
+                "VGI-Upload-URL-Support", "VGI-Arguments-Ref-Bytes", "VGI-Max-Request-Bytes", "VGI-Max-Upload-Bytes",
+                "VGI-Externalization-Enabled", "VGI-Protocol-Versions",
+                RpcHttpEndpoints.AcceptMaxResponseBytesSupportHeader,
+            ];
+            foreach (var name in capabilities)
+            {
+                Assert.False(string.IsNullOrEmpty(Header(caps, name)), $"the authorized answer lacks {name}");
+                Assert.Equal(Header(caps, name), Header(anonymous, name));
+                Assert.Equal(Header(caps, name), Header(anonymousRpc, name));
+            }
+
+            Assert.StartsWith("vgi.v3=3.4-3.4", Header(anonymous, "VGI-Protocol-Versions"), StringComparison.Ordinal);
         }
 
         await using var aliceClient = Client(url, alice);
