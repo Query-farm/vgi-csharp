@@ -12,12 +12,17 @@
     <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Http/QueryFarm.VgiRpc.Http.csproj" />
     <!-- Orchard hosted mode's Pass verifier (JwtAuth.Create(JwtAuthOptions)). -->
     <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Http.OAuth/QueryFarm.VgiRpc.Http.OAuth.csproj" />
+    <!-- Direct storage (VGI_STORAGE_BACKEND=s3|gcs): the operator's own bucket, no blob vendor. -->
+    <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.S3/QueryFarm.VgiRpc.S3.csproj" />
+    <ProjectReference Include="$(VgiRpcCSharpRoot)/src/QueryFarm.VgiRpc.Gcs/QueryFarm.VgiRpc.Gcs.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(VgiRpcCSharpUseSource)' != 'true'">
     <PackageReference Include="QueryFarm.Arrow" />
     <PackageReference Include="QueryFarm.VgiRpc" />
     <PackageReference Include="QueryFarm.VgiRpc.Http" />
     <PackageReference Include="QueryFarm.VgiRpc.Http.OAuth" />
+    <PackageReference Include="QueryFarm.VgiRpc.S3" />
+    <PackageReference Include="QueryFarm.VgiRpc.Gcs" />
   </ItemGroup>
 
   <ItemGroup>

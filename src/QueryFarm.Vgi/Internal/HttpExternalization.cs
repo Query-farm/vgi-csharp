@@ -1,10 +1,15 @@
 using System.Globalization;
+using QueryFarm.VgiRpc.External;
+using QueryFarm.VgiRpc.Gcs;
 using QueryFarm.VgiRpc.Http;
+using QueryFarm.VgiRpc.S3;
 
 namespace QueryFarm.Vgi.Internal;
 
 /// <summary>
-/// The HTTP server's externalization, from the environment: vgi-rpc's blob-vendor wiring
+/// The HTTP server's externalization, from the environment: the storage backend
+/// (<c>VGI_STORAGE_BACKEND</c>: the blob vendor, the operator's S3 or GCS bucket, or none), with
+/// vgi-rpc's blob-vendor wiring
 /// (<see cref="ExternalizationOptions.FromEnvironment"/>: results over
 /// <c>VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES</c> become vendor pointers, <c>__upload_url__</c> grants
 /// come from the vendor, <c>VGI_RPC_MAX_REQUEST_BYTES</c> / <c>VGI_RPC_MAX_UPLOAD_BYTES</c> are
@@ -51,7 +56,21 @@ internal static class HttpExternalization
                 ? HostedDefaultMaxRequestBytes.ToString(CultureInfo.InvariantCulture)
                 : read(name)
             : read;
-        var options = ExternalizationOptions.FromEnvironment(env);
+        // Direct-storage contract v1: VGI_STORAGE_BACKEND (or the vendor / bucket variables) picks
+        // the blob vendor, the operator's S3 or GCS bucket, or nothing.
+        var backend = StorageBackendEnvironment.Select(env);
+        if (hosted && backend is StorageBackend.S3 or StorageBackend.Gcs)
+        {
+            Console.Error.WriteLine(
+                $"vgi: Orchard hosted mode with {StorageBackendEnvironment.Backend}={backend.ToString().ToLowerInvariant()}: externalized values go to the operator's bucket, not the Orchard blob vendor");
+        }
+
+        var options = backend switch
+        {
+            StorageBackend.S3 => S3StorageEnvironment.ExternalizationFromEnvironment(env),
+            StorageBackend.Gcs => GcsStorageEnvironment.ExternalizationFromEnvironment(env),
+            _ => ExternalizationOptions.FromEnvironment(env),
+        };
         if (options?.UploadUrlProvider is null || options.EffectiveObjectStore is null
             || (env(DisableArgumentsRefVariable)?.Trim().ToLowerInvariant() is "1" or "true" or "yes"))
         {

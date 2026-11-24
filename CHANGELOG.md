@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **Direct storage (contract v1).** `VGI_STORAGE_BACKEND` = `vendor` | `s3` | `gcs` | `none`
+  (inferred from `VGI_BLOB_VENDOR_URL` / `VGI_STORAGE_S3_BUCKET` / `VGI_STORAGE_GCS_BUCKET`; more
+  than one set refuses to start). With `s3` or `gcs` an HTTP worker externalizes results, vends
+  upload grants, advertises `VGI-Arguments-Ref-Bytes` and keeps function-storage blobs
+  (`VGI_STORAGE_EXTERNALIZE=1`, s3 only, under `<prefix>fs/`) in the operator's own bucket
+  (vgi-rpc-csharp `S3StorageEnvironment` / `GcsStorageEnvironment`). `VGI_STORAGE_S3_CHECKSUM=none`
+  issues no upload grants and advertises no upload-URL support or argument references; results are
+  still externalized. Hosted mode with s3/gcs is allowed and logged. QueryFarm.Vgi now references
+  QueryFarm.VgiRpc.S3 and QueryFarm.VgiRpc.Gcs.
+- **CI `s3` integration lane**: the http suite with results externalized and large requests
+  uploaded to a RustFS bucket; fails unless results landed in the bucket.
+
 ## 0.27.0 (2026-11-23)
 
 - **Protocol 3.4 large values** (vgi `docs/large-values-3.4.md`):

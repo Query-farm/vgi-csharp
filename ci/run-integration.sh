@@ -13,7 +13,10 @@
 #   VGI_SRC           path to a Query-farm/vgi checkout (contains test/sql/integration)
 #   HAYBARN_UNITTEST  path to the haybarn-unittest binary
 # Optional:
-#   TRANSPORT         launch (default) | http — see the lane setup below
+#   TRANSPORT         launch (default) | http | s3 — see the lane setup below. s3 is the http
+#                     lane with results externalized and large requests uploaded to a RustFS
+#                     bucket the worker signs for itself (VGI_STORAGE_BACKEND=s3; docker and the
+#                     aws CLI), failing unless objects actually landed in the bucket.
 #   CONFIGURATION     build configuration the worker binaries were built in (default: Release)
 #   STAGE             scratch dir for the preprocessed test tree (default: mktemp)
 set -euo pipefail
@@ -29,8 +32,8 @@ TRANSPORT="${TRANSPORT:-launch}"
 # A matching native runner already links vgi/httpfs/json/parquet.
 RUNNER_LINKS_EXTENSIONS="${RUNNER_LINKS_EXTENSIONS:-0}"
 case "$TRANSPORT" in
-  launch|http) ;;
-  *) echo "::error::TRANSPORT must be 'launch' or 'http', got '$TRANSPORT'"; exit 1 ;;
+  launch|http|s3) ;;
+  *) echo "::error::TRANSPORT must be 'launch', 'http' or 's3', got '$TRANSPORT'"; exit 1 ;;
 esac
 INTEGRATION="$VGI_SRC/test/sql/integration"
 [ -d "$INTEGRATION" ] || { echo "::error::no test/sql/integration under VGI_SRC=$VGI_SRC"; exit 1; }
@@ -88,7 +91,7 @@ done
 #                                   catches up.
 # ---------------------------------------------------------------------------
 AWK_HTTP=0
-if [ "$TRANSPORT" = http ]; then
+if [ "$TRANSPORT" = http ] || [ "$TRANSPORT" = s3 ]; then
   AWK_HTTP=1
 fi
 
@@ -152,6 +155,23 @@ start_http_worker() {
 
 HTTP_PID=""
 TX_HTTP_PID=""
+S3_CONTAINER=""
+if [ "$TRANSPORT" = s3 ]; then
+  # A RustFS bucket (path style, static keys); the workers inherit the storage variables.
+  S3_IMAGE="${RUSTFS_IMAGE:-ghcr.io/rustfs/rustfs@sha256:29c02251c085cb04edce556304a9ec0f8fba0c40300266cf4f3d953783fe2450}"
+  S3_CONTAINER=$(docker run -d -p 127.0.0.1::9000 -e RUSTFS_ACCESS_KEY=vgilane -e RUSTFS_SECRET_KEY=vgilanesecret123 \
+    -e RUSTFS_CONSOLE_ENABLE=false -e RUSTFS_OBS_LOGGER_LEVEL=error "$S3_IMAGE")
+  S3_ENDPOINT="http://127.0.0.1:$(docker port "$S3_CONTAINER" 9000/tcp | head -1 | sed 's/.*://')"
+  for _ in $(seq 1 120); do curl -sf "$S3_ENDPOINT/health" >/dev/null && break; sleep 0.5; done
+  s3_aws() { env -u AWS_PROFILE -u AWS_SESSION_TOKEN AWS_CONFIG_FILE=/dev/null AWS_ACCESS_KEY_ID=vgilane \
+    AWS_SECRET_ACCESS_KEY=vgilanesecret123 aws --region us-east-1 --endpoint-url "$S3_ENDPOINT" "$@"; }
+  s3_aws s3 mb s3://vgi-lane >/dev/null
+  export VGI_STORAGE_BACKEND=s3 VGI_STORAGE_S3_BUCKET=vgi-lane VGI_STORAGE_S3_PREFIX=lane/ \
+    VGI_STORAGE_S3_ENDPOINT="$S3_ENDPOINT" VGI_STORAGE_S3_ACCESS_KEY_ID=vgilane \
+    VGI_STORAGE_S3_SECRET_ACCESS_KEY=vgilanesecret123 VGI_STORAGE_S3_VERIFY=1 \
+    VGI_RPC_EXTERNALIZE_THRESHOLD_BYTES=4096 VGI_RPC_MAX_REQUEST_BYTES=32768 VGI_RPC_MAX_UPLOAD_BYTES=268435456 \
+    VGI_STORAGE_EXTERNALIZE=1 VGI_STORAGE_EXTERNALIZE_BYTES=4096 VGI_TEST_ALLOW_LOOPBACK_EXTERNAL_LOCATIONS=1
+fi
 if [ "$TRANSPORT" = launch ]; then
   # Pool the main worker behind DuckDB's AF_UNIX launcher. The suite opens many
   # connections and ATTACHes the same worker repeatedly; a bare path starts a new
@@ -164,7 +184,7 @@ else
   # on stdout as `PORT:<n>`. VGI_REQUIRE_LAUNCHER_TRANSPORT is deliberately NOT set.
   HTTP_LOG="$STAGE/http-worker.log"
   TX_HTTP_LOG="$STAGE/http-writable-tx-worker.log"
-  trap '[ -n "$HTTP_PID" ] && kill -TERM "$HTTP_PID" 2>/dev/null; [ -n "$TX_HTTP_PID" ] && kill -TERM "$TX_HTTP_PID" 2>/dev/null; true' EXIT
+  trap '[ -n "$HTTP_PID" ] && kill -TERM "$HTTP_PID" 2>/dev/null; [ -n "$TX_HTTP_PID" ] && kill -TERM "$TX_HTTP_PID" 2>/dev/null; [ -n "$S3_CONTAINER" ] && docker rm -fv "$S3_CONTAINER" >/dev/null 2>&1; true' EXIT
   start_http_worker "$WORKER" "$HTTP_LOG"
   HTTP_PID=$STARTED_PID
   port=$STARTED_PORT
@@ -256,7 +276,7 @@ fi
 #
 # The assertion floor catches the same failure mode from the other side — a run that
 # skipped most of the suite for any reason at all.
-if [ "$TRANSPORT" = http ]; then
+if [ "$TRANSPORT" = http ] || [ "$TRANSPORT" = s3 ]; then
   swallowed="$(sed -n "s/^skip on error_message matching 'HTTP': \([0-9]*\)$/\1/p" "$log" | head -1)"
   swallowed="${swallowed:-0}"
   if [ "$swallowed" -gt "${MAX_HTTP_SWALLOWED:-0}" ]; then
@@ -290,6 +310,19 @@ if [ -z "$assertions" ]; then
 elif [ "$assertions" -lt "${MIN_ASSERTIONS:-9000}" ]; then
   echo "::error::only $assertions assertions ran (floor ${MIN_ASSERTIONS:-9000}) — the suite was largely skipped, not passed."
   rc=1
+fi
+
+# The s3 lane's skip detector: storage that was never used reads as green (the suite passes with
+# everything inline), so require externalized results in the bucket.
+if [ "$TRANSPORT" = s3 ]; then
+  for area in rpc obj fs; do
+    n=$({ s3_aws s3 ls --recursive "s3://vgi-lane/lane/$area/" || true; } | wc -l)
+    echo "s3 lane: $n objects under lane/$area/"
+    if [ "$area" = rpc ] && [ "$n" -eq 0 ]; then
+      echo "::error::the s3 lane stored no results under lane/rpc/: the worker did not use the bucket"
+      rc=1
+    fi
+  done
 fi
 
 rm -f "$log"

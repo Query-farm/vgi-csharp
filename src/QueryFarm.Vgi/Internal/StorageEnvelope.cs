@@ -34,15 +34,29 @@ internal static class StorageEnvelope
     private const byte Pointer = 0x01;
     private const int FixedPointerBytes = 1 + 8 + 32;
 
-    private static readonly Lazy<(VendorBlobClient Client, long Threshold)?> s_config = new(Configure);
+    private static readonly Lazy<(IEnvelopeBlobs Client, long Threshold)?> s_config = new(Configure);
 
     /// <summary>Whether values are enveloped (externalization configured).</summary>
     public static bool Enabled => s_config.Value is not null;
 
-    private static (VendorBlobClient, long)? Configure()
+    private static (IEnvelopeBlobs, long)? Configure()
     {
-        if (Environment.GetEnvironmentVariable(EnableVariable)?.Trim().ToLowerInvariant() is not ("1" or "true" or "yes")
-            || VendorBlobClient.FromEnvironment() is not { } client)
+        if (Environment.GetEnvironmentVariable(EnableVariable)?.Trim().ToLowerInvariant() is not ("1" or "true" or "yes"))
+        {
+            return null;
+        }
+
+        // The storage backend (direct-storage contract v1): the blob vendor or the operator's S3
+        // bucket. GCS has no function-storage blob store in this SDK.
+        IEnvelopeBlobs? client = StorageBackendEnvironment.Select() switch
+        {
+            StorageBackend.Vendor => VendorBlobClient.FromEnvironment() is { } vendor ? new VendorBlobs(vendor) : null,
+            StorageBackend.S3 => new S3Blobs(QueryFarm.VgiRpc.S3.S3StorageEnvironment.FromEnvironment()),
+            StorageBackend.Gcs => throw new ArgumentException(
+                $"{EnableVariable}=1 with {StorageBackendEnvironment.Backend}=gcs: function-storage blobs need the vendor or s3 backend"),
+            _ => null,
+        };
+        if (client is null)
         {
             return null;
         }
@@ -69,7 +83,7 @@ internal static class StorageEnvelope
             return [Inline, .. raw];
         }
 
-        var reference = client.PutBytesAsync(raw, Scope(executionId), $"{Guid.NewGuid():N}.0").GetAwaiter().GetResult();
+        var reference = client.PutAsync(raw, Scope(executionId), $"{Guid.NewGuid():N}.0").GetAwaiter().GetResult();
         var id = Encoding.ASCII.GetBytes(reference.ObjectId);
         var envelope = new byte[FixedPointerBytes + id.Length];
         envelope[0] = Pointer;
@@ -119,7 +133,7 @@ internal static class StorageEnvelope
 
         try
         {
-            return client.GetBytesAsync(new BlobRef(id, (long)size, sha)).GetAwaiter().GetResult();
+            return client.GetAsync(new BlobRef(id, (long)size, sha)).GetAwaiter().GetResult();
         }
         catch (BlobVendorException exc) when (exc.Code is BlobVendorException.Sha256MismatchCode or BlobVendorException.SizeMismatchCode)
         {
@@ -161,5 +175,63 @@ internal static class StorageEnvelope
     {
         var ident = "s." + Convert.ToHexStringLower(executionId);
         return new BlobScope("loc-anon", ident.Length <= 128 ? ident : "s.h" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(ident))));
+    }
+
+    /// <summary>The blob operations the envelope needs, over the vendor or an S3 bucket.</summary>
+    private interface IEnvelopeBlobs
+    {
+        Task<BlobRef> PutAsync(byte[] data, BlobScope scope, string idempotencyKey);
+
+        Task<byte[]> GetAsync(BlobRef reference);
+
+        Task DeleteScopeAsync(BlobScope scope);
+    }
+
+    private sealed class VendorBlobs(VendorBlobClient client) : IEnvelopeBlobs
+    {
+        public Task<BlobRef> PutAsync(byte[] data, BlobScope scope, string idempotencyKey) =>
+            client.PutBytesAsync(data, scope, idempotencyKey);
+
+        public Task<byte[]> GetAsync(BlobRef reference) => client.GetBytesAsync(reference);
+
+        public Task DeleteScopeAsync(BlobScope scope) => client.DeleteScopeAsync(scope);
+    }
+
+    /// <summary>Function-storage blobs in the operator's S3 bucket under <c>&lt;prefix&gt;fs/</c>. The
+    /// object id is derived from the scope and idempotency key, so a retried write reuses the object.
+    /// Reads are verified against the reference's size and SHA-256. The worker never deletes
+    /// (direct-storage contract v1, §6): clean-up is the bucket's lifecycle rule on <c>fs/</c>.</summary>
+    private sealed class S3Blobs(QueryFarm.VgiRpc.S3.S3Storage storage) : IEnvelopeBlobs
+    {
+        public async Task<BlobRef> PutAsync(byte[] data, BlobScope scope, string idempotencyKey)
+        {
+            var id = "fs." + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{scope.Shard}\0{scope.ExecutionId}\0{idempotencyKey}")));
+            await storage.PutKeyAsync(storage.FunctionStorageKey(id), data, "application/octet-stream", null, CancellationToken.None).ConfigureAwait(false);
+            return new BlobRef(id, data.LongLength, Convert.ToHexStringLower(SHA256.HashData(data)));
+        }
+
+        public async Task<byte[]> GetAsync(BlobRef reference)
+        {
+            byte[] data;
+            try
+            {
+                data = await storage.GetAsync(storage.FunctionStorageKey(reference.ObjectId), reference.Size, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (ObjectMissingException)
+            {
+                throw new BlobVendorException($"blob {reference.ObjectId} not found in the s3 bucket", 404, "NoSuchKey");
+            }
+
+            if (data.LongLength != reference.Size)
+            {
+                throw new BlobVendorException($"blob {reference.ObjectId} size mismatch", code: BlobVendorException.SizeMismatchCode);
+            }
+
+            return Convert.ToHexStringLower(SHA256.HashData(data)) == reference.Sha256.ToLowerInvariant()
+                ? data
+                : throw new BlobVendorException($"blob {reference.ObjectId} sha256 mismatch", code: BlobVendorException.Sha256MismatchCode);
+        }
+
+        public Task DeleteScopeAsync(BlobScope scope) => Task.CompletedTask;
     }
 }

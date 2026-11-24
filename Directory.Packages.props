@@ -26,6 +26,8 @@
     <PackageVersion Include="QueryFarm.VgiRpc" Version="0.19.0" />
     <PackageVersion Include="QueryFarm.VgiRpc.Http" Version="0.19.0" />
     <PackageVersion Include="QueryFarm.VgiRpc.Http.OAuth" Version="0.19.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc.S3" Version="0.19.0" />
+    <PackageVersion Include="QueryFarm.VgiRpc.Gcs" Version="0.19.0" />
 
     <!-- Same sibling-source-vs-NuGet split as QueryFarm.VgiRpc above; only used when the
          vgi-rpc-csharp checkout isn't present. QueryFarm.VgiRpc.Client's first-ever NuGet publish
