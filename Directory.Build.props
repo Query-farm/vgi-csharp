@@ -15,7 +15,7 @@
 
   <!-- Single version for every package in this repo. -->
   <PropertyGroup>
-    <Version>0.27.1</Version>
+    <Version>0.27.2</Version>
   </PropertyGroup>
 
   <PropertyGroup>

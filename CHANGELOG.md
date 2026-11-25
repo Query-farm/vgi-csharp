@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.27.2 (2026-11-25)
+
+Built on QueryFarm.VgiRpc 0.19.1.
 
 - Secret scope matching now follows DuckDB 2.0.1's authority boundary (duckdb#28684):
   `SecretArgCodec.ScopeMatches` (used by `ForScopeOfType`, `Lookup` and `SecretValues.ForScope`)
