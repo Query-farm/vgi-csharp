@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Secret scope matching now follows DuckDB 2.0.1's authority boundary (duckdb#28684):
+  `SecretArgCodec.ScopeMatches` (used by `ForScopeOfType`, `Lookup` and `SecretValues.ForScope`)
+  gives an authority-only scope such as `snmp://10.0.0.1` an implicit trailing `/`, so it no longer
+  covers `snmp://10.0.0.15` or `snmp://10.0.0.1:161`, and `s3://bucket` no longer covers
+  `s3://bucket-evil/`. Graded against 3025 vectors generated from DuckDB's C++.
+
 ## 0.27.1 (2026-11-25)
 
 Built on QueryFarm.VgiRpc 0.19.1.

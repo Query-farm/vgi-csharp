@@ -47,8 +47,8 @@ public sealed class SecretsAccessor
     public IReadOnlyList<RequiredSecret> PendingLookups => _pending;
 
     /// <summary>Requests a secret by type, optionally narrowed by a dynamic <paramref name="scope"/>
-    /// (a path DuckDB's SecretManager longest-prefix-matches against every registered secret of this
-    /// type) and/or an exact <paramref name="name"/> (which takes precedence over the scope, as on the
+    /// (a path DuckDB's SecretManager longest-prefix-matches, with the authority boundary of
+    /// <see cref="SecretArgCodec.ScopeMatches"/>, against every registered secret of this type) and/or an exact <paramref name="name"/> (which takes precedence over the scope, as on the
     /// client). Selection follows <see cref="SecretArgCodec.Lookup"/>. On the FIRST bind attempt a
     /// lookup the delivered secrets cannot answer yet (always the case for a scoped one) registers a
     /// pending lookup and returns <see langword="null"/> (the framework retries); on a RETRY the

@@ -89,7 +89,8 @@ public static class SecretArgCodec
     /// <paramref name="secretType"/> (or it carries no <c>type</c> field). <paramref name="scope"/>
     /// is ignored, as on the client.</item>
     /// <item><paramref name="scope"/> — the secret of that type whose scope is the longest prefix
-    /// of <paramref name="scope"/>, else one of that type with an empty scope.</item>
+    /// of <paramref name="scope"/> (matched by <see cref="ScopeMatches"/>, so an authority-only scope
+    /// stops at the authority boundary), else one of that type with an empty scope.</item>
     /// <item>neither — a secret of that type with an empty scope, else the first of that type.</item>
     /// </list>
     /// When no secret has the requested type (and no <paramref name="name"/> was given), a secret
@@ -127,7 +128,10 @@ public static class SecretArgCodec
     /// <summary>The secret (optionally narrowed to <paramref name="secretType"/>) whose <c>scope</c>
     /// field (newline-joined prefix list) is the longest prefix of <paramref name="path"/> — failing
     /// that, the first secret with no/empty scope; failing that, <see langword="null"/> (a scoped
-    /// secret whose prefixes do not match <paramref name="path"/> is never returned).</summary>
+    /// secret whose prefixes do not match <paramref name="path"/> is never returned). Prefixes match
+    /// exactly as DuckDB matches them (<see cref="ScopeMatches"/>): an authority-only scope such as
+    /// <c>snmp://10.0.0.1</c> covers that host and paths under it, never <c>snmp://10.0.0.15</c> or
+    /// <c>snmp://10.0.0.1:161</c>.</summary>
     public static IReadOnlyDictionary<string, IArrowArray>? ForScopeOfType(
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, IArrowArray>> resolved, string path, string? secretType)
     {
@@ -153,7 +157,9 @@ public static class SecretArgCodec
 
             foreach (var prefix in scope.Split('\n'))
             {
-                if (prefix.Length > 0 && path.StartsWith(prefix, StringComparison.Ordinal) && prefix.Length > bestLength)
+                // All matching prefixes are prefixes of the same path, so they are nested and
+                // ordering them by UTF-16 length agrees with DuckDB's ordering by UTF-8 byte length.
+                if (prefix.Length > 0 && ScopeMatches(prefix, path) && prefix.Length > bestLength)
                 {
                     bestLength = prefix.Length;
                     best = fields;
@@ -162,6 +168,67 @@ public static class SecretArgCodec
         }
 
         return best ?? fallback;
+    }
+
+    /// <summary>Whether a secret scope <paramref name="prefix"/> covers <paramref name="path"/>,
+    /// exactly as DuckDB decides (<c>BaseSecret::MatchScore</c> as of the Haybarn 2.0.1 engine,
+    /// upstream duckdb#28684).
+    ///
+    /// A scope matches when it is a string prefix of <paramref name="path"/>, except that an
+    /// authority-only URI scope (<c>scheme://authority</c> with nothing after the authority) has an
+    /// implicit trailing <c>/</c>: <c>snmp://10.0.0.1</c> covers <c>snmp://10.0.0.1</c> and
+    /// <c>snmp://10.0.0.1/x</c> but not <c>snmp://10.0.0.15</c> or <c>snmp://10.0.0.1:161</c>, and
+    /// <c>s3://bucket</c> no longer covers <c>s3://bucket-evil/</c>. Matching DuckDB keeps a worker
+    /// from choosing a secret DuckDB itself would not resolve for that path. An empty
+    /// <paramref name="prefix"/> is not a scope (returns <see langword="false"/>); callers treat
+    /// unscoped secrets as the fallback separately.
+    ///
+    /// DuckDB indexes UTF-8 bytes; this indexes UTF-16 code units. They agree: every delimiter the
+    /// rule inspects (<c>:</c>, <c>/</c>, <c>\</c>, <c>?</c>, <c>#</c>) is ASCII, one code unit in
+    /// UTF-16 and one byte in UTF-8, and neither encoding uses those values inside a multi-unit
+    /// character. So an ordinal prefix test of two well-formed strings gives the same answer in
+    /// either encoding, the "authority runs to the end of the prefix" test is the same (it only asks
+    /// whether a delimiter follows the authority), and the character right after the prefix is
+    /// <c>/</c> in one encoding exactly when it is in the other.</summary>
+    public static bool ScopeMatches(string prefix, string path)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        ArgumentNullException.ThrowIfNull(path);
+        if (prefix.Length == 0 || !path.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var authority = UriAuthority(prefix);
+        var authorityOnly = authority.Length > 0 &&
+            prefix.Length == prefix.IndexOf("://", StringComparison.Ordinal) + 3 + authority.Length;
+        if (!authorityOnly)
+        {
+            return true;
+        }
+
+        return path.Length == prefix.Length || path[prefix.Length] == '/';
+    }
+
+    private static readonly char[] Slashes = ['/', '\\'];
+    private static readonly char[] AuthorityEnds = ['/', '\\', '?', '#'];
+
+    /// <summary>The URI authority of <paramref name="text"/>, or <c>""</c>; mirrors DuckDB's
+    /// <c>StringUtil::GetURIAuthority</c>. <paramref name="text"/> counts as a URI only if it
+    /// contains <c>://</c> after a non-empty scheme and its first <c>/</c> or <c>\</c> is the one
+    /// that starts that <c>://</c>. The authority runs from after <c>://</c> to the first <c>/</c>,
+    /// <c>\</c>, <c>?</c> or <c>#</c> (or the end).</summary>
+    private static string UriAuthority(string text)
+    {
+        var schemeEnd = text.IndexOf("://", StringComparison.Ordinal);
+        if (schemeEnd <= 0 || text.IndexOfAny(Slashes) != schemeEnd + 1)
+        {
+            return "";
+        }
+
+        var start = schemeEnd + 3;
+        var end = text.IndexOfAny(AuthorityEnds, start);
+        return end < 0 ? text[start..] : text[start..end];
     }
 
     /// <summary>Reads one field of a resolved secret as a rendered string (<c>null</c> when the

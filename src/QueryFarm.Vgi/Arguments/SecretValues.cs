@@ -142,7 +142,9 @@ public sealed class SecretValues
 
     /// <summary>The resolved secret (optionally of <paramref name="secretType"/>) whose scope is the
     /// longest prefix of <paramref name="path"/>; an unscoped secret is the fallback. Never
-    /// registers a lookup.</summary>
+    /// registers a lookup. Scopes match as DuckDB matches them
+    /// (<see cref="SecretArgCodec.ScopeMatches"/>): an authority-only scope such as
+    /// <c>snmp://10.0.0.1</c> does not cover <c>snmp://10.0.0.15</c>.</summary>
     public Secret? ForScope(string path, string? secretType = null) =>
         SecretArgCodec.ForScopeOfType(_accessor.Resolved, path, secretType) is { } f ? Wrap(f) : null;
 

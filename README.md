@@ -171,7 +171,9 @@ Secrets arrive keyed by their DuckDB **name** (an unnamed `CREATE SECRET (TYPE s
 `__default_s3`), never by type, so select them with the selectors above rather than
 `Resolved["s3"]`: `FindByType`/`Get(type)` match each secret's `type` field (preferring an unscoped
 one), `Get(type, name:)` also checks the type, and `ForScope(path, type)` takes the longest scope
-prefix of `path`, then an unscoped secret, then none. Secrets a function always needs are declared
+prefix of `path`, then an unscoped secret, then none. Scopes match as DuckDB 2.0.1 matches them
+(`SecretArgCodec.ScopeMatches`): an authority-only scope such as `snmp://10.0.0.1` covers that host
+and paths under it, never `snmp://10.0.0.15` or `snmp://10.0.0.1:161`. Secrets a function always needs are declared
 statically with `RequiredSecrets => [new RequiredSecret { SecretType = "s3" }]` (one entry per
 type/scope/name; an entry without a `SecretType` fails discovery rather than being skipped).
 
