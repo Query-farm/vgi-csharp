@@ -14,8 +14,8 @@ env:
   # The suite and linked native runner must come from this same revision.
   # ebf28ea is the published 3.4 extension (vgi v2.0); its suite expects PROTOCOL_VERSIONS_V1
   # refusals (protocol_version/version_mismatch.test).
-  VGI_REF: ebf28ead2703ab2b0f3ec818aa9a63a99bd8863f
-  VGI_NATIVE_RUNNER_BRANCH: v2.0
+  VGI_REF: d780e7485ae392644b86fd6935b75aaad992447a  # ebf28ea (published 3.4 extension) + merge.test for Haybarn 2.0.1-rc3
+  VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
   # TODO(release-wave): unreleased vgi-rpc-csharp (protocol-3.4 branch), built from source: direct
   # S3/GCS storage (S3StorageEnvironment, VGI_STORAGE_BACKEND) and the storage stall timeouts. When
   # it is published, delete the checkout steps and VgiRpcCSharpRoot and bump
