@@ -61,7 +61,13 @@ public abstract class ItemsWriteFunction(Schema userColumns) : ITableInOutFuncti
     /// the non-transactional attach, into the transaction's staged images otherwise.</summary>
     protected static void Write(Partition state, string? tx, IEnumerable<(int Id, ItemRow? Image)> rows)
     {
-        var images = rows.ToDictionary(row => row.Id, row => row.Image);
+        // Last image per id wins: a MERGE whose source matches one target row twice reaches the
+        // worker as two writes of that row (Haybarn 2.0.1rc3 accepts the duplicate; merge.test).
+        var images = new Dictionary<int, ItemRow?>();
+        foreach (var (id, image) in rows)
+        {
+            images[id] = image;
+        }
         if (tx is null)
         {
             state.Apply(images);
