@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, protocol-3.4]  # TODO(release-wave): drop protocol-3.4
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -16,12 +16,6 @@ env:
   # refusals (protocol_version/version_mismatch.test).
   VGI_REF: d780e7485ae392644b86fd6935b75aaad992447a  # ebf28ea (published 3.4 extension) + merge.test for Haybarn 2.0.1-rc3
   VGI_NATIVE_RUNNER_BRANCH: protocol-3.4
-  # TODO(release-wave): unreleased vgi-rpc-csharp (protocol-3.4 branch), built from source: direct
-  # S3/GCS storage (S3StorageEnvironment, VGI_STORAGE_BACKEND) and the storage stall timeouts. When
-  # it is published, delete the checkout steps and VgiRpcCSharpRoot and bump
-  # Directory.Packages.props.
-  VGI_RPC_CSHARP_REF: 0420890897383faa0e6fcdbac0d6b74810a57d46
-  VgiRpcCSharpRoot: ${{ github.workspace }}/_deps/vgi-rpc-csharp
   # vgi's SDK-neutral Orchard hosted-mode harness (test/hosted/), at or after fce5798.
   VGI_HOSTED_REF: fce57984a7e8ea35f9dcd4a034b5ed37c85ca5c5
 
@@ -34,12 +28,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -62,12 +50,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -89,12 +71,6 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/checkout@v4
         with:
           repository: Query-farm/vgi-rpc-python
@@ -117,12 +93,6 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - name: Checkout the pinned hosted-mode harness
         uses: actions/checkout@v4
         with:
@@ -157,12 +127,6 @@ jobs:
         transport: [launch, http, s3]
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -213,12 +177,6 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout unreleased vgi-rpc-csharp  # TODO(release-wave)
-        uses: actions/checkout@v4
-        with:
-          repository: Query-farm/vgi-rpc-csharp
-          ref: ${{ env.VGI_RPC_CSHARP_REF }}
-          path: _deps/vgi-rpc-csharp
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json

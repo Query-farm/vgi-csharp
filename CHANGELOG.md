@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.27.1 (2026-11-25)
+
+Built on QueryFarm.VgiRpc 0.19.1.
+
 - **Orchard hosted mode 401s carry the full capability header set** (`VGI-Upload-URL-Support`,
   `VGI-Arguments-Ref-Bytes`, `VGI-Max-Request-Bytes`, `VGI-Max-Upload-Bytes`, `VGI-Protocol-Versions`, ...),
   the same as a 200; the extension reads them to start OAuth.
